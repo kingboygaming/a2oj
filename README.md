@@ -32,8 +32,8 @@ Prisma Client được generate tự động sau `npm install`; có thể genera
 1. Import repository `kingboygaming/a2oj` tại Vercel và chọn framework **Next.js**.
 2. Tạo/kết nối database Neon trong Vercel Marketplace. Tạo database/branch riêng cho Production và Preview để bản thử nghiệm không dùng chung dữ liệu production.
 3. Trong **Project → Settings → Environment Variables**, đặt các biến cho từng môi trường:
-   - `DATABASE_URL`: URL Neon qua connection pooler.
-   - `DIRECT_URL`: URL Neon trực tiếp, không qua pooler; Prisma dùng URL này để áp dụng migrations.
+   - `DATABASE_URL`: URL PostgreSQL thông thường của Neon qua connection pooler (bắt đầu bằng `postgres://` hoặc `postgresql://`).
+   - `DIRECT_URL`: URL PostgreSQL trực tiếp của Neon, không qua pooler (cũng bắt đầu bằng `postgres://` hoặc `postgresql://`); Prisma dùng URL này để áp dụng migrations. Không dùng URL Accelerate có dạng `prisma+postgres://`.
    - `SESSION_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự. Có thể tạo bằng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 4. Lưu cấu hình và deploy nhánh `main`. `vercel.json` dùng lệnh `npm run build:vercel`: tạo Prisma Client PostgreSQL, chạy các migration trong `prisma/migrations`, rồi build Next.js. Nếu thiếu biến môi trường hoặc kết nối DB lỗi, build sẽ báo lỗi thay vì tạo deployment tưởng như thành công.
 5. Đăng ký tài khoản trên website. Để cấp quyền quản trị ban đầu, chạy câu lệnh sau trong Neon SQL Editor sau khi thay username bằng tài khoản của bạn:

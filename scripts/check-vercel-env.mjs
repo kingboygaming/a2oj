@@ -9,8 +9,10 @@ if (missing.length > 0) {
 }
 
 for (const name of ["DATABASE_URL", "DIRECT_URL"]) {
-  if (!process.env[name].startsWith("postgresql://")) {
-    console.error(`${name} must be a PostgreSQL connection URL.`);
+  if (!/^postgres(?:ql)?:\/\//.test(process.env[name])) {
+    console.error(
+      `${name} must use a PostgreSQL connection URL starting with postgres:// or postgresql://.`,
+    );
     process.exit(1);
   }
 }
