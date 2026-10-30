@@ -1,0 +1,33 @@
+import { prisma } from "@/lib/prisma";
+
+export const PROBLEM_SUBMISSIONS_PAGE_SIZE = 50;
+
+export async function getProblemSubmissionPage(
+  problemId: string,
+  requestedPage: number,
+  pageSize = PROBLEM_SUBMISSIONS_PAGE_SIZE,
+) {
+  const total = await prisma.submission.count({ where: { problemId } });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page =
+    Number.isSafeInteger(requestedPage) && requestedPage > 0
+      ? Math.min(requestedPage, totalPages)
+      : 1;
+  const items = await prisma.submission.findMany({
+    where: { problemId },
+    orderBy: { createdAt: "desc" },
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    select: {
+      id: true,
+      language: true,
+      verdict: true,
+      score: true,
+      timeMs: true,
+      createdAt: true,
+      user: { select: { displayName: true } },
+    },
+  });
+
+  return { items, page, totalPages, total };
+}

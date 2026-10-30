@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Classroom default: SQLite so the app runs without a DB server.
+// Production / lab: set provider = "postgresql" and DATABASE_URL to Postgres
+// (see docker-compose.yml).
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum Verdict {
+  QUEUED
+  RUNNING
+  AC
+  WA
+  TLE
+  RTE
+  CE
+  MLE
+}
+
+enum Language {
+  CPP
+  PYTHON
+}
+
+model User {
+  id            String                 @id @default(cuid())
+  username      String                 @unique
+  displayName   String
+  passwordHash  String
+  role          Role                   @default(STUDENT)
+  sessionVersion Int                   @default(0)
+  bio           String                 @default("")
+  school        String                 @default("")
+  avatarData    Bytes?
+  avatarMimeType String?
+  email         String?                @unique
+  emailVerifiedAt DateTime?
+  pendingEmail  String?
+  emailVerificationTokenHash String?
+  emailVerificationExpiresAt DateTime?
+  emailVerificationSentAt DateTime?
+  createdAt     DateTime               @default(now())
+  news          News[]
+  problems      Problem[]              @relation("Author")
+  submissions   Submission[]
+  contests      Contest[]              @relation("ContestAuthor")
+  registrations ContestRegistration[]
+}
+
+model News {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
+model Problem {
+  id            String           @id @default(cuid())
+  slug          String           @unique
+  title         String
+  statement     String
+  timeLimitMs   Int              @default(1000)
+  memoryLimitMb Int              @default(256)
+  difficulty    Difficulty       @default(EASY)
+  published     Boolean          @default(true)
+  contestOnly   Boolean          @default(false)
+  authorId      String
+  author        User             @relation("Author", fields: [authorId], references: [id])
+  createdAt     DateTime         @default(now())
+  testCases     TestCase[]
+  submissions   Submission[]
+  contestLinks  ContestProblem[]
+}
+
+model TestCase {
+  id        String  @id @default(cuid())
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  input     String
+  output    String
+  isSample  Boolean @default(false)
+  points    Int     @default(100)
+  order     Int     @default(0)
+}
+
+model Contest {
+  id            String                 @id @default(cuid())
+  slug          String                 @unique
+  title         String
+  description   String
+  startAt       DateTime
+  endAt         DateTime
+  authorId      String
+  author        User                   @relation("ContestAuthor", fields: [authorId], references: [id])
+  createdAt     DateTime               @default(now())
+  problems      ContestProblem[]
+  registrations ContestRegistration[]
+  submissions   Submission[]
+}
+
+model ContestProblem {
+  contestId String
+  problemId String
+  letter    String
+  points    Int     @default(100)
+  contest   Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  problem   Problem @relation(fields: [problemId], references: [id])
+
+  @@id([contestId, problemId])
+}
+
+model ContestRegistration {
+  contestId String
+  userId    String
+  contest   Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id])
+
+  @@id([contestId, userId])
+}
+
+model Submission {
+  id        String    @id @default(cuid())
+  userId    String
+  problemId String
+  contestId String?
+  language  Language
+  source    String
+  verdict   Verdict   @default(QUEUED)
+  timeMs    Int?
+  memoryKb  Int?
+  score     Int       @default(0)
+  log       String    @default("")
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+  problem   Problem   @relation(fields: [problemId], references: [id])
+  contest   Contest?  @relation(fields: [contestId], references: [id])
+}

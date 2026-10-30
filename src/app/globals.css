@@ -1,0 +1,265 @@
+@import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+:root {
+  color-scheme: dark;
+  --navy: #f8fafc;
+  --navy-2: #e2e8f0;
+  --surface-strong: #1e293b;
+  --surface-strong-hover: #334155;
+  --cream: #e2e8f0;
+  --paper: #1e293b;
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --line: #475569;
+  --amber: #f59e0b;
+  --teal: #38bdf8;
+  --background: #0f172a;
+  --foreground: var(--ink);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --navy: #0f172a;
+  --navy-2: #1e293b;
+  --surface-strong: #0f172a;
+  --surface-strong-hover: #1e293b;
+  --cream: #f8fafc;
+  --paper: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --amber: #f59e0b;
+  --teal: #0284c7;
+  --background: #f1f5f9;
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  transition: background-color 280ms ease, color 280ms ease;
+}
+
+.route-transition {
+  animation: route-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+[data-account-menu-panel] {
+  max-height: 0;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transform-origin: top right;
+  pointer-events: none;
+  transition:
+    max-height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 320ms ease,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 420ms;
+}
+
+[data-account-menu-panel][data-open="true"] {
+  max-height: 32rem;
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition:
+    max-height 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 360ms ease 50ms,
+    transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+
+header a,
+header button,
+main a,
+main button,
+main summary {
+  transition:
+    color 300ms ease,
+    background-color 300ms ease,
+    border-color 300ms ease,
+    box-shadow 300ms ease,
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+main section[class*="rounded"][class*="border"],
+main article[class*="rounded"][class*="border"],
+main aside[class*="rounded"][class*="border"],
+main form[class*="rounded"][class*="border"],
+main details[class*="rounded"][class*="border"],
+main a[class*="rounded"][class*="border"] {
+  transition:
+    border-color 320ms ease,
+    box-shadow 320ms ease,
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: card-enter 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  main section[class*="rounded"][class*="border"]:hover,
+  main article[class*="rounded"][class*="border"]:hover,
+  main aside[class*="rounded"][class*="border"]:hover,
+  main form[class*="rounded"][class*="border"]:hover,
+  main details[class*="rounded"][class*="border"]:hover,
+  main a[class*="rounded"][class*="border"]:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--teal) 55%, var(--line));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--teal) 35%, transparent),
+      0 14px 32px rgb(2 8 23 / 28%),
+      0 0 24px color-mix(in srgb, var(--teal) 18%, transparent);
+  }
+
+  main section[class*="rounded"][class*="border"]:focus-within,
+  main article[class*="rounded"][class*="border"]:focus-within,
+  main aside[class*="rounded"][class*="border"]:focus-within,
+  main form[class*="rounded"][class*="border"]:focus-within,
+  main details[class*="rounded"][class*="border"]:focus-within {
+    border-color: color-mix(in srgb, var(--teal) 55%, var(--line));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--teal) 35%, transparent),
+      0 14px 32px rgb(2 8 23 / 24%),
+      0 0 24px color-mix(in srgb, var(--teal) 16%, transparent);
+  }
+}
+
+header a:focus-visible,
+header button:focus-visible,
+main a:focus-visible,
+main button:focus-visible,
+main summary:focus-visible,
+main input:focus-visible,
+main textarea:focus-visible,
+main select:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+
+main a:active,
+main button:active {
+  transform: scale(0.98);
+}
+
+@keyframes card-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--teal) 35%, transparent);
+}
+
+:root[data-theme="dark"] .bg-white {
+  background-color: var(--paper);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select {
+  color-scheme: dark;
+}
+
+.problem-md {
+  line-height: 1.7;
+}
+
+.problem-md h2 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--navy);
+}
+
+.problem-md p,
+.problem-md ul,
+.problem-md pre {
+  margin: 0.6rem 0;
+}
+
+.problem-md ul,
+.problem-md ol {
+  padding-left: 1.5rem;
+}
+
+.problem-md ul {
+  list-style: disc;
+}
+
+.problem-md ol {
+  list-style: decimal;
+}
+
+.problem-md blockquote {
+  margin: 0.75rem 0;
+  border-left: 3px solid var(--teal);
+  padding-left: 1rem;
+  color: var(--muted);
+}
+
+.problem-md code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--muted) 18%, var(--paper));
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.problem-md pre {
+  background: #0b1220;
+  color: #e2e8f0;
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.problem-md pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.problem-md .katex-display {
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+
+.code-workspace {
+  color-scheme: dark;
+  background: #0b1220;
+  color: #e2e8f0;
+}

@@ -1,0 +1,123 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
+import { judgeSubmission } from "@/lib/judge";
+import { serializeJudgeResults } from "@/lib/submission-results";
+
+const schema = z.object({
+  problemId: z.string().min(1),
+  language: z.enum(["CPP", "PYTHON"]),
+  source: z.string().min(1).max(64_000),
+  contestId: z.string().optional(),
+});
+
+export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Cần đăng nhập." }, { status: 401 });
+  }
+
+  const items = await prisma.submission.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    include: {
+      problem: { select: { slug: true, title: true } },
+    },
+  });
+  return NextResponse.json(items);
+}
+
+export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Cần đăng nhập để nộp bài." }, { status: 401 });
+  }
+
+  const json = await request.json().catch(() => null);
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Payload nộp bài không hợp lệ." }, { status: 400 });
+  }
+
+  const problem = await prisma.problem.findUnique({
+    where: { id: parsed.data.problemId },
+    include: { testCases: { orderBy: { order: "asc" } } },
+  });
+  if (!problem || !problem.published) {
+    return NextResponse.json({ error: "Không nộp được bài này." }, { status: 404 });
+  }
+  if (problem.contestOnly && !parsed.data.contestId) {
+    return NextResponse.json(
+      { error: "Bài này chỉ được nộp trong contest." },
+      { status: 400 },
+    );
+  }
+
+  if (parsed.data.contestId) {
+    const contest = await prisma.contest.findUnique({
+      where: { id: parsed.data.contestId },
+      include: {
+        problems: { where: { problemId: problem.id }, select: { problemId: true } },
+        registrations: { where: { userId: user.id }, select: { userId: true } },
+      },
+    });
+    const now = new Date();
+    if (!contest || !contest.problems.length) {
+      return NextResponse.json(
+        { error: "Bài này không thuộc contest đã chọn." },
+        { status: 400 },
+      );
+    }
+    if (!contest.registrations.length) {
+      return NextResponse.json(
+        { error: "Bạn cần đăng ký contest trước khi nộp bài." },
+        { status: 403 },
+      );
+    }
+    if (now < contest.startAt || now > contest.endAt) {
+      return NextResponse.json(
+        { error: "Contest chưa bắt đầu hoặc đã kết thúc." },
+        { status: 400 },
+      );
+    }
+  }
+
+  const hiddenTests = problem.testCases.filter((t) => !t.isSample);
+  const gradingSet = hiddenTests.length > 0 ? hiddenTests : problem.testCases;
+
+  const queued = await prisma.submission.create({
+    data: {
+      userId: user.id,
+      problemId: problem.id,
+      contestId: parsed.data.contestId,
+      language: parsed.data.language,
+      source: parsed.data.source,
+      verdict: "RUNNING",
+    },
+  });
+
+  const result = await judgeSubmission(
+    parsed.data.language,
+    parsed.data.source,
+    gradingSet,
+    problem.timeLimitMs,
+  );
+
+  const updated = await prisma.submission.update({
+    where: { id: queued.id },
+    data: {
+      verdict: result.verdict,
+      score: result.score,
+      timeMs: result.timeMs,
+      log: serializeJudgeResults(result, gradingSet.length),
+    },
+    include: { problem: { select: { slug: true, title: true } } },
+  });
+
+  return NextResponse.json(
+    { ...updated, log: result.log, testResults: result.testResults },
+    { status: 201 },
+  );
+}
