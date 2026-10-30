@@ -23,7 +23,8 @@ export default async function ProblemDetailPage({
   const problem = await prisma.problem.findUnique({
     where: { slug },
     include: {
-      testCases: { orderBy: { order: "asc" } },
+      // Chỉ tải test mẫu (sample) để hiển thị, không tải toàn bộ test ẩn nặng nề
+      testCases: { where: { isSample: true }, orderBy: { order: "asc" } },
       author: { select: { displayName: true } },
     },
   });

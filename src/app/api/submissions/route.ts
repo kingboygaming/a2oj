@@ -94,8 +94,8 @@ export async function POST(request: Request) {
   } else {
     const hiddenTests = problem.testCases.filter((t) => !t.isSample);
     const baseTests = hiddenTests.length > 0 ? hiddenTests : problem.testCases;
-    // Trên Vercel giới hạn tối đa 3 test để phản hồi ngay trong 2-4 giây
-    gradingCandidates = process.env.VERCEL === "1" ? baseTests.slice(0, 3) : baseTests;
+    // Trên Vercel chấm 5 test song song bằng Judge0/Wandbox cực nhanh (1.5 - 3 giây)
+    gradingCandidates = process.env.VERCEL === "1" ? baseTests.slice(0, 5) : baseTests;
   }
 
   // Đảm bảo testcase có điểm (> 0) để người qua pretest được ghi nhận điểm > 0

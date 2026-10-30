@@ -68,21 +68,27 @@ function runTimed(
     };
 
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
+      try {
+        if (process.platform === "win32" && child.pid) {
+          execFileAsync("taskkill", ["/F", "/T", "/PID", String(child.pid)]).catch(() => {});
+        } else {
+          child.kill("SIGKILL");
+        }
+      } catch {}
       finish({ ok: false, tle: true, stdout, stderr: "Time limit exceeded" });
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
       if (stdout.length > 2 * 1024 * 1024) {
-        child.kill("SIGKILL");
+        try { child.kill("SIGKILL"); } catch {}
         finish({ ok: false, tle: false, stdout, stderr: "Output limit exceeded" });
       }
     });
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
       if (stderr.length > 2 * 1024 * 1024) {
-        child.kill("SIGKILL");
+        try { child.kill("SIGKILL"); } catch {}
         finish({ ok: false, tle: false, stdout, stderr: "Error output limit exceeded" });
       }
     });
@@ -98,7 +104,10 @@ function runTimed(
       });
     });
 
-    child.stdin.write(input);
+    child.stdin.on("error", () => {});
+    if (input) {
+      child.stdin.write(input);
+    }
     child.stdin.end();
   });
 }
@@ -121,45 +130,64 @@ async function gradeWithCompiler(
       if (!(await commandExists(py))) {
         throw new Error("NO_PYTHON");
       }
-      let passed = 0;
-      let total = 0;
-      const testResults: JudgeResult["testResults"] = [];
-      for (const [index, test] of tests.entries()) {
-        total += test.points;
-        const run = await runTimed(py, [srcPath], test.input, timeLimitMs + 200, dir);
-        maxTime = Math.max(maxTime, run.timeMs);
-        if (run.tle) {
-          testResults.push({ test: index + 1, verdict: "TLE", timeMs: run.timeMs });
-          return { verdict: "TLE", score: passed, timeMs: maxTime, log: logs.join("\n"), testResults };
-        }
-        if (!run.ok) {
-          if (/\b(?:SyntaxError|IndentationError|TabError)\b/.test(run.stderr)) {
-            return {
-              verdict: "CE",
-              score: 0,
-              timeMs: maxTime,
-              log: run.stderr,
-              testResults,
-            };
-          }
-          logs.push(`RTE: ${run.stderr}`);
-          testResults.push({ test: index + 1, verdict: "RTE", timeMs: run.timeMs });
-          return { verdict: "RTE", score: passed, timeMs: maxTime, log: logs.join("\n"), testResults };
-        }
-        if (normalize(run.stdout) === normalize(test.output)) {
-          passed += test.points;
-          testResults.push({ test: index + 1, verdict: "AC", timeMs: run.timeMs });
-        } else {
-          logs.push(`WA on test ${test.order + 1}`);
-          testResults.push({ test: index + 1, verdict: "WA", timeMs: run.timeMs });
-          return { verdict: "WA", score: passed, timeMs: maxTime, log: logs.join("\n"), testResults };
+
+      // Run Python test cases in parallel
+      const testRuns = await Promise.all(
+        tests.map(async (test, index) => {
+          const run = await runTimed(py, [srcPath], test.input, timeLimitMs + 500, dir);
+          return { test, index, run };
+        }),
+      );
+
+      // Check CE
+      for (const { run } of testRuns) {
+        if (!run.ok && /\b(?:SyntaxError|IndentationError|TabError)\b/.test(run.stderr)) {
+          return {
+            verdict: "CE",
+            score: 0,
+            timeMs: run.timeMs,
+            log: run.stderr,
+            testResults: [{ test: 1, verdict: "CE", timeMs: run.timeMs }],
+          };
         }
       }
+
+      let passed = 0;
+      let total = 0;
+      let firstFailingVerdict: Verdict | null = null;
+      const testResults: JudgeResult["testResults"] = [];
+
+      for (const { test, index, run } of testRuns) {
+        total += test.points;
+        maxTime = Math.max(maxTime, run.timeMs);
+        let testVerdict: Verdict = "WA";
+
+        if (run.tle) {
+          testVerdict = "TLE";
+          logs.push(`Test ${index + 1}: Time limit exceeded`);
+        } else if (!run.ok) {
+          testVerdict = "RTE";
+          logs.push(`Test ${index + 1} RTE: ${run.stderr}`);
+        } else if (normalize(run.stdout) === normalize(test.output)) {
+          testVerdict = "AC";
+          passed += test.points;
+        } else {
+          testVerdict = "WA";
+          logs.push(`Test ${index + 1}: Wrong Answer`);
+        }
+
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
+        if (testVerdict !== "AC" && !firstFailingVerdict) {
+          firstFailingVerdict = testVerdict;
+        }
+      }
+
+      const finalVerdict: Verdict = passed === total ? "AC" : (firstFailingVerdict ?? "WA");
       return {
-        verdict: passed === total ? "AC" : "WA",
+        verdict: finalVerdict,
         score: passed,
         timeMs: maxTime,
-        log: "Accepted",
+        log: passed === total ? "Accepted" : (logs.length > 0 ? logs.join("\n") : finalVerdict),
         testResults,
       };
     }
@@ -187,6 +215,7 @@ async function gradeWithCompiler(
       );
       if (compile.ok) {
         compiled = true;
+        logs.length = 0;
         break;
       }
       logs.push(
@@ -203,36 +232,50 @@ async function gradeWithCompiler(
       };
     }
 
+    // Run all tests in parallel with the compiled binary
+    const testRuns = await Promise.all(
+      tests.map(async (test, index) => {
+        const run = await runTimed(exePath, [], test.input, timeLimitMs + 500, dir);
+        return { test, index, run };
+      }),
+    );
+
     let passed = 0;
     let total = 0;
+    let firstFailingVerdict: Verdict | null = null;
     const testResults: JudgeResult["testResults"] = [];
-    for (const [index, test] of tests.entries()) {
+
+    for (const { test, index, run } of testRuns) {
       total += test.points;
-      const run = await runTimed(exePath, [], test.input, timeLimitMs + 200, dir);
       maxTime = Math.max(maxTime, run.timeMs);
+      let testVerdict: Verdict = "WA";
+
       if (run.tle) {
-        testResults.push({ test: index + 1, verdict: "TLE", timeMs: run.timeMs });
-        return { verdict: "TLE", score: passed, timeMs: maxTime, log: logs.join("\n"), testResults };
-      }
-      if (!run.ok) {
-        logs.push(`RTE: ${run.stderr}`);
-        testResults.push({ test: index + 1, verdict: "RTE", timeMs: run.timeMs });
-        return { verdict: "RTE", score: passed, timeMs: maxTime, log: logs.join("\n"), testResults };
-      }
-      if (normalize(run.stdout) === normalize(test.output)) {
+        testVerdict = "TLE";
+        logs.push(`Test ${index + 1}: Time limit exceeded`);
+      } else if (!run.ok) {
+        testVerdict = "RTE";
+        logs.push(`Test ${index + 1} RTE: ${run.stderr}`);
+      } else if (normalize(run.stdout) === normalize(test.output)) {
+        testVerdict = "AC";
         passed += test.points;
-        testResults.push({ test: index + 1, verdict: "AC", timeMs: run.timeMs });
       } else {
-        logs.push(`WA on test ${test.order + 1}`);
-        testResults.push({ test: index + 1, verdict: "WA", timeMs: run.timeMs });
-        return { verdict: "WA", score: passed, timeMs: maxTime, log: logs.join("\n"), testResults };
+        testVerdict = "WA";
+        logs.push(`Test ${index + 1}: Wrong Answer`);
+      }
+
+      testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
+      if (testVerdict !== "AC" && !firstFailingVerdict) {
+        firstFailingVerdict = testVerdict;
       }
     }
+
+    const finalVerdict: Verdict = passed === total ? "AC" : (firstFailingVerdict ?? "WA");
     return {
-      verdict: passed === total ? "AC" : "WA",
+      verdict: finalVerdict,
       score: passed,
       timeMs: maxTime,
-      log: "Accepted",
+      log: passed === total ? "Accepted" : (logs.length > 0 ? logs.join("\n") : finalVerdict),
       testResults,
     };
   } finally {
@@ -300,6 +343,181 @@ function mockGrade(source: string, tests: TestCase[]): JudgeResult {
   };
 }
 
+type Judge0SubmissionResult = {
+  stdout: string | null;
+  time: string | null;
+  memory: number | null;
+  stderr: string | null;
+  token: string;
+  compile_output: string | null;
+  message: string | null;
+  status: {
+    id: number;
+    description: string;
+  };
+};
+
+/**
+ * Chấm điểm bài nộp thông qua Judge0 Batch API (nhanh gấp nhiều lần, hoàn thành 3-10 test trong 1.5-3 giây).
+ */
+async function gradeWithJudge0(
+  language: Language,
+  source: string,
+  tests: TestCase[],
+  timeLimitMs: number,
+): Promise<JudgeResult> {
+  const baseUrl = (process.env.JUDGE0_URL || "https://ce.judge0.com").replace(/\/+$/, "");
+  // C++: 105 (GCC 14.1.0) hoặc 54 (GCC 9.2.0) | Python: 100 (Python 3.12.5) hoặc 92 (Python 3.11.2)
+  const languageId =
+    language === "CPP"
+      ? Number(process.env.JUDGE0_CPP_ID || 105)
+      : Number(process.env.JUDGE0_PYTHON_ID || 100);
+
+  const cpuTimeLimit = Math.max(1, Math.min(15, Math.ceil(timeLimitMs / 1000)));
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (process.env.JUDGE0_KEY) {
+    headers["X-Auth-Token"] = process.env.JUDGE0_KEY;
+    headers["X-RapidAPI-Key"] = process.env.JUDGE0_KEY;
+  }
+
+  const postRes = await fetch(`${baseUrl}/submissions/batch?base64_encoded=false`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      submissions: tests.map((t) => ({
+        source_code: source,
+        language_id: languageId,
+        stdin: t.input,
+        cpu_time_limit: cpuTimeLimit,
+      })),
+    }),
+  });
+
+  if (!postRes.ok) {
+    throw new Error(`Judge0 POST batch HTTP ${postRes.status}`);
+  }
+
+  const tokensData = (await postRes.json()) as Array<{ token?: string }>;
+  const tokens = tokensData.map((x) => x.token).filter((t): t is string => Boolean(t));
+  if (tokens.length !== tests.length) {
+    throw new Error("Judge0 tokens mismatch");
+  }
+
+  // Poll kết quả batch
+  const tokensParam = tokens.join(",");
+  let submissions: Judge0SubmissionResult[] = [];
+  const pollStart = Date.now();
+  const maxPollMs = Math.max(timeLimitMs + 8000, 16000);
+
+  while (Date.now() - pollStart < maxPollMs) {
+    await new Promise((r) => setTimeout(r, 600));
+    const getRes = await fetch(
+      `${baseUrl}/submissions/batch?tokens=${tokensParam}&base64_encoded=false`,
+      { headers },
+    );
+    if (!getRes.ok) {
+      throw new Error(`Judge0 GET batch HTTP ${getRes.status}`);
+    }
+    const data = (await getRes.json()) as { submissions?: Judge0SubmissionResult[] };
+    if (Array.isArray(data.submissions) && data.submissions.length === tests.length) {
+      const allDone = data.submissions.every((s) => s.status && s.status.id >= 3);
+      if (allDone) {
+        submissions = data.submissions;
+        break;
+      }
+    }
+  }
+
+  if (submissions.length !== tests.length) {
+    throw new Error("Judge0 polling timed out");
+  }
+
+  // Kiểm tra Compilation Error (CE)
+  const ceSub = submissions.find((s) => s.status.id === 6);
+  if (ceSub) {
+    return {
+      verdict: "CE",
+      score: 0,
+      timeMs: 0,
+      log: ceSub.compile_output || ceSub.message || "Biên dịch thất bại (Compile Error).",
+      testResults: [{ test: 1, verdict: "CE", timeMs: 0 }],
+    };
+  }
+
+  // Đối với Python, kiểm tra cú pháp trong stderr
+  if (language === "PYTHON") {
+    const syntaxErrSub = submissions.find(
+      (s) =>
+        s.stderr &&
+        /\b(?:SyntaxError|IndentationError|TabError)\b/.test(s.stderr),
+    );
+    if (syntaxErrSub) {
+      return {
+        verdict: "CE",
+        score: 0,
+        timeMs: 0,
+        log: syntaxErrSub.stderr || "Lỗi cú pháp Python (Compile Error).",
+        testResults: [{ test: 1, verdict: "CE", timeMs: 0 }],
+      };
+    }
+  }
+
+  let passed = 0;
+  let total = 0;
+  let maxTime = 0;
+  let firstFailingVerdict: Verdict | null = null;
+  const logs: string[] = [];
+  const testResults: JudgeResult["testResults"] = [];
+
+  for (let i = 0; i < tests.length; i++) {
+    const test = tests[i];
+    const sub = submissions[i];
+    total += test.points;
+
+    const timeMs = Math.max(1, Math.round(parseFloat(sub.time ?? "0") * 1000));
+    maxTime = Math.max(maxTime, timeMs);
+
+    let testVerdict: Verdict = "WA";
+
+    if (sub.status.id === 5) {
+      testVerdict = "TLE";
+      logs.push(`Test ${i + 1}: Time limit exceeded`);
+    } else if (sub.status.id >= 7 && sub.status.id <= 12) {
+      testVerdict = "RTE";
+      const err = sub.stderr || sub.message || sub.status.description || "Runtime Error";
+      logs.push(`Test ${i + 1} RTE: ${err.trim()}`);
+    } else if (sub.status.id === 3 || sub.status.id === 4) {
+      if (normalize(sub.stdout ?? "") === normalize(test.output)) {
+        testVerdict = "AC";
+        passed += test.points;
+      } else {
+        testVerdict = "WA";
+        logs.push(`Test ${i + 1}: Wrong Answer`);
+      }
+    } else {
+      testVerdict = "RTE";
+      logs.push(`Test ${i + 1} RTE: ${sub.status.description}`);
+    }
+
+    testResults.push({ test: i + 1, verdict: testVerdict, timeMs });
+    if (testVerdict !== "AC" && !firstFailingVerdict) {
+      firstFailingVerdict = testVerdict;
+    }
+  }
+
+  const finalVerdict: Verdict = passed === total ? "AC" : (firstFailingVerdict ?? "WA");
+  return {
+    verdict: finalVerdict,
+    score: passed,
+    timeMs: maxTime,
+    log: passed === total ? "Accepted" : (logs.length > 0 ? logs.join("\n") : finalVerdict),
+    testResults,
+  };
+}
+
 type WandboxResponse = {
   status?: string;
   signal?: string;
@@ -315,7 +533,7 @@ async function callWandboxOnce(
   code: string,
   stdin: string,
   options?: string,
-  timeoutMs = 10000,
+  timeoutMs = 15000,
 ): Promise<WandboxResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -346,11 +564,11 @@ async function executeOnWandbox(
   stdin: string,
   timeoutMs: number,
 ): Promise<WandboxResponse> {
-  // Chọn các phiên bản compiler ổn định (tránh các bản head thử nghiệm dễ bị lỗi OCI container)
+  // Chọn các phiên bản compiler nhanh, ổn định (loại bỏ clang-head mất 15s và cpython-head bị lỗi pid1)
   const compilers =
     language === "CPP"
-      ? ["gcc-13.2.0", "gcc-12.3.0", "clang-head"]
-      : ["cpython-3.12.7", "cpython-3.10.15", "cpython-head"];
+      ? ["gcc-13.2.0", "gcc-12.3.0"]
+      : ["cpython-3.12.7", "cpython-3.11.10", "cpython-3.10.15"];
 
   const options = language === "CPP" ? "-O1 -std=c++17" : undefined;
   let lastResponse: WandboxResponse | null = null;
@@ -362,15 +580,14 @@ async function executeOnWandbox(
         return resp;
       }
       lastResponse = resp;
-      // Nghỉ 400ms trước khi thử compiler tiếp theo
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    } catch {
       await new Promise((resolve) => setTimeout(resolve, 300));
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 
   if (lastResponse) return lastResponse;
-  throw new Error("Không thể kết nối đến máy chủ chấm.");
+  throw new Error("Không thể kết nối đến máy chủ chấm Wandbox.");
 }
 
 async function gradeWithWandbox(
@@ -379,131 +596,135 @@ async function gradeWithWandbox(
   tests: TestCase[],
   timeLimitMs: number,
 ): Promise<JudgeResult> {
-  let maxTime = 0;
-  let passed = 0;
-  let total = 0;
-  const logs: string[] = [];
-  const testResults: JudgeResult["testResults"] = [];
+  const timeout = Math.max(timeLimitMs + 5000, 16000);
 
-  for (const [index, test] of tests.entries()) {
-    total += test.points;
-    const testNum = index + 1;
-    const started = Date.now();
-    const timeout = Math.max(timeLimitMs + 4000, 10000);
-
-    try {
-      const data = await executeOnWandbox(language, source, test.input, timeout);
-
-      const elapsed = Date.now() - started;
-      maxTime = Math.max(maxTime, elapsed);
-
-      // Nếu vẫn gặp lỗi hạ tầng OCI của máy chủ sau các lần thử
-      if (isInfrastructureError(data)) {
-        testResults.push({ test: testNum, verdict: "RTE", timeMs: elapsed });
-        return {
-          verdict: "RTE",
-          score: passed,
-          timeMs: maxTime,
-          log: "Máy chủ chấm đang quá tải tạm thời. Vui lòng nộp lại sau ít giây.",
-          testResults,
-        };
+  // Chạy song song các testcase trên Wandbox thay vì lặp tuần tự
+  const executions = await Promise.all(
+    tests.map(async (test, index) => {
+      const started = Date.now();
+      try {
+        const data = await executeOnWandbox(language, source, test.input, timeout);
+        const elapsed = Date.now() - started;
+        return { ok: true as const, data, elapsed, test, index };
+      } catch (err) {
+        const elapsed = Date.now() - started;
+        return { ok: false as const, error: err, elapsed, test, index };
       }
+    }),
+  );
 
-      // Check Compilation Error (CE)
-      if (data.compiler_error && data.compiler_error.trim().length > 0) {
-        return {
-          verdict: "CE",
-          score: 0,
-          timeMs: 0,
-          log: data.compiler_error || data.compiler_message || "Biên dịch thất bại (Compile Error).",
-          testResults: [{ test: testNum, verdict: "CE", timeMs: 0 }],
-        };
-      }
-
-      // In Python, syntax errors appear in stderr / program_error
-      if (
-        language === "PYTHON" &&
-        data.program_error &&
-        /\b(?:SyntaxError|IndentationError|TabError)\b/.test(data.program_error)
-      ) {
-        return {
-          verdict: "CE",
-          score: 0,
-          timeMs: 0,
-          log: data.program_error,
-          testResults: [{ test: testNum, verdict: "CE", timeMs: elapsed }],
-        };
-      }
-
-      // Check TLE / Signal Kill
-      if (
-        data.signal === "Kill" ||
-        data.signal === "SIGKILL" ||
-        data.signal === "SIGXCPU"
-      ) {
-        testResults.push({ test: testNum, verdict: "TLE", timeMs: elapsed });
-        return {
-          verdict: "TLE",
-          score: passed,
-          timeMs: maxTime,
-          log: "Time limit exceeded",
-          testResults,
-        };
-      }
-
-      // Check RTE
-      if (data.status !== "0") {
-        const errorMsg =
-          data.program_error || data.program_message || `exit code ${data.status}`;
-        logs.push(`RTE: ${errorMsg}`);
-        testResults.push({ test: testNum, verdict: "RTE", timeMs: elapsed });
-        return {
-          verdict: "RTE",
-          score: passed,
-          timeMs: maxTime,
-          log: logs.join("\n"),
-          testResults,
-        };
-      }
-
-      // Check Output (AC or WA)
-      if (normalize(data.program_output ?? "") === normalize(test.output)) {
-        passed += test.points;
-        testResults.push({ test: testNum, verdict: "AC", timeMs: elapsed });
-      } else {
-        logs.push(`WA on test ${test.order + 1}`);
-        testResults.push({ test: testNum, verdict: "WA", timeMs: elapsed });
-        return {
-          verdict: "WA",
-          score: passed,
-          timeMs: maxTime,
-          log: logs.join("\n"),
-          testResults,
-        };
-      }
-    } catch (err) {
-      const isTimeout = err instanceof Error && err.name === "AbortError";
-      const elapsed = Date.now() - started;
-      maxTime = Math.max(maxTime, elapsed);
-      const verdict: Verdict = isTimeout ? "TLE" : "RTE";
-      testResults.push({ test: testNum, verdict, timeMs: elapsed });
+  // Check Compilation Error (CE)
+  for (const item of executions) {
+    if (item.ok && item.data.compiler_error && item.data.compiler_error.trim().length > 0) {
       return {
-        verdict,
-        score: passed,
-        timeMs: maxTime,
-        log: isTimeout ? "Time limit exceeded (Cloud Judge)" : String(err),
-        testResults,
+        verdict: "CE",
+        score: 0,
+        timeMs: 0,
+        log: item.data.compiler_error || item.data.compiler_message || "Biên dịch thất bại (Compile Error).",
+        testResults: [{ test: item.index + 1, verdict: "CE", timeMs: 0 }],
+      };
+    }
+    if (
+      language === "PYTHON" &&
+      item.ok &&
+      item.data.program_error &&
+      /\b(?:SyntaxError|IndentationError|TabError)\b/.test(item.data.program_error)
+    ) {
+      return {
+        verdict: "CE",
+        score: 0,
+        timeMs: 0,
+        log: item.data.program_error,
+        testResults: [{ test: item.index + 1, verdict: "CE", timeMs: 0 }],
       };
     }
   }
 
+  let maxTime = 0;
+  let passed = 0;
+  let total = 0;
+  let firstFailingVerdict: Verdict | null = null;
+  const logs: string[] = [];
+  const testResults: JudgeResult["testResults"] = [];
+
+  for (const item of executions) {
+    const { test, index, elapsed } = item;
+    total += test.points;
+    maxTime = Math.max(maxTime, elapsed);
+    let testVerdict: Verdict = "WA";
+
+    if (!item.ok) {
+      const isTimeout = item.error instanceof Error && item.error.name === "AbortError";
+      testVerdict = isTimeout ? "TLE" : "RTE";
+      logs.push(`Test ${index + 1}: ${isTimeout ? "Time limit exceeded" : String(item.error)}`);
+    } else {
+      const { data } = item;
+      if (isInfrastructureError(data)) {
+        testVerdict = "RTE";
+        logs.push(`Test ${index + 1}: Máy chủ chấm đang quá tải tạm thời.`);
+      } else if (
+        data.signal === "Kill" ||
+        data.signal === "SIGKILL" ||
+        data.signal === "SIGXCPU"
+      ) {
+        testVerdict = "TLE";
+        logs.push(`Test ${index + 1}: Time limit exceeded`);
+      } else if (data.status !== "0") {
+        testVerdict = "RTE";
+        const errorMsg = data.program_error || data.program_message || `exit code ${data.status}`;
+        logs.push(`Test ${index + 1} RTE: ${errorMsg}`);
+      } else if (normalize(data.program_output ?? "") === normalize(test.output)) {
+        testVerdict = "AC";
+        passed += test.points;
+      } else {
+        testVerdict = "WA";
+        logs.push(`Test ${index + 1}: Wrong Answer`);
+      }
+    }
+
+    testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed });
+    if (testVerdict !== "AC" && !firstFailingVerdict) {
+      firstFailingVerdict = testVerdict;
+    }
+  }
+
+  const finalVerdict: Verdict = passed === total ? "AC" : (firstFailingVerdict ?? "WA");
   return {
-    verdict: passed === total ? "AC" : "WA",
+    verdict: finalVerdict,
     score: passed,
     timeMs: maxTime,
-    log: "Accepted",
+    log: passed === total ? "Accepted" : (logs.length > 0 ? logs.join("\n") : finalVerdict),
     testResults,
   };
+}
+
+/**
+ * Điều phối chấm trên Cloud: ưu tiên Judge0 Batch API (1.5 - 3 giây),
+ * nếu gặp sự cố sẽ tự động fallback sang Wandbox song song.
+ */
+async function gradeWithCloud(
+  language: Language,
+  source: string,
+  tests: TestCase[],
+  timeLimitMs: number,
+): Promise<JudgeResult> {
+  try {
+    return await gradeWithJudge0(language, source, tests, timeLimitMs);
+  } catch (errJudge0) {
+    console.warn("Judge0 failed or unreachable, falling back to Wandbox:", errJudge0);
+    try {
+      return await gradeWithWandbox(language, source, tests, timeLimitMs);
+    } catch (errWandbox) {
+      const message = errWandbox instanceof Error ? errWandbox.message : String(errWandbox);
+      return {
+        verdict: "RTE",
+        score: 0,
+        timeMs: 0,
+        log: `Máy chủ chấm cloud gặp sự cố kết nối: ${message}`,
+        testResults: [],
+      };
+    }
+  }
 }
 
 export async function judgeSubmission(
@@ -512,31 +733,28 @@ export async function judgeSubmission(
   tests: TestCase[],
   timeLimitMs: number,
 ): Promise<JudgeResult> {
-  const mode = process.env.JUDGE_MODE;
+  const mode = process.env.JUDGE_MODE?.toLowerCase();
   if (mode === "mock") {
     return mockGrade(source, tests);
   }
-  if (mode === "wandbox" || process.env.VERCEL === "1") {
+
+  const isCloudForced =
+    process.env.VERCEL === "1" ||
+    mode === "cloud" ||
+    mode === "judge0" ||
+    mode === "wandbox";
+
+  if (!isCloudForced) {
     try {
-      return await gradeWithWandbox(language, source, tests, timeLimitMs);
+      return await gradeWithCompiler(language, source, tests, timeLimitMs);
     } catch (err) {
+      if (err instanceof Error && (err.message === "NO_CXX" || err.message === "NO_PYTHON")) {
+        return await gradeWithCloud(language, source, tests, timeLimitMs);
+      }
       const message = err instanceof Error ? err.message : String(err);
-      return {
-        verdict: "RTE",
-        score: 0,
-        timeMs: 0,
-        log: `Cloud Judge error: ${message}`,
-        testResults: [],
-      };
+      return { verdict: "CE", score: 0, timeMs: 0, log: message, testResults: [] };
     }
   }
-  try {
-    return await gradeWithCompiler(language, source, tests, timeLimitMs);
-  } catch (err) {
-    if (err instanceof Error && (err.message === "NO_CXX" || err.message === "NO_PYTHON")) {
-      return await gradeWithWandbox(language, source, tests, timeLimitMs);
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    return { verdict: "CE", score: 0, timeMs: 0, log: message, testResults: [] };
-  }
+
+  return await gradeWithCloud(language, source, tests, timeLimitMs);
 }

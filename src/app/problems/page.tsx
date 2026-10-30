@@ -122,7 +122,11 @@ export default async function ProblemListPage({
               <tr key={p.id} className="border-t border-[var(--line)]">
                 <td className="px-3 py-2 font-mono text-xs">{p.slug}</td>
                 <td className="px-3 py-2">
-                  <Link href={`/problems/${p.slug}`} className="font-medium text-[var(--teal)] hover:underline">
+                  <Link
+                    href={`/problems/${p.slug}`}
+                    prefetch={true}
+                    className="font-medium text-[var(--teal)] hover:underline"
+                  >
                     {p.title}
                   </Link>
                   {!p.published && (
