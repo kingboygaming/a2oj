@@ -50,7 +50,7 @@ body {
 }
 
 .route-transition {
-  animation: route-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: route-enter 150ms ease-out both;
 }
 
 [data-account-menu-panel] {

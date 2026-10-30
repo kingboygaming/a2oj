@@ -352,7 +352,7 @@ async function executeOnWandbox(
       ? ["gcc-13.2.0", "gcc-12.3.0", "clang-head"]
       : ["cpython-3.12.7", "cpython-3.10.15", "cpython-head"];
 
-  const options = language === "CPP" ? "-O2 -std=c++17" : undefined;
+  const options = language === "CPP" ? "-O1 -std=c++17" : undefined;
   let lastResponse: WandboxResponse | null = null;
 
   for (const compiler of compilers) {

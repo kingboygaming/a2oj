@@ -41,6 +41,11 @@ export function CodeEditor({
       <Editor
         height="460px"
         theme="vs-dark"
+        loading={
+          <div className="flex h-[460px] items-center justify-center text-xs text-[var(--muted)]">
+            Đang tải editor...
+          </div>
+        }
         language={language === "CPP" ? "cpp" : "python"}
         value={value}
         onChange={(v) => onChange(v ?? "")}

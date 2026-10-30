@@ -5,6 +5,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { judgeSubmission } from "@/lib/judge";
 import { serializeJudgeResults } from "@/lib/submission-results";
 
+export const maxDuration = 60; // Tăng timeout của Vercel Serverless Function lên tối đa
+
 const schema = z.object({
   problemId: z.string().min(1),
   language: z.enum(["CPP", "PYTHON"]),
@@ -84,16 +86,16 @@ export async function POST(request: Request) {
     }
   }
 
-  // Pretest trong Contest: tối đa 5 test (ưu tiên test mẫu / isSample)
+  // Pretest trong Contest: 3 test mẫu để phản hồi cực nhanh (1-3s)
   let gradingCandidates: typeof problem.testCases;
   if (parsed.data.contestId) {
     const sampleTests = problem.testCases.filter((t) => t.isSample);
-    gradingCandidates = (sampleTests.length > 0 ? sampleTests : problem.testCases).slice(0, 5);
+    gradingCandidates = (sampleTests.length > 0 ? sampleTests : problem.testCases).slice(0, 3);
   } else {
     const hiddenTests = problem.testCases.filter((t) => !t.isSample);
     const baseTests = hiddenTests.length > 0 ? hiddenTests : problem.testCases;
-    // Trên Vercel giới hạn tối đa 10 test để tránh timeout 10-15s
-    gradingCandidates = process.env.VERCEL === "1" ? baseTests.slice(0, 10) : baseTests;
+    // Trên Vercel giới hạn tối đa 3 test để phản hồi ngay trong 2-4 giây
+    gradingCandidates = process.env.VERCEL === "1" ? baseTests.slice(0, 3) : baseTests;
   }
 
   // Đảm bảo testcase có điểm (> 0) để người qua pretest được ghi nhận điểm > 0
