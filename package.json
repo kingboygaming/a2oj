@@ -8,7 +8,10 @@
     "start": "next start",
     "start:lan": "next start --hostname 0.0.0.0",
     "lint": "eslint",
-    "db:generate": "prisma generate",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:generate:postgres": "node scripts/prepare-postgres-schema.mjs && prisma generate --schema prisma/schema.postgresql.prisma",
+    "db:migrate:deploy": "node scripts/prepare-postgres-schema.mjs && prisma migrate deploy --schema prisma/schema.postgresql.prisma",
+    "build:vercel": "node scripts/check-vercel-env.mjs && npm run db:generate:postgres && npm run db:migrate:deploy && next build",
     "postinstall": "prisma generate"
   },
   "dependencies": {

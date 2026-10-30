@@ -7,7 +7,11 @@ import type { Role } from "@prisma/client";
 const COOKIE = "oj_session";
 
 function secret() {
-  return process.env.SESSION_SECRET ?? "dev-secret";
+  const configuredSecret = process.env.SESSION_SECRET;
+  if (!configuredSecret && process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be configured in production.");
+  }
+  return configuredSecret ?? "dev-secret";
 }
 
 export function signUserId(userId: string, sessionVersion = 0) {

@@ -25,6 +25,25 @@ Giao diện mặc định dùng nền tối; nút hình mặt trời/mặt trăn
 Mặc định dùng **SQLite** (`prisma/dev.db`) để chạy ngay trên ổ D, không cần PostgreSQL.
 Prisma Client được generate tự động sau `npm install`; có thể generate lại bằng `npm run db:generate`.
 
+## Deploy lên Vercel
+
+Ứng dụng giữ SQLite cho chạy local, còn production trên Vercel dùng Neon PostgreSQL. Cơ sở dữ liệu SQLite local không tự được chuyển lên Neon; trang Vercel bắt đầu với database production riêng.
+
+1. Import repository `kingboygaming/a2oj` tại Vercel và chọn framework **Next.js**.
+2. Tạo/kết nối database Neon trong Vercel Marketplace. Tạo database/branch riêng cho Production và Preview để bản thử nghiệm không dùng chung dữ liệu production.
+3. Trong **Project → Settings → Environment Variables**, đặt các biến cho từng môi trường:
+   - `DATABASE_URL`: URL Neon qua connection pooler.
+   - `DIRECT_URL`: URL Neon trực tiếp, không qua pooler; Prisma dùng URL này để áp dụng migrations.
+   - `SESSION_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự. Có thể tạo bằng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+4. Lưu cấu hình và deploy nhánh `main`. `vercel.json` dùng lệnh `npm run build:vercel`: tạo Prisma Client PostgreSQL, chạy các migration trong `prisma/migrations`, rồi build Next.js. Nếu thiếu biến môi trường hoặc kết nối DB lỗi, build sẽ báo lỗi thay vì tạo deployment tưởng như thành công.
+5. Đăng ký tài khoản trên website. Để cấp quyền quản trị ban đầu, chạy câu lệnh sau trong Neon SQL Editor sau khi thay username bằng tài khoản của bạn:
+
+   ```sql
+   UPDATE "User" SET "role" = 'ADMIN' WHERE "username" = 'your_username';
+   ```
+
+Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫu với mật khẩu công khai. Email xác minh chỉ hoạt động sau khi khai báo SMTP và `APP_URL` trong Vercel. Live IDE cần Docker runner trên máy chủ riêng; không bật `ENABLE_IDE_DOCKER_RUN` trên Vercel. Judge mặc định ở mock mode.
+
 ## Contest
 
 Giáo viên có thể chọn bài tập đã xuất bản hoặc tạo bài mới ngay trong form tạo contest. Bài tạo riêng chỉ xuất hiện trong contest đó, không hiển thị ở danh sách bài tập thường. Mỗi contest có các mục **Tổng quan**, **Đề bài** và **Bảng xếp hạng**; trạng thái AC trong contest được tính riêng với bài tập thường.
@@ -87,13 +106,17 @@ Trong khu quản trị có **Quản lý contest** và **Quản lý tài khoản*
 
 Trang `/admin` và API duyệt đề đều kiểm tra role ở phía máy chủ. Không cấp role ADMIN cho tài khoản công khai hoặc người dùng không đáng tin cậy.
 
-## PostgreSQL
+## PostgreSQL local
 
-1. `docker compose up -d`
-2. Trong `prisma/schema.prisma` đổi `provider` thành `"postgresql"`
-3. `DATABASE_URL="postgresql://oj:oj@localhost:5432/tinoj?schema=public"`
-4. `npx prisma db push && npx tsx prisma/seed.ts`
+Để chạy local bằng PostgreSQL thay vì SQLite:
 
+1. Chạy `docker compose up -d`.
+2. Đặt `DATABASE_URL="postgresql://oj:oj@localhost:5432/tinoj?schema=public"` và `DIRECT_URL` cùng giá trị trong `.env`.
+3. Chạy `npm run db:generate:postgres`.
+4. Chạy `npx prisma db push --schema prisma/schema.postgresql.prisma`.
+5. Chạy `npx tsx prisma/seed.ts` nếu cần dữ liệu mẫu, sau đó `npm run dev`.
+
+`prisma/schema.prisma` vẫn là schema SQLite mặc định. Schema PostgreSQL được tạo từ đó bằng `scripts/prepare-postgres-schema.mjs`; không sửa tay file sinh ra.
 ## Judge
 
 - Mặc định `JUDGE_MODE=mock`: không thực thi mã nguồn được nộp lên.
