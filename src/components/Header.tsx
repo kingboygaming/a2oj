@@ -17,7 +17,7 @@ export async function Header() {
     <header className="border-b border-white/10 bg-[var(--surface-strong)] text-[var(--cream)]">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2">
-          <Link href="/" className="flex shrink-0 items-baseline gap-1.5">
+          <Link href="/" prefetch={true} className="flex shrink-0 items-baseline gap-1.5">
             <span className="text-2xl font-semibold tracking-tight">A2OJ</span>
             <span className="hidden text-[11px] text-[var(--cream)]/70 sm:inline">
               Sân chơi cho khối chuyên Tin
@@ -28,6 +28,7 @@ export async function Header() {
               <Link
                 key={link.href}
                 href={link.href}
+                prefetch={true}
                 className="rounded-md px-2.5 py-1.5 text-[var(--cream)]/90 hover:bg-white/10"
               >
                 {link.label}
@@ -43,13 +44,15 @@ export async function Header() {
             <>
               <Link
                 href="/login"
+                prefetch={true}
                 className="rounded-md px-2 py-1.5 text-[var(--cream)]/90 hover:bg-white/10"
               >
                 Đăng nhập
               </Link>
               <Link
                 href="/register"
-                className="rounded-md bg-[var(--amber)] px-3 py-1.5 font-medium text-[var(--navy)]"
+                prefetch={true}
+                className="rounded-md bg-[var(--amber)] px-3 py-1.5 font-medium text-[var(--navy)] hover:opacity-90"
               >
                 Đăng ký
               </Link>

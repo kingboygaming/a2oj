@@ -23,6 +23,7 @@ export function SettingsNavigation() {
           <Link
             key={link.href}
             href={link.href}
+            prefetch={true}
             aria-current={active ? "page" : undefined}
             className={`shrink-0 rounded-lg px-3 py-2.5 text-sm font-medium ${
               active

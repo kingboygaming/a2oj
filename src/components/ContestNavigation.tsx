@@ -24,6 +24,7 @@ export function ContestNavigation({
         <Link
           key={tab.id}
           href={`/contests/${slug}${tab.path}`}
+          prefetch={true}
           aria-current={active === tab.id ? "page" : undefined}
           className={`rounded-t-md px-4 py-2 text-sm font-medium ${
             active === tab.id

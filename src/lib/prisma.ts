@@ -8,6 +8,6 @@ export const prisma =
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Tái sử dụng PrismaClient và Connection Pool trên Serverless để không phải kết nối lại từ đầu mỗi request
+globalForPrisma.prisma = prisma;
+
