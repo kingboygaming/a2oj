@@ -16,8 +16,40 @@ export type JudgeResult = {
   testResults: { test: number; verdict: Verdict; timeMs: number }[];
 };
 
+/**
+ * Chuẩn hóa chuỗi output theo quy chuẩn Online Judge:
+ * - Chuyển CRLF thành LF.
+ * - Xóa khoảng trắng thừa ở cuối mỗi dòng.
+ * - Xóa khoảng trắng và dòng trống ở cuối văn bản.
+ */
 function normalize(s: string) {
-  return s.replace(/\r\n/g, "\n").trimEnd();
+  return s
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
+/**
+ * So khớp output của thí sinh với đáp án testcase theo chuẩn Competitive Programming:
+ * 1. So sánh chuỗi đã chuẩn hóa (nhanh nhất).
+ * 2. Nếu khác biệt chỉ do định dạng dấu cách/xuống dòng giữa các số, so khớp từng token (Codeforces / Themis standard).
+ */
+function compareOutput(actual: string, expected: string): boolean {
+  const normA = normalize(actual);
+  const normE = normalize(expected);
+  if (normA === normE) return true;
+
+  // Fallback so khớp theo token (bỏ qua mọi khoảng trắng, tab, newline thừa)
+  const tokensA = normA.split(/\s+/).filter(Boolean);
+  const tokensE = normE.split(/\s+/).filter(Boolean);
+  if (tokensA.length !== tokensE.length) return false;
+
+  for (let i = 0; i < tokensA.length; i++) {
+    if (tokensA[i] !== tokensE[i]) return false;
+  }
+  return true;
 }
 
 async function commandExists(cmd: string) {
@@ -51,8 +83,11 @@ function runTimed(
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    let stdout = "";
-    let stderr = "";
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
 
     const finish = (payload: {
@@ -75,32 +110,58 @@ function runTimed(
           child.kill("SIGKILL");
         }
       } catch {}
-      finish({ ok: false, tle: true, stdout, stderr: "Time limit exceeded" });
+      finish({
+        ok: false,
+        tle: true,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: "Time limit exceeded",
+      });
     }, timeoutMs);
 
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-      if (stdout.length > 2 * 1024 * 1024) {
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > 4 * 1024 * 1024) {
         try { child.kill("SIGKILL"); } catch {}
-        finish({ ok: false, tle: false, stdout, stderr: "Output limit exceeded" });
+        finish({
+          ok: false,
+          tle: false,
+          stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+          stderr: "Output limit exceeded",
+        });
       }
     });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-      if (stderr.length > 2 * 1024 * 1024) {
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      stderrBytes += chunk.length;
+      if (stderrBytes > 4 * 1024 * 1024) {
         try { child.kill("SIGKILL"); } catch {}
-        finish({ ok: false, tle: false, stdout, stderr: "Error output limit exceeded" });
+        finish({
+          ok: false,
+          tle: false,
+          stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+          stderr: "Error output limit exceeded",
+        });
       }
     });
+
     child.on("error", (err) => {
-      finish({ ok: false, tle: false, stdout, stderr: err.message });
+      finish({
+        ok: false,
+        tle: false,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: err.message,
+      });
     });
+
     child.on("close", (code) => {
+      const errStr = Buffer.concat(stderrChunks).toString("utf8");
       finish({
         ok: code === 0,
         tle: false,
-        stdout,
-        stderr: stderr || (code === 0 ? "" : `exit ${code}`),
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: errStr || (code === 0 ? "" : `exit ${code}`),
       });
     });
 
@@ -131,7 +192,7 @@ async function gradeWithCompiler(
         throw new Error("NO_PYTHON");
       }
 
-      // Run Python test cases in parallel
+      // Chạy song song các testcase Python
       const testRuns = await Promise.all(
         tests.map(async (test, index) => {
           const run = await runTimed(py, [srcPath], test.input, timeLimitMs + 500, dir);
@@ -139,7 +200,7 @@ async function gradeWithCompiler(
         }),
       );
 
-      // Check CE
+      // Kiểm tra Compile Error (SyntaxError)
       for (const { run } of testRuns) {
         if (!run.ok && /\b(?:SyntaxError|IndentationError|TabError)\b/.test(run.stderr)) {
           return {
@@ -168,7 +229,7 @@ async function gradeWithCompiler(
         } else if (!run.ok) {
           testVerdict = "RTE";
           logs.push(`Test ${index + 1} RTE: ${run.stderr}`);
-        } else if (normalize(run.stdout) === normalize(test.output)) {
+        } else if (compareOutput(run.stdout, test.output)) {
           testVerdict = "AC";
           passed += test.points;
         } else {
@@ -206,9 +267,10 @@ async function gradeWithCompiler(
 
     let compiled = false;
     for (const compiler of compilers) {
+      // Bật tối ưu hóa -O3 và -pipe để xử lý các bài toán giới hạn lớn (10^9) cực nhanh
       const compile = await runTimed(
         compiler,
-        ["-O2", "-std=c++17", srcPath, "-o", exePath],
+        ["-O3", "-std=c++17", "-pipe", srcPath, "-o", exePath],
         "",
         15000,
         dir,
@@ -232,7 +294,7 @@ async function gradeWithCompiler(
       };
     }
 
-    // Run all tests in parallel with the compiled binary
+    // Chạy song song tất cả testcase với binary đã biên dịch
     const testRuns = await Promise.all(
       tests.map(async (test, index) => {
         const run = await runTimed(exePath, [], test.input, timeLimitMs + 500, dir);
@@ -256,7 +318,7 @@ async function gradeWithCompiler(
       } else if (!run.ok) {
         testVerdict = "RTE";
         logs.push(`Test ${index + 1} RTE: ${run.stderr}`);
-      } else if (normalize(run.stdout) === normalize(test.output)) {
+      } else if (compareOutput(run.stdout, test.output)) {
         testVerdict = "AC";
         passed += test.points;
       } else {
@@ -358,7 +420,9 @@ type Judge0SubmissionResult = {
 };
 
 /**
- * Chấm điểm bài nộp thông qua Judge0 Batch API (nhanh gấp nhiều lần, hoàn thành 3-10 test trong 1.5-3 giây).
+ * Chấm điểm bài nộp thông qua Judge0 Batch API với tối ưu hóa -O3 và wall_time_limit:
+ * - Hỗ trợ các bài toán có vòng lặp / tính toán lên đến 10^9 cực nhanh.
+ * - Tự động phát hiện TLE chuẩn xác không bị treo server.
  */
 async function gradeWithJudge0(
   language: Language,
@@ -373,7 +437,9 @@ async function gradeWithJudge0(
       ? Number(process.env.JUDGE0_CPP_ID || 105)
       : Number(process.env.JUDGE0_PYTHON_ID || 100);
 
-  const cpuTimeLimit = Math.max(1, Math.min(15, Math.ceil(timeLimitMs / 1000)));
+  // Giới hạn thời gian tính bằng giây dạng số thực (vd: 1.0, 1.5, 2.0)
+  const cpuTimeLimit = Math.max(0.5, Math.min(15, Number((timeLimitMs / 1000).toFixed(2))));
+  const wallTimeLimit = Math.max(1.5, Math.min(30, Number(((timeLimitMs * 2 + 1000) / 1000).toFixed(2))));
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -391,7 +457,9 @@ async function gradeWithJudge0(
         source_code: source,
         language_id: languageId,
         stdin: t.input,
+        compiler_options: language === "CPP" ? "-O3 -std=c++17" : undefined,
         cpu_time_limit: cpuTimeLimit,
+        wall_time_limit: wallTimeLimit,
       })),
     }),
   });
@@ -406,14 +474,17 @@ async function gradeWithJudge0(
     throw new Error("Judge0 tokens mismatch");
   }
 
-  // Poll kết quả batch
+  // Poll kết quả batch với độ trễ tăng dần (bắt đầu nhanh từ 300ms để trả kết quả tức thì)
   const tokensParam = tokens.join(",");
   let submissions: Judge0SubmissionResult[] = [];
   const pollStart = Date.now();
   const maxPollMs = Math.max(timeLimitMs + 8000, 16000);
+  let pollInterval = 300;
 
   while (Date.now() - pollStart < maxPollMs) {
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, pollInterval));
+    pollInterval = Math.min(pollInterval + 150, 700);
+
     const getRes = await fetch(
       `${baseUrl}/submissions/batch?tokens=${tokensParam}&base64_encoded=false`,
       { headers },
@@ -490,7 +561,7 @@ async function gradeWithJudge0(
       const err = sub.stderr || sub.message || sub.status.description || "Runtime Error";
       logs.push(`Test ${i + 1} RTE: ${err.trim()}`);
     } else if (sub.status.id === 3 || sub.status.id === 4) {
-      if (normalize(sub.stdout ?? "") === normalize(test.output)) {
+      if (compareOutput(sub.stdout ?? "", test.output)) {
         testVerdict = "AC";
         passed += test.points;
       } else {
@@ -564,13 +635,13 @@ async function executeOnWandbox(
   stdin: string,
   timeoutMs: number,
 ): Promise<WandboxResponse> {
-  // Chọn các phiên bản compiler nhanh, ổn định (loại bỏ clang-head mất 15s và cpython-head bị lỗi pid1)
+  // Chọn các phiên bản compiler nhanh, ổn định
   const compilers =
     language === "CPP"
       ? ["gcc-13.2.0", "gcc-12.3.0"]
       : ["cpython-3.12.7", "cpython-3.11.10", "cpython-3.10.15"];
 
-  const options = language === "CPP" ? "-O1 -std=c++17" : undefined;
+  const options = language === "CPP" ? "-O3 -std=c++17" : undefined;
   let lastResponse: WandboxResponse | null = null;
 
   for (const compiler of compilers) {
@@ -673,7 +744,7 @@ async function gradeWithWandbox(
         testVerdict = "RTE";
         const errorMsg = data.program_error || data.program_message || `exit code ${data.status}`;
         logs.push(`Test ${index + 1} RTE: ${errorMsg}`);
-      } else if (normalize(data.program_output ?? "") === normalize(test.output)) {
+      } else if (compareOutput(data.program_output ?? "", test.output)) {
         testVerdict = "AC";
         passed += test.points;
       } else {
