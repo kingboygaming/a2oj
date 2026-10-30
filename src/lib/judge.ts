@@ -300,13 +300,85 @@ function mockGrade(source: string, tests: TestCase[]): JudgeResult {
   };
 }
 
+type WandboxResponse = {
+  status?: string;
+  signal?: string;
+  compiler_error?: string;
+  compiler_message?: string;
+  program_output?: string;
+  program_error?: string;
+  program_message?: string;
+};
+
+async function callWandboxOnce(
+  compiler: string,
+  code: string,
+  stdin: string,
+  options?: string,
+  timeoutMs = 10000,
+): Promise<WandboxResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch("https://wandbox.org/api/compile.json", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ compiler, code, stdin, options }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return (await res.json()) as WandboxResponse;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isInfrastructureError(res: WandboxResponse): boolean {
+  const text = `${res.program_error ?? ""} ${res.compiler_error ?? ""} ${res.program_message ?? ""}`;
+  return /crun|OCI runtime|Resource temporarily unavailable|failed to exec pid1/i.test(text);
+}
+
+async function executeOnWandbox(
+  language: Language,
+  code: string,
+  stdin: string,
+  timeoutMs: number,
+): Promise<WandboxResponse> {
+  // Chọn các phiên bản compiler ổn định (tránh các bản head thử nghiệm dễ bị lỗi OCI container)
+  const compilers =
+    language === "CPP"
+      ? ["gcc-13.2.0", "gcc-12.3.0", "clang-head"]
+      : ["cpython-3.12.7", "cpython-3.10.15", "cpython-head"];
+
+  const options = language === "CPP" ? "-O2 -std=c++17" : undefined;
+  let lastResponse: WandboxResponse | null = null;
+
+  for (const compiler of compilers) {
+    try {
+      const resp = await callWandboxOnce(compiler, code, stdin, options, timeoutMs);
+      if (!isInfrastructureError(resp)) {
+        return resp;
+      }
+      lastResponse = resp;
+      // Nghỉ 400ms trước khi thử compiler tiếp theo
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
+  if (lastResponse) return lastResponse;
+  throw new Error("Không thể kết nối đến máy chủ chấm.");
+}
+
 async function gradeWithWandbox(
   language: Language,
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
 ): Promise<JudgeResult> {
-  const compiler = language === "CPP" ? "gcc-head" : "cpython-3.12.7";
   let maxTime = 0;
   let passed = 0;
   let total = 0;
@@ -317,48 +389,25 @@ async function gradeWithWandbox(
     total += test.points;
     const testNum = index + 1;
     const started = Date.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      Math.max(timeLimitMs + 4000, 10000),
-    );
+    const timeout = Math.max(timeLimitMs + 4000, 10000);
 
     try {
-      const res = await fetch("https://wandbox.org/api/compile.json", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          compiler,
-          code: source,
-          stdin: test.input,
-          options: language === "CPP" ? "-O2 -std=c++17" : undefined,
-        }),
-        signal: controller.signal,
-      });
+      const data = await executeOnWandbox(language, source, test.input, timeout);
 
       const elapsed = Date.now() - started;
       maxTime = Math.max(maxTime, elapsed);
 
-      if (!res.ok) {
+      // Nếu vẫn gặp lỗi hạ tầng OCI của máy chủ sau các lần thử
+      if (isInfrastructureError(data)) {
         testResults.push({ test: testNum, verdict: "RTE", timeMs: elapsed });
         return {
           verdict: "RTE",
           score: passed,
           timeMs: maxTime,
-          log: `Cloud Judge HTTP ${res.status}`,
+          log: "Máy chủ chấm đang quá tải tạm thời. Vui lòng nộp lại sau ít giây.",
           testResults,
         };
       }
-
-      const data = (await res.json()) as {
-        status?: string;
-        signal?: string;
-        compiler_error?: string;
-        compiler_message?: string;
-        program_output?: string;
-        program_error?: string;
-        program_message?: string;
-      };
 
       // Check Compilation Error (CE)
       if (data.compiler_error && data.compiler_error.trim().length > 0) {
@@ -445,8 +494,6 @@ async function gradeWithWandbox(
         log: isTimeout ? "Time limit exceeded (Cloud Judge)" : String(err),
         testResults,
       };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
