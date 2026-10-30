@@ -42,6 +42,8 @@ export default async function ContestDetailPage({
       )
     : new Set<string>();
 
+  const isOrganizer = user && (user.role === "ADMIN" || user.id === contest.authorId);
+
   return (
     <div>
       <p className="text-sm text-[var(--teal)]">Contest</p>
@@ -51,6 +53,25 @@ export default async function ContestDetailPage({
       <p className="mt-2 text-xs text-[var(--muted)]">
         {contest.startAt.toLocaleString("vi-VN")} → {contest.endAt.toLocaleString("vi-VN")}
       </p>
+
+      {isOrganizer && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 p-3">
+          <span className="text-xs font-semibold uppercase text-[var(--teal)]">
+            Dành cho Giáo viên:
+          </span>
+          <a
+            href={`/api/admin/contests/${contest.id}/export-themis`}
+            download
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--teal)] px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:opacity-90 transition-opacity"
+          >
+            📥 Tải bài nộp Themis (.zip)
+          </a>
+          <span className="text-xs text-[var(--muted)]">
+            Tự động chỉ lấy bài điểm cao nhất &gt; 0đ, bỏ qua các bài 0đ
+          </span>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {user && (
           <RegisterContestButton contestId={contest.id} joined={joined} />

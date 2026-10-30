@@ -84,8 +84,26 @@ export async function POST(request: Request) {
     }
   }
 
-  const hiddenTests = problem.testCases.filter((t) => !t.isSample);
-  const gradingSet = hiddenTests.length > 0 ? hiddenTests : problem.testCases;
+  // Pretest trong Contest: tối đa 5 test (ưu tiên test mẫu / isSample)
+  let gradingCandidates: typeof problem.testCases;
+  if (parsed.data.contestId) {
+    const sampleTests = problem.testCases.filter((t) => t.isSample);
+    gradingCandidates = (sampleTests.length > 0 ? sampleTests : problem.testCases).slice(0, 5);
+  } else {
+    const hiddenTests = problem.testCases.filter((t) => !t.isSample);
+    const baseTests = hiddenTests.length > 0 ? hiddenTests : problem.testCases;
+    // Trên Vercel giới hạn tối đa 10 test để tránh timeout 10-15s
+    gradingCandidates = process.env.VERCEL === "1" ? baseTests.slice(0, 10) : baseTests;
+  }
+
+  // Đảm bảo testcase có điểm (> 0) để người qua pretest được ghi nhận điểm > 0
+  const gradingSet = gradingCandidates.map((t) => ({
+    ...t,
+    points:
+      t.points > 0
+        ? t.points
+        : Math.max(10, Math.floor(100 / Math.max(gradingCandidates.length, 1))),
+  }));
 
   const queued = await prisma.submission.create({
     data: {

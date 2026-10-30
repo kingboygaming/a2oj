@@ -42,7 +42,53 @@ Prisma Client được generate tự động sau `npm install`; có thể genera
    UPDATE "User" SET "role" = 'ADMIN' WHERE "username" = 'your_username';
    ```
 
-Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫu với mật khẩu công khai. Email xác minh chỉ hoạt động sau khi khai báo SMTP và `APP_URL` trong Vercel. Live IDE cần Docker runner trên máy chủ riêng; không bật `ENABLE_IDE_DOCKER_RUN` trên Vercel. Judge mặc định ở mock mode.
+Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫu với mật khẩu công khai. Email xác minh chỉ hoạt động sau khi khai báo SMTP và `APP_URL` trong Vercel. Judge mặc định ở mock mode.
+
+### Bật Live IDE cho website trên Vercel
+
+Vercel không cung cấp Docker daemon để chạy code. Muốn bật Live IDE, cần một máy chủ riêng có Docker và chạy `docker/ide-runner/server.py`; ứng dụng Vercel gọi máy chủ đó qua HTTPS bằng chữ ký HMAC. Không mở cổng Docker hoặc cổng runner trực tiếp ra Internet.
+
+Trên máy có Docker, build image runner:
+
+```powershell
+docker build -t tinoj-ide-runner:latest -f docker/ide-runner/Dockerfile docker/ide-runner
+```
+
+Khởi động dịch vụ trên Windows PowerShell:
+
+```powershell
+$env:IDE_RUNNER_SECRET = "<chuỗi bí mật ngẫu nhiên tối thiểu 32 ký tự>"
+$env:IDE_RUNNER_HOST = "127.0.0.1"
+$env:IDE_RUNNER_PORT = "8787"
+python docker/ide-runner/server.py
+```
+
+Trên Linux:
+
+```sh
+export IDE_RUNNER_SECRET="<chuỗi bí mật ngẫu nhiên tối thiểu 32 ký tự>"
+export IDE_RUNNER_HOST="127.0.0.1"
+export IDE_RUNNER_PORT="8787"
+python3 docker/ide-runner/server.py
+```
+
+Tạo secret bằng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Dùng cùng một giá trị cho runner và Vercel, không gửi secret vào chat hoặc commit vào Git.
+
+Để thử miễn phí từ máy cá nhân đang bật, cài Cloudflare Tunnel rồi chạy ở cửa sổ terminal khác:
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:8787
+```
+
+Cloudflare sẽ hiển thị một URL HTTPS tạm thời. Trong **Vercel → Project → Settings → Environment Variables**, đặt các biến cho **Production**:
+
+- `ENABLE_IDE_DOCKER_RUN` = `true`
+- `IDE_RUNNER_URL` = URL HTTPS Cloudflare kết thúc bằng `/run`
+- `IDE_RUNNER_SECRET` = cùng secret đã đặt trên máy runner
+
+Redeploy ứng dụng sau khi lưu biến. Tunnel miễn phí kiểu Quick Tunnel chỉ hoạt động khi máy cá nhân và cửa sổ `cloudflared` còn chạy; URL có thể đổi sau khi khởi động lại, khi đó cập nhật `IDE_RUNNER_URL` và redeploy. Với URL ổn định hoặc dịch vụ chạy liên tục, cần domain/tunnel cố định hoặc một VPS. Không bật `ENABLE_IDE_DOCKER_RUN` trên Vercel nếu chưa cấu hình runner URL và secret.
+
+Runner chỉ nhận POST đã ký, từ chối request lặp, giới hạn tối đa 3 lần chạy đồng thời và tiếp tục chạy từng chương trình trong container cô lập, tắt network và giới hạn tài nguyên.
 
 ## Contest
 

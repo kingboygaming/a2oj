@@ -1,8 +1,10 @@
+import { createHmac, randomBytes } from "crypto";
 import { spawn } from "child_process";
 import { z } from "zod";
 import type { Language } from "@prisma/client";
 
 const RUNNER_IMAGE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$/;
+const RUNNER_SECRET_MIN_LENGTH = 32;
 const RUNNER_TIMEOUT_MS = 90_000;
 const OUTPUT_LIMIT_BYTES = 5 * 1024 * 1024;
 const MAX_SAMPLE_RUNS = 20;
@@ -25,11 +27,114 @@ const samplesResultSchema = z.object({
   ).max(MAX_SAMPLE_RUNS),
 });
 
+function getRemoteRunnerUrl() {
+  const configuredUrl = process.env.IDE_RUNNER_URL?.trim();
+  if (!configuredUrl) return null;
+
+  let url: URL;
+  try {
+    url = new URL(configuredUrl);
+  } catch {
+    throw new Error("IDE_RUNNER_URL phải là một URL hợp lệ.");
+  }
+  const isLocalHttp =
+    url.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !isLocalHttp) {
+    throw new Error("IDE_RUNNER_URL phải dùng HTTPS.");
+  }
+  if (url.username || url.password || url.hash) {
+    throw new Error("IDE_RUNNER_URL không được chứa thông tin đăng nhập hoặc fragment.");
+  }
+  return url.toString();
+}
+
+async function runRemotePayload<T>(
+  url: string,
+  payload: object,
+  schema: z.ZodType<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const secret = process.env.IDE_RUNNER_SECRET?.trim();
+  if (!secret || secret.length < RUNNER_SECRET_MIN_LENGTH) {
+    throw new Error("IDE_RUNNER_SECRET phải có ít nhất 32 ký tự.");
+  }
+
+  const body = JSON.stringify(payload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = randomBytes(16).toString("hex");
+  const signature = createHmac("sha256", secret)
+    .update(`${timestamp}.${nonce}.${body}`)
+    .digest("hex");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        "content-type": "application/json",
+        "x-tinoj-timestamp": timestamp,
+        "x-tinoj-nonce": nonce,
+        "x-tinoj-signature": signature,
+      },
+      body,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const responseText = await response.text();
+    if (Buffer.byteLength(responseText, "utf8") > OUTPUT_LIMIT_BYTES) {
+      throw new Error("IDE runner trả về dữ liệu vượt giới hạn.");
+    }
+
+    let responseBody: unknown;
+    try {
+      responseBody = JSON.parse(responseText);
+    } catch {
+      throw new Error("IDE runner trả về JSON không hợp lệ.");
+    }
+    if (!response.ok) {
+      const error =
+        typeof responseBody === "object" &&
+        responseBody !== null &&
+        "error" in responseBody &&
+        typeof responseBody.error === "string"
+          ? responseBody.error
+          : `IDE runner trả về HTTP ${response.status}.`;
+      throw new Error(error.slice(0, 1000));
+    }
+
+    const parsed = schema.safeParse(responseBody);
+    if (!parsed.success) {
+      throw new Error("IDE runner trả về kết quả không hợp lệ.");
+    }
+    return parsed.data;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("IDE runner vượt quá thời gian phản hồi.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runDockerPayload<T>(
   payload: object,
   schema: z.ZodType<T>,
   timeoutMs: number,
 ): Promise<T> {
+  const remoteRunnerUrl = getRemoteRunnerUrl();
+  if (remoteRunnerUrl) {
+    return runRemotePayload(remoteRunnerUrl, payload, schema, timeoutMs);
+  }
+  if (process.env.VERCEL === "1") {
+    throw new Error(
+      "Vercel không chạy Docker cục bộ. Hãy cấu hình IDE_RUNNER_URL và IDE_RUNNER_SECRET cho runner riêng.",
+    );
+  }
+
   const image = process.env.IDE_RUNNER_IMAGE ?? "tinoj-ide-runner:latest";
   if (!RUNNER_IMAGE_PATTERN.test(image)) {
     throw new Error("IDE_RUNNER_IMAGE không hợp lệ.");

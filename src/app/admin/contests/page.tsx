@@ -78,10 +78,20 @@ export default async function AdminContestsPage() {
                     {contest.endAt.toLocaleDateString("vi-VN")}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <AdminDeleteButton
-                      endpoint={`/api/admin/contests/${contest.id}`}
-                      confirmation={`Xóa contest "${contest.title}"? Thao tác này sẽ xóa ${contest._count.registrations} lượt đăng ký, ${contest._count.submissions} bài nộp trong contest và các bài chỉ dùng ở contest này. Không thể hoàn tác.`}
-                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <a
+                        href={`/api/admin/contests/${contest.id}/export-themis`}
+                        download
+                        className="rounded border border-[var(--teal)]/40 bg-[var(--teal)]/10 px-2.5 py-1 text-xs font-medium text-[var(--teal)] hover:bg-[var(--teal)]/20"
+                        title="Tải toàn bộ bài nộp chuẩn Themis (chỉ bài > 0 điểm)"
+                      >
+                        📥 Themis (.zip)
+                      </a>
+                      <AdminDeleteButton
+                        endpoint={`/api/admin/contests/${contest.id}`}
+                        confirmation={`Xóa contest "${contest.title}"? Thao tác này sẽ xóa ${contest._count.registrations} lượt đăng ký, ${contest._count.submissions} bài nộp trong contest và các bài chỉ dùng ở contest này. Không thể hoàn tác.`}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

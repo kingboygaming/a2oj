@@ -300,19 +300,195 @@ function mockGrade(source: string, tests: TestCase[]): JudgeResult {
   };
 }
 
+async function gradeWithWandbox(
+  language: Language,
+  source: string,
+  tests: TestCase[],
+  timeLimitMs: number,
+): Promise<JudgeResult> {
+  const compiler = language === "CPP" ? "gcc-head" : "cpython-3.12.7";
+  let maxTime = 0;
+  let passed = 0;
+  let total = 0;
+  const logs: string[] = [];
+  const testResults: JudgeResult["testResults"] = [];
+
+  for (const [index, test] of tests.entries()) {
+    total += test.points;
+    const testNum = index + 1;
+    const started = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(timeLimitMs + 4000, 10000),
+    );
+
+    try {
+      const res = await fetch("https://wandbox.org/api/compile.json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          compiler,
+          code: source,
+          stdin: test.input,
+          options: language === "CPP" ? "-O2 -std=c++17" : undefined,
+        }),
+        signal: controller.signal,
+      });
+
+      const elapsed = Date.now() - started;
+      maxTime = Math.max(maxTime, elapsed);
+
+      if (!res.ok) {
+        testResults.push({ test: testNum, verdict: "RTE", timeMs: elapsed });
+        return {
+          verdict: "RTE",
+          score: passed,
+          timeMs: maxTime,
+          log: `Cloud Judge HTTP ${res.status}`,
+          testResults,
+        };
+      }
+
+      const data = (await res.json()) as {
+        status?: string;
+        signal?: string;
+        compiler_error?: string;
+        compiler_message?: string;
+        program_output?: string;
+        program_error?: string;
+        program_message?: string;
+      };
+
+      // Check Compilation Error (CE)
+      if (data.compiler_error && data.compiler_error.trim().length > 0) {
+        return {
+          verdict: "CE",
+          score: 0,
+          timeMs: 0,
+          log: data.compiler_error || data.compiler_message || "Biên dịch thất bại (Compile Error).",
+          testResults: [{ test: testNum, verdict: "CE", timeMs: 0 }],
+        };
+      }
+
+      // In Python, syntax errors appear in stderr / program_error
+      if (
+        language === "PYTHON" &&
+        data.program_error &&
+        /\b(?:SyntaxError|IndentationError|TabError)\b/.test(data.program_error)
+      ) {
+        return {
+          verdict: "CE",
+          score: 0,
+          timeMs: 0,
+          log: data.program_error,
+          testResults: [{ test: testNum, verdict: "CE", timeMs: elapsed }],
+        };
+      }
+
+      // Check TLE / Signal Kill
+      if (
+        data.signal === "Kill" ||
+        data.signal === "SIGKILL" ||
+        data.signal === "SIGXCPU"
+      ) {
+        testResults.push({ test: testNum, verdict: "TLE", timeMs: elapsed });
+        return {
+          verdict: "TLE",
+          score: passed,
+          timeMs: maxTime,
+          log: "Time limit exceeded",
+          testResults,
+        };
+      }
+
+      // Check RTE
+      if (data.status !== "0") {
+        const errorMsg =
+          data.program_error || data.program_message || `exit code ${data.status}`;
+        logs.push(`RTE: ${errorMsg}`);
+        testResults.push({ test: testNum, verdict: "RTE", timeMs: elapsed });
+        return {
+          verdict: "RTE",
+          score: passed,
+          timeMs: maxTime,
+          log: logs.join("\n"),
+          testResults,
+        };
+      }
+
+      // Check Output (AC or WA)
+      if (normalize(data.program_output ?? "") === normalize(test.output)) {
+        passed += test.points;
+        testResults.push({ test: testNum, verdict: "AC", timeMs: elapsed });
+      } else {
+        logs.push(`WA on test ${test.order + 1}`);
+        testResults.push({ test: testNum, verdict: "WA", timeMs: elapsed });
+        return {
+          verdict: "WA",
+          score: passed,
+          timeMs: maxTime,
+          log: logs.join("\n"),
+          testResults,
+        };
+      }
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      const elapsed = Date.now() - started;
+      maxTime = Math.max(maxTime, elapsed);
+      const verdict: Verdict = isTimeout ? "TLE" : "RTE";
+      testResults.push({ test: testNum, verdict, timeMs: elapsed });
+      return {
+        verdict,
+        score: passed,
+        timeMs: maxTime,
+        log: isTimeout ? "Time limit exceeded (Cloud Judge)" : String(err),
+        testResults,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return {
+    verdict: passed === total ? "AC" : "WA",
+    score: passed,
+    timeMs: maxTime,
+    log: "Accepted",
+    testResults,
+  };
+}
+
 export async function judgeSubmission(
   language: Language,
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
 ): Promise<JudgeResult> {
-  const mode = process.env.JUDGE_MODE ?? "mock";
+  const mode = process.env.JUDGE_MODE;
   if (mode === "mock") {
     return mockGrade(source, tests);
+  }
+  if (mode === "wandbox" || process.env.VERCEL === "1") {
+    try {
+      return await gradeWithWandbox(language, source, tests, timeLimitMs);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        verdict: "RTE",
+        score: 0,
+        timeMs: 0,
+        log: `Cloud Judge error: ${message}`,
+        testResults: [],
+      };
+    }
   }
   try {
     return await gradeWithCompiler(language, source, tests, timeLimitMs);
   } catch (err) {
+    if (err instanceof Error && (err.message === "NO_CXX" || err.message === "NO_PYTHON")) {
+      return await gradeWithWandbox(language, source, tests, timeLimitMs);
+    }
     const message = err instanceof Error ? err.message : String(err);
     return { verdict: "CE", score: 0, timeMs: 0, log: message, testResults: [] };
   }
