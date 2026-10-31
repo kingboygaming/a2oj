@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const maxDuration = 60;
+
 const reviewSchema = z.object({
   action: z.literal("approve"),
 });
@@ -73,30 +75,33 @@ export async function PATCH(
     return NextResponse.json({ error: "Slug đã được dùng bởi bài tập khác." }, { status: 409 });
   }
 
-  await prisma.$transaction(async (transaction) => {
-    await transaction.problem.update({
-      where: { id },
-      data: {
-        slug: parsed.data.slug,
-        title: parsed.data.title,
-        statement: parsed.data.statement,
-        difficulty: parsed.data.difficulty,
-        timeLimitMs: parsed.data.timeLimitMs,
-        memoryLimitMb: parsed.data.memoryLimitMb,
-      },
-    });
-    await transaction.testCase.deleteMany({ where: { problemId: id } });
-    await transaction.testCase.createMany({
-      data: parsed.data.testCases.map((testCase, order) => ({
-        input: testCase.input,
-        output: testCase.output,
-        isSample: testCase.isSample ?? false,
-        points: testCase.points ?? (testCase.isSample ? 0 : 100),
-        problemId: id,
-        order,
-      })),
-    });
-  });
+  await prisma.$transaction(
+    async (transaction) => {
+      await transaction.problem.update({
+        where: { id },
+        data: {
+          slug: parsed.data.slug,
+          title: parsed.data.title,
+          statement: parsed.data.statement,
+          difficulty: parsed.data.difficulty,
+          timeLimitMs: parsed.data.timeLimitMs,
+          memoryLimitMb: parsed.data.memoryLimitMb,
+        },
+      });
+      await transaction.testCase.deleteMany({ where: { problemId: id } });
+      await transaction.testCase.createMany({
+        data: parsed.data.testCases.map((testCase, order) => ({
+          input: testCase.input,
+          output: testCase.output,
+          isSample: testCase.isSample ?? false,
+          points: testCase.points ?? (testCase.isSample ? 0 : 100),
+          problemId: id,
+          order,
+        })),
+      });
+    },
+    { timeout: 60_000 },
+  );
 
   return NextResponse.json({ success: true, slug: parsed.data.slug });
 }

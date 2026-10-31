@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 
+export const maxDuration = 60;
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -119,30 +121,33 @@ export async function PATCH(
     return NextResponse.json({ error: "Slug đã được dùng bởi bài tập khác." }, { status: 409 });
   }
 
-  await prisma.$transaction(async (transaction) => {
-    await transaction.problem.update({
-      where: { id: problem.id },
-      data: {
-        slug: parsed.data.slug,
-        title: parsed.data.title,
-        statement: parsed.data.statement,
-        difficulty: parsed.data.difficulty,
-        timeLimitMs: parsed.data.timeLimitMs,
-        memoryLimitMb: parsed.data.memoryLimitMb,
-      },
-    });
-    await transaction.testCase.deleteMany({ where: { problemId: problem.id } });
-    await transaction.testCase.createMany({
-      data: parsed.data.testCases.map((testCase, order) => ({
-        input: testCase.input,
-        output: testCase.output,
-        isSample: testCase.isSample ?? false,
-        points: testCase.points ?? (testCase.isSample ? 0 : 100),
-        problemId: problem.id,
-        order,
-      })),
-    });
-  });
+  await prisma.$transaction(
+    async (transaction) => {
+      await transaction.problem.update({
+        where: { id: problem.id },
+        data: {
+          slug: parsed.data.slug,
+          title: parsed.data.title,
+          statement: parsed.data.statement,
+          difficulty: parsed.data.difficulty,
+          timeLimitMs: parsed.data.timeLimitMs,
+          memoryLimitMb: parsed.data.memoryLimitMb,
+        },
+      });
+      await transaction.testCase.deleteMany({ where: { problemId: problem.id } });
+      await transaction.testCase.createMany({
+        data: parsed.data.testCases.map((testCase, order) => ({
+          input: testCase.input,
+          output: testCase.output,
+          isSample: testCase.isSample ?? false,
+          points: testCase.points ?? (testCase.isSample ? 0 : 100),
+          problemId: problem.id,
+          order,
+        })),
+      });
+    },
+    { timeout: 60_000 },
+  );
 
   return NextResponse.json({ success: true, slug: parsed.data.slug });
 }

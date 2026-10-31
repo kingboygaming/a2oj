@@ -98,6 +98,7 @@ export function ContributeForm({
             memoryLimitMb,
             testCases: cases,
           }),
+          signal: AbortSignal.timeout(120_000),
         },
       );
       const data = await res.json();
@@ -116,8 +117,12 @@ export function ContributeForm({
         router.push(problem ? `/problems/${nextSlug}` : `/problems/${data.slug}`);
       }
       router.refresh();
-    } catch {
-      setError("Không thể kết nối để lưu đề. Hãy thử lại.");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        setError("Lưu quá thời gian chờ. Bộ test quá lớn — hãy thử giảm số lượng hoặc kích thước test.");
+      } else {
+        setError("Không thể kết nối để lưu đề. Hãy thử lại.");
+      }
     } finally {
       setPending(false);
     }
