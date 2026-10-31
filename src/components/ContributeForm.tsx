@@ -24,6 +24,7 @@ type ProblemDraft = {
   inputFile?: string | null;
   outputFile?: string | null;
   judgeType?: string | null;
+  heuristicTolerancePercent?: number;
   testCases: Case[];
 };
 
@@ -50,6 +51,9 @@ export function ContributeForm({
     problem?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD",
   );
   const [inputFile, setInputFile] = useState(problem?.inputFile ?? "");
+  const [heuristicTolerancePercent, setHeuristicTolerancePercent] = useState(
+    problem?.heuristicTolerancePercent ?? 5,
+  );
   const [outputFile, setOutputFile] = useState(problem?.outputFile ?? "");
   const [cases, setCases] = useState<Case[]>(
     problem?.testCases ?? [
@@ -109,6 +113,7 @@ export function ContributeForm({
             timeLimitMs,
             memoryLimitMb,
             judgeType,
+            heuristicTolerancePercent,
             ioMode,
             inputFile:
               ioMode === "FILE"
@@ -257,6 +262,23 @@ export function ContributeForm({
             </span>
           </label>
         </div>
+        {judgeType === "HEURISTIC" && (
+          <label className="block max-w-xs text-sm">
+            Sai số cho phép để đạt đủ điểm (%)
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+              value={heuristicTolerancePercent}
+              onChange={(e) => setHeuristicTolerancePercent(Number(e.target.value))}
+            />
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              Kết quả lệch tối đa mức này vẫn được đủ điểm; vượt mức sẽ được tính điểm theo độ gần. Mặc định 5%.
+            </span>
+          </label>
+        )}
       </div>
 
       {/* Phương thức nhập / xuất (I/O) */}

@@ -56,7 +56,7 @@ function compareOutput(actual: string, expected: string): boolean {
  * Chấm xấp xỉ (Heuristic): so sánh độ gần nhau của các số trong output.
  * Trả về điểm 0..testPoints theo tỉ lệ trung bình của các cặp số.
  */
-function heuristicScore(actual: string, expected: string, testPoints: number): number {
+function heuristicScore(actual: string, expected: string, testPoints: number, tolerancePercent = 5): number {
   // Nếu khớp chính xác → full điểm
   if (compareOutput(actual, expected)) return testPoints;
 
@@ -83,6 +83,8 @@ function heuristicScore(actual: string, expected: string, testPoints: number): n
     } else if (e === 0 || Math.sign(a) !== Math.sign(e)) {
       // Sai dấu hoặc expected=0 mà actual≠0 → ratio 0
       ratioSum += 0;
+    } else if ((Math.abs(a - e) / Math.abs(e)) * 100 <= tolerancePercent) {
+      ratioSum += 1;
     } else {
       ratioSum += Math.min(Math.abs(a), Math.abs(e)) / Math.max(Math.abs(a), Math.abs(e));
     }
@@ -335,6 +337,7 @@ async function gradeWithCompiler(
   inputFile?: string | null,
   outputFile?: string | null,
   judgeType?: string | null,
+  heuristicTolerancePercent = 5,
 ): Promise<JudgeResult> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tinoj-"));
   let maxTime = 0;
@@ -411,7 +414,7 @@ async function gradeWithCompiler(
           testVerdict = "WA";
           logs.push(`Test ${index + 1}: Không tìm thấy file output (${outputFile})`);
         } else if (judgeType === "HEURISTIC") {
-          const pts = heuristicScore(run.stdout, test.output, test.points);
+          const pts = heuristicScore(run.stdout, test.output, test.points, heuristicTolerancePercent);
           passed += pts;
           testVerdict = pts === test.points ? "AC" : "WA";
           if (pts < test.points) {
@@ -530,7 +533,7 @@ async function gradeWithCompiler(
         testVerdict = "WA";
         logs.push(`Test ${index + 1}: Không tìm thấy file output (${outputFile})`);
       } else if (judgeType === "HEURISTIC") {
-        const pts = heuristicScore(run.stdout, test.output, test.points);
+        const pts = heuristicScore(run.stdout, test.output, test.points, heuristicTolerancePercent);
         passed += pts;
         testVerdict = pts === test.points ? "AC" : "WA";
         if (pts < test.points) {
@@ -649,6 +652,7 @@ async function gradeWithJudge0(
   tests: TestCase[],
   timeLimitMs: number,
   judgeType?: string | null,
+  heuristicTolerancePercent = 5,
 ): Promise<JudgeResult> {
   const baseUrl = (process.env.JUDGE0_URL || "https://ce.judge0.com").replace(/\/+$/, "");
   // C++: 105 (GCC 14.1.0) hoặc 54 (GCC 9.2.0) | Python: 100 (Python 3.12.5) hoặc 92 (Python 3.11.2)
@@ -782,7 +786,7 @@ async function gradeWithJudge0(
       logs.push(`Test ${i + 1} RTE: ${err.trim()}`);
     } else if (sub.status.id === 3 || sub.status.id === 4) {
       if (judgeType === "HEURISTIC") {
-        const pts = heuristicScore(sub.stdout ?? "", test.output, test.points);
+        const pts = heuristicScore(sub.stdout ?? "", test.output, test.points, heuristicTolerancePercent);
         passed += pts;
         testVerdict = pts === test.points ? "AC" : "WA";
         if (pts < test.points) {
@@ -896,6 +900,7 @@ async function gradeWithWandbox(
   tests: TestCase[],
   timeLimitMs: number,
   judgeType?: string | null,
+  heuristicTolerancePercent = 5,
 ): Promise<JudgeResult> {
   const timeout = Math.max(timeLimitMs + 5000, 16000);
 
@@ -975,7 +980,7 @@ async function gradeWithWandbox(
         const errorMsg = data.program_error || data.program_message || `exit code ${data.status}`;
         logs.push(`Test ${index + 1} RTE: ${errorMsg}`);
       } else if (judgeType === "HEURISTIC") {
-        const pts = heuristicScore(data.program_output ?? "", test.output, test.points);
+        const pts = heuristicScore(data.program_output ?? "", test.output, test.points, heuristicTolerancePercent);
         passed += pts;
         testVerdict = pts === test.points ? "AC" : "WA";
         if (pts < test.points) {
@@ -1020,14 +1025,15 @@ async function gradeWithCloud(
   inputFile?: string | null,
   outputFile?: string | null,
   judgeType?: string | null,
+  heuristicTolerancePercent = 5,
 ): Promise<JudgeResult> {
   const effectiveSource = wrapSourceForFileIO(language, source, inputFile, outputFile);
   try {
-    return await gradeWithJudge0(language, effectiveSource, tests, timeLimitMs, judgeType);
+    return await gradeWithJudge0(language, effectiveSource, tests, timeLimitMs, judgeType, heuristicTolerancePercent);
   } catch (errJudge0) {
     console.warn("Judge0 failed or unreachable, falling back to Wandbox:", errJudge0);
     try {
-      return await gradeWithWandbox(language, effectiveSource, tests, timeLimitMs, judgeType);
+      return await gradeWithWandbox(language, effectiveSource, tests, timeLimitMs, judgeType, heuristicTolerancePercent);
     } catch (errWandbox) {
       const message = errWandbox instanceof Error ? errWandbox.message : String(errWandbox);
       return {
@@ -1049,6 +1055,7 @@ export async function judgeSubmission(
   inputFile?: string | null,
   outputFile?: string | null,
   judgeType?: string | null,
+  heuristicTolerancePercent = 5,
 ): Promise<JudgeResult> {
   const mode = process.env.JUDGE_MODE?.toLowerCase();
   if (mode === "mock") {
@@ -1063,15 +1070,15 @@ export async function judgeSubmission(
 
   if (!isCloudForced) {
     try {
-      return await gradeWithCompiler(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType);
+      return await gradeWithCompiler(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType, heuristicTolerancePercent);
     } catch (err) {
       if (err instanceof Error && (err.message === "NO_CXX" || err.message === "NO_PYTHON")) {
-        return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType);
+        return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType, heuristicTolerancePercent);
       }
       const message = err instanceof Error ? err.message : String(err);
       return { verdict: "CE", score: 0, timeMs: 0, log: message, testResults: [] };
     }
   }
 
-  return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType);
+  return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType, heuristicTolerancePercent);
 }

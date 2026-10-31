@@ -84,6 +84,7 @@ model Problem {
   published     Boolean          @default(true)
   contestOnly   Boolean          @default(false)
   judgeType     String           @default("STANDARD")
+  heuristicTolerancePercent Int      @default(5)
   ioMode        String           @default("STDIO")
   inputFile     String?
   outputFile    String?

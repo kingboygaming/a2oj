@@ -163,6 +163,7 @@ export async function POST(request: Request) {
     effectiveInputFile,
     effectiveOutputFile,
     effectiveJudgeType,
+    problem.heuristicTolerancePercent,
   );
 
   const updated = await prisma.submission.update({

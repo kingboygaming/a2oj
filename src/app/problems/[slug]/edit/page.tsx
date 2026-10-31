@@ -58,6 +58,7 @@ export default async function EditContributedProblemPage({
           timeLimitMs: problem.timeLimitMs,
           memoryLimitMb: problem.memoryLimitMb,
           judgeType: problem.judgeType,
+          heuristicTolerancePercent: problem.heuristicTolerancePercent,
           ioMode: problem.ioMode,
           inputFile: problem.inputFile,
           outputFile: problem.outputFile,
