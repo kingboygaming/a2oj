@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -89,28 +89,36 @@ export function GlobalAcmLeaderboard({ standings }: { standings: Standing[] }) {
       </div>
 
       <div className="border-t border-[var(--line)] bg-[var(--background)] px-5 py-3">
-        <button
-          type="button"
-          disabled={standings.length <= 5}
-          aria-expanded={expanded}
-          aria-controls="global-acm-full"
-          onClick={() => setExpanded((current) => !current)}
-          className="flex w-full items-center justify-between gap-3 text-left text-sm font-medium text-[var(--teal)] hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-70"
-        >
-          <span>
-            {standings.length <= 5
-              ? "Đang hiển thị toàn bộ bảng xếp hạng"
-              : expanded
-                ? "Thu gọn bảng xếp hạng"
-                : "Xem bảng xếp hạng toàn server"}
-          </span>
-          <span
-            aria-hidden="true"
-            className={`transition-transform duration-400 ${expanded ? "rotate-180" : ""}`}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            disabled={standings.length <= 5}
+            aria-expanded={expanded}
+            aria-controls="global-acm-full"
+            onClick={() => setExpanded((current) => !current)}
+            className="flex items-center gap-2 text-left text-sm font-medium text-[var(--teal)] hover:underline disabled:cursor-default disabled:no-underline disabled:opacity-70"
           >
-            ↓
-          </span>
-        </button>
+            <span>
+              {standings.length <= 5
+                ? "Đang hiển thị toàn bộ bảng xếp hạng"
+                : expanded
+                  ? "Thu gọn bảng xếp hạng"
+                  : "Xem thêm"}
+            </span>
+            <span
+              aria-hidden="true"
+              className={`transition-transform duration-400 ${expanded ? "rotate-180" : ""}`}
+            >
+              ↓
+            </span>
+          </button>
+          <Link
+            href="/leaderboard"
+            className="text-sm font-medium text-[var(--teal)] hover:underline"
+          >
+            Bảng xếp hạng đầy đủ →
+          </Link>
+        </div>
         <p className="mt-1 text-[11px] text-[var(--muted)]">
           Mỗi đề chỉ tính AC đầu tiên; mỗi lần nộp sai trước AC cộng 20 phút penalty. Không tính thời gian giải do không có mốc contest chung.
         </p>

@@ -169,7 +169,7 @@ export default async function HomePage() {
         <Stat label="Bài tập" value={problemCount} href="/problems" icon="{}" accent="text-sky-400" />
         <Stat label="Kỳ thi" value={contestCount} href="/contests" icon="⌁" accent="text-violet-400" />
         <Stat label="Bài nộp" value={submissionCount} href="/status" icon="↗" accent="text-emerald-400" />
-        <Stat label="Thí sinh" value={standings.length} href="/users" icon="♙" accent="text-amber-400" />
+        <Stat label="Thí sinh" value={standings.length} href="/leaderboard" icon="♙" accent="text-amber-400" />
       </section>
 
       <section aria-labelledby="highlights-heading">

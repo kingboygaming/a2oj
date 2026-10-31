@@ -8,6 +8,7 @@ const links = [
   { href: "/status", label: "Bài nộp" },
   { href: "/problems/new", label: "Đóng góp đề" },
   { href: "/contests", label: "Contest" },
+  { href: "/leaderboard", label: "Xếp hạng" },
 ];
 
 export async function Header() {
