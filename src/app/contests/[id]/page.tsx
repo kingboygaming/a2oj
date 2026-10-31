@@ -59,6 +59,12 @@ export default async function ContestDetailPage({
           <span className="text-xs font-semibold uppercase text-[var(--teal)]">
             Dành cho Giáo viên:
           </span>
+          <Link
+            href={`/contests/${contest.slug}/edit`}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--surface-strong)] px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:opacity-90 transition-opacity"
+          >
+            ✏️ Chỉnh sửa kỳ thi
+          </Link>
           <a
             href={`/api/admin/contests/${contest.id}/export-themis`}
             download
@@ -67,7 +73,9 @@ export default async function ContestDetailPage({
             📥 Tải bài nộp Themis (.zip)
           </a>
           <span className="text-xs text-[var(--muted)]">
-            Tự động chỉ lấy bài điểm cao nhất &gt; 0đ, bỏ qua các bài 0đ
+            {contest.testLimit > 0
+              ? `Chấm ${contest.testLimit} test đầu`
+              : "Chấm tất cả test"}
           </span>
         </div>
       )}

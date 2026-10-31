@@ -79,6 +79,13 @@ export default async function AdminContestsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <Link
+                        href={`/contests/${contest.slug}/edit`}
+                        className="rounded border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--navy)] hover:border-[var(--teal)] hover:text-[var(--teal)]"
+                        title="Chỉnh sửa thời gian, số bài và cấu hình contest"
+                      >
+                        ✏️ Sửa
+                      </Link>
                       <a
                         href={`/api/admin/contests/${contest.id}/export-themis`}
                         download

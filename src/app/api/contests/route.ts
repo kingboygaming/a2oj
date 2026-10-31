@@ -20,6 +20,7 @@ const schema = z.object({
   description: z.string().trim().min(3),
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
+  testLimit: z.number().int().min(0).max(100).default(5),
   problemIds: z.array(z.string().min(1)),
   newProblems: z.array(
     z.object({
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
         description: parsed.data.description,
         startAt,
         endAt,
+        testLimit: parsed.data.testLimit,
         authorId: user.id,
       },
     });

@@ -1,0 +1,654 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { parseTestCaseZip } from "@/lib/testcase-zip";
+
+export type TestCaseDraft = {
+  input: string;
+  output: string;
+  isSample: boolean;
+  points: number;
+};
+
+export type ProblemDraft = {
+  slug: string;
+  title: string;
+  statement: string;
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  timeLimitMs: number;
+  memoryLimitMb: number;
+  testCases: TestCaseDraft[];
+};
+
+export type InitialContestData = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  startAt: string;
+  endAt: string;
+  testLimit: number;
+  problemIds: string[];
+};
+
+function createProblemDraft(): ProblemDraft {
+  return {
+    slug: "",
+    title: "",
+    statement: "Cho số nguyên $n$. In ra kết quả...\n\n## Input\n\n## Output\n",
+    difficulty: "EASY",
+    timeLimitMs: 1000,
+    memoryLimitMb: 256,
+    testCases: [
+      { input: "", output: "", isSample: true, points: 0 },
+      { input: "", output: "", isSample: false, points: 100 },
+    ],
+  };
+}
+
+function toLocalDatetimeString(isoString: string): string {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+export function ContestForm({
+  availableProblems,
+  initialData,
+}: {
+  availableProblems: { id: string; slug: string; title: string; difficulty?: string }[];
+  initialData?: InitialContestData;
+}) {
+  const router = useRouter();
+  const isEditing = Boolean(initialData);
+
+  const [slug, setSlug] = useState(initialData?.slug ?? "");
+  const [title, setTitle] = useState(initialData?.title ?? "");
+  const [description, setDescription] = useState(initialData?.description ?? "");
+  const [startAt, setStartAt] = useState(
+    initialData?.startAt ? toLocalDatetimeString(initialData.startAt) : "",
+  );
+  const [endAt, setEndAt] = useState(
+    initialData?.endAt ? toLocalDatetimeString(initialData.endAt) : "",
+  );
+  const [testLimit, setTestLimit] = useState(initialData?.testLimit ?? 5);
+  const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
+  const [newProblems, setNewProblems] = useState<ProblemDraft[]>([]);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [zipMessages, setZipMessages] = useState<Record<number, string>>({});
+
+  function toggle(id: string) {
+    setProblemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function moveProblemUp(index: number) {
+    if (index === 0) return;
+    setProblemIds((prev) => {
+      const next = [...prev];
+      const temp = next[index - 1];
+      next[index - 1] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  }
+
+  function moveProblemDown(index: number) {
+    if (index === problemIds.length - 1) return;
+    setProblemIds((prev) => {
+      const next = [...prev];
+      const temp = next[index + 1];
+      next[index + 1] = next[index];
+      next[index] = temp;
+      return next;
+    });
+  }
+
+  function updateProblem(index: number, patch: Partial<ProblemDraft>) {
+    setNewProblems((current) =>
+      current.map((problem, i) => (i === index ? { ...problem, ...patch } : problem)),
+    );
+  }
+
+  function updateTestCase(problemIndex: number, testIndex: number, patch: Partial<TestCaseDraft>) {
+    setNewProblems((current) =>
+      current.map((problem, i) =>
+        i === problemIndex
+          ? {
+              ...problem,
+              testCases: problem.testCases.map((testCase, j) =>
+                j === testIndex ? { ...testCase, ...patch } : testCase,
+              ),
+            }
+          : problem,
+      ),
+    );
+  }
+
+  async function handleImportZip(problemIndex: number, file?: File) {
+    if (!file) return;
+    try {
+      const imported = parseTestCaseZip(new Uint8Array(await file.arrayBuffer()));
+      setNewProblems((current) =>
+        current.map((prob, i) => {
+          if (i !== problemIndex) return prob;
+          return {
+            ...prob,
+            testCases: [
+              ...prob.testCases,
+              ...imported.map((tc) => ({
+                input: tc.input,
+                output: tc.output,
+                isSample: false,
+                points: tc.points,
+              })),
+            ],
+          };
+        }),
+      );
+      setZipMessages((prev) => ({
+        ...prev,
+        [problemIndex]: `Đã nhập thành công ${imported.length} test từ file ${file.name}!`,
+      }));
+    } catch (err) {
+      setZipMessages((prev) => ({
+        ...prev,
+        [problemIndex]: err instanceof Error ? err.message : "Lỗi đọc file zip testcase.",
+      }));
+    }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setPending(true);
+    setError("");
+
+    try {
+      const endpoint = isEditing ? `/api/contests/${initialData!.id}` : "/api/contests";
+      const method = isEditing ? "PATCH" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          title,
+          description,
+          startAt: new Date(startAt).toISOString(),
+          endAt: new Date(endAt).toISOString(),
+          testLimit: Number(testLimit),
+          problemIds,
+          newProblems,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? (isEditing ? "Không lưu được contest." : "Không tạo được contest."));
+        return;
+      }
+      router.push(`/contests/${data.slug}`);
+      router.refresh();
+    } catch {
+      setError("Không thể kết nối đến máy chủ. Hãy kiểm tra lại và thử lại.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mt-6 space-y-6">
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 space-y-4">
+        <h2 className="text-base font-semibold text-[var(--navy)]">Thông tin kỳ thi</h2>
+        
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm">
+            Slug contest (URL)
+            <input
+              required
+              minLength={2}
+              maxLength={64}
+              pattern="[a-z0-9\-]+"
+              placeholder="vd: contest-thang-10"
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 font-mono text-sm"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value.toLowerCase())}
+            />
+          </label>
+
+          <label className="block text-sm">
+            Tên kỳ thi
+            <input
+              required
+              minLength={3}
+              placeholder="vd: Kỳ thi Lập trình Tin học Trẻ"
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="block text-sm">
+          Mô tả kỳ thi
+          <textarea
+            required
+            rows={3}
+            placeholder="Nội dung, thể lệ, đối tượng tham gia kỳ thi..."
+            className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="text-sm">
+            Thời gian bắt đầu
+            <input
+              required
+              type="datetime-local"
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+              value={startAt}
+              onChange={(e) => setStartAt(e.target.value)}
+            />
+          </label>
+
+          <label className="text-sm">
+            Thời gian kết thúc
+            <input
+              required
+              type="datetime-local"
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+              value={endAt}
+              onChange={(e) => setEndAt(e.target.value)}
+            />
+          </label>
+
+          <label className="text-sm">
+            <span className="flex items-center gap-1.5 font-medium text-[var(--teal)]">
+              ⚙ Số test chấm trong contest
+            </span>
+            <input
+              required
+              type="number"
+              min={0}
+              max={100}
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm font-semibold"
+              value={testLimit}
+              onChange={(e) => setTestLimit(Math.max(0, parseInt(e.target.value) || 0))}
+            />
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              {testLimit === 0 ? "Chấm tất cả test" : `Chỉ chấm tối đa ${testLimit} test đầu tiên`}
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {/* Danh sách bài tập đã chọn & sắp xếp */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-[var(--navy)]">
+            Thứ tự đề bài trong kỳ thi ({problemIds.length} bài)
+          </h2>
+          <span className="text-xs text-[var(--muted)]">Ký hiệu bài A, B, C... tự động gắn theo thứ tự này</span>
+        </div>
+
+        {problemIds.length > 0 ? (
+          <div className="space-y-2">
+            {problemIds.map((id, idx) => {
+              const p = availableProblems.find((item) => item.id === id);
+              return (
+                <div
+                  key={id}
+                  className="flex items-center justify-between rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-strong)] text-xs font-bold text-white">
+                      {String.fromCharCode(65 + idx)}
+                    </span>
+                    <div>
+                      <span className="font-semibold text-[var(--navy)]">{p?.title ?? id}</span>
+                      <span className="ml-2 font-mono text-xs text-[var(--muted)]">({p?.slug ?? id})</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => moveProblemUp(idx)}
+                      className="rounded border border-[var(--line)] px-2 py-0.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--paper)] disabled:opacity-30"
+                      title="Lên trên"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === problemIds.length - 1}
+                      onClick={() => moveProblemDown(idx)}
+                      className="rounded border border-[var(--line)] px-2 py-0.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--paper)] disabled:opacity-30"
+                      title="Xuống dưới"
+                    >
+                      ▼
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggle(id)}
+                      className="rounded border border-rose-200 px-2 py-0.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-[var(--muted)]">Chưa có bài nào được chọn trong contest.</p>
+        )}
+
+        <fieldset className="mt-4 rounded-lg border border-[var(--line)] p-4">
+          <legend className="px-1 text-sm font-medium">Chọn thêm từ kho bài tập có sẵn</legend>
+          {availableProblems.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Chưa có bài tập thường nào trong hệ thống.</p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2 max-h-60 overflow-y-auto pr-1">
+              {availableProblems.map((problem) => {
+                const checked = problemIds.includes(problem.id);
+                return (
+                  <label
+                    key={problem.id}
+                    className={`flex items-center gap-2 rounded-md border p-2 text-sm cursor-pointer transition-colors ${
+                      checked
+                        ? "border-[var(--teal)] bg-[var(--teal)]/5 text-[var(--navy)] font-medium"
+                        : "border-[var(--line)] hover:bg-black/5"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(problem.id)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-mono text-[var(--muted)]">{problem.slug}</p>
+                      <p className="truncate">{problem.title}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </fieldset>
+      </div>
+
+      {/* Tạo bài mới riêng cho contest */}
+      <section className="space-y-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--navy)]">
+              Tạo bài riêng cho contest (Test & đề bài độc lập)
+            </h2>
+            <p className="text-xs text-[var(--muted)]">
+              Các bài này độc lập, chỉ xuất hiện và chấm trong contest, không ảnh hưởng đến kho bài tập chung.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-md border border-[var(--teal)] bg-[var(--teal)]/10 px-3 py-1.5 text-xs font-medium text-[var(--teal)] hover:bg-[var(--teal)]/20"
+            onClick={() => setNewProblems((current) => [...current, createProblemDraft()])}
+          >
+            + Thêm bài mới vào contest
+          </button>
+        </div>
+
+        {newProblems.map((problem, problemIndex) => (
+          <fieldset
+            key={problemIndex}
+            className="space-y-4 rounded-lg border border-[var(--line)] bg-white p-4 shadow-sm"
+          >
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-2">
+              <span className="font-semibold text-sm text-[var(--navy)]">
+                Bài mới {String.fromCharCode(65 + problemIds.length + problemIndex)}
+              </span>
+              <button
+                type="button"
+                className="text-xs text-rose-700 hover:underline"
+                onClick={() =>
+                  setNewProblems((current) => current.filter((_, i) => i !== problemIndex))
+                }
+              >
+                ✕ Xóa bài này
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="text-xs font-medium">
+                Slug
+                <input
+                  required
+                  minLength={2}
+                  maxLength={64}
+                  pattern="[a-z0-9\-]+"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2.5 py-1.5 font-mono text-xs"
+                  value={problem.slug}
+                  onChange={(e) => updateProblem(problemIndex, { slug: e.target.value.toLowerCase() })}
+                />
+              </label>
+
+              <label className="text-xs font-medium sm:col-span-2">
+                Tên bài
+                <input
+                  required
+                  minLength={2}
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2.5 py-1.5 text-xs"
+                  value={problem.title}
+                  onChange={(e) => updateProblem(problemIndex, { title: e.target.value })}
+                />
+              </label>
+
+              <label className="text-xs font-medium">
+                Độ khó
+                <select
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-xs"
+                  value={problem.difficulty}
+                  onChange={(e) =>
+                    updateProblem(problemIndex, {
+                      difficulty: e.target.value as ProblemDraft["difficulty"],
+                    })
+                  }
+                >
+                  <option value="EASY">Dễ</option>
+                  <option value="MEDIUM">Trung bình</option>
+                  <option value="HARD">Khó</option>
+                </select>
+              </label>
+
+              <label className="text-xs font-medium">
+                Time limit (ms)
+                <input
+                  required
+                  min={1}
+                  type="number"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-xs"
+                  value={problem.timeLimitMs}
+                  onChange={(e) => updateProblem(problemIndex, { timeLimitMs: Number(e.target.value) })}
+                />
+              </label>
+
+              <label className="text-xs font-medium">
+                Memory limit (MB)
+                <input
+                  required
+                  min={1}
+                  type="number"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-xs"
+                  value={problem.memoryLimitMb}
+                  onChange={(e) => updateProblem(problemIndex, { memoryLimitMb: Number(e.target.value) })}
+                />
+              </label>
+            </div>
+
+            <label className="block text-xs font-medium">
+              Đề bài (Markdown + KaTeX)
+              <textarea
+                required
+                minLength={10}
+                rows={5}
+                className="mt-1 w-full rounded border border-[var(--line)] p-2 font-mono text-xs"
+                value={problem.statement}
+                onChange={(e) => updateProblem(problemIndex, { statement: e.target.value })}
+              />
+            </label>
+
+            {/* Testcase & Import ZIP */}
+            <div className="space-y-3 rounded-lg border border-dashed border-[var(--line)] p-3 bg-gray-50/50">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-[var(--navy)]">
+                    Bộ Testcase ({problem.testCases.length} test)
+                  </h3>
+                  <button
+                    type="button"
+                    className="rounded bg-[var(--teal)]/10 px-2 py-0.5 text-xs text-[var(--teal)] hover:bg-[var(--teal)]/20"
+                    onClick={() =>
+                      updateProblem(problemIndex, {
+                        testCases: [
+                          ...problem.testCases,
+                          { input: "", output: "", isSample: false, points: 100 },
+                        ],
+                      })
+                    }
+                  >
+                    + Thêm 1 test
+                  </button>
+                </div>
+
+                <label className="inline-flex items-center gap-1.5 cursor-pointer rounded border border-[var(--teal)] px-2.5 py-1 text-xs font-medium text-[var(--teal)] hover:bg-[var(--teal)]/10">
+                  📁 Nhập test từ file ZIP (.in / .out)
+                  <input
+                    type="file"
+                    accept=".zip"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImportZip(problemIndex, file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+
+              {zipMessages[problemIndex] && (
+                <p className="text-xs text-[var(--teal)] font-medium">
+                  {zipMessages[problemIndex]}
+                </p>
+              )}
+
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {problem.testCases.map((testCase, testIndex) => (
+                  <div key={testIndex} className="rounded border border-[var(--line)] bg-white p-2">
+                    <div className="mb-1.5 flex items-center gap-3 text-xs">
+                      <span className="font-semibold text-gray-700">Test {testIndex + 1}</span>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={testCase.isSample}
+                          onChange={(e) =>
+                            updateTestCase(problemIndex, testIndex, {
+                              isSample: e.target.checked,
+                              points: e.target.checked ? 0 : testCase.points || 100,
+                            })
+                          }
+                        />
+                        <span>Sample</span>
+                      </label>
+                      <label className="flex items-center gap-1">
+                        <span>Điểm:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          className="w-14 rounded border border-[var(--line)] px-1 py-0.5 text-xs text-center"
+                          value={testCase.points}
+                          onChange={(e) =>
+                            updateTestCase(problemIndex, testIndex, { points: Number(e.target.value) })
+                          }
+                        />
+                      </label>
+                      {problem.testCases.length > 1 && (
+                        <button
+                          type="button"
+                          className="ml-auto text-xs text-rose-700 hover:underline"
+                          onClick={() =>
+                            updateProblem(problemIndex, {
+                              testCases: problem.testCases.filter((_, i) => i !== testIndex),
+                            })
+                          }
+                        >
+                          Xóa
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <textarea
+                        rows={2}
+                        placeholder="Input"
+                        className="rounded border border-[var(--line)] p-1.5 font-mono text-xs"
+                        value={testCase.input}
+                        onChange={(e) =>
+                          updateTestCase(problemIndex, testIndex, { input: e.target.value })
+                        }
+                      />
+                      <textarea
+                        rows={2}
+                        placeholder="Output"
+                        className="rounded border border-[var(--line)] p-1.5 font-mono text-xs"
+                        value={testCase.output}
+                        onChange={(e) =>
+                          updateTestCase(problemIndex, testIndex, { output: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </fieldset>
+        ))}
+      </section>
+
+      {error && (
+        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700 font-medium">
+          {error}
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-lg bg-[var(--surface-strong)] px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+        >
+          {pending
+            ? "Đang lưu..."
+            : isEditing
+              ? "Cập nhật kỳ thi"
+              : "Tạo kỳ thi"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="rounded-lg border border-[var(--line)] px-4 py-2.5 text-sm text-[var(--muted)] hover:bg-[var(--paper)]"
+        >
+          Hủy bỏ
+        </button>
+      </div>
+    </form>
+  );
+}

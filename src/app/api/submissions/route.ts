@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     );
   }
 
+  let contestConfig: { testLimit: number } | null = null;
   if (parsed.data.contestId) {
     const contest = await prisma.contest.findUnique({
       where: { id: parsed.data.contestId },
@@ -84,13 +85,21 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    contestConfig = { testLimit: contest.testLimit };
   }
 
-  // Pretest trong Contest: 3 test mẫu để phản hồi cực nhanh (1-3s)
+  // Chấm test:
+  // Nếu nộp trong contest:
+  // - Lấy danh sách testcase theo thứ tự order
+  // - Áp dụng testLimit của contest (mặc định 5 test, 0 = không giới hạn / toàn bộ test)
   let gradingCandidates: typeof problem.testCases;
-  if (parsed.data.contestId) {
-    const sampleTests = problem.testCases.filter((t) => t.isSample);
-    gradingCandidates = (sampleTests.length > 0 ? sampleTests : problem.testCases).slice(0, 3);
+  if (contestConfig) {
+    const limit = contestConfig.testLimit;
+    if (limit > 0) {
+      gradingCandidates = problem.testCases.slice(0, limit);
+    } else {
+      gradingCandidates = problem.testCases;
+    }
   } else {
     const hiddenTests = problem.testCases.filter((t) => !t.isSample);
     const baseTests = hiddenTests.length > 0 ? hiddenTests : problem.testCases;

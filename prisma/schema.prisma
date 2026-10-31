@@ -109,6 +109,7 @@ model Contest {
   description   String
   startAt       DateTime
   endAt         DateTime
+  testLimit     Int                    @default(5)
   authorId      String
   author        User                   @relation("ContestAuthor", fields: [authorId], references: [id])
   createdAt     DateTime               @default(now())
