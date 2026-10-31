@@ -15,16 +15,21 @@ export function BackgroundPicker() {
   const [currentConfig, setCurrentConfig] = useState<BgConfig>({ type: "default" });
   const [customUrl, setCustomUrl] = useState("");
   const [customOpacity, setCustomOpacity] = useState(15);
+  const [isUploading, setIsUploading] = useState(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const cfg = loadBgConfig();
     setCurrentConfig(cfg);
     if (cfg.type === "image" && cfg.imageUrl) {
-      setCustomUrl(cfg.imageUrl);
+      if (!cfg.imageUrl.startsWith("data:")) {
+        setCustomUrl(cfg.imageUrl);
+      }
       setCustomOpacity(Math.round((cfg.imageOpacity ?? 0.15) * 100));
     }
-  }, []);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -50,7 +55,7 @@ export function BackgroundPicker() {
     }
   }
 
-  function handleApplyCustomImage(e: React.FormEvent) {
+  function handleApplyCustomImageUrl(e: React.FormEvent) {
     e.preventDefault();
     if (!customUrl.trim()) return;
     applyAndSave({
@@ -58,6 +63,64 @@ export function BackgroundPicker() {
       imageUrl: customUrl.trim(),
       imageOpacity: customOpacity / 100,
     });
+  }
+
+  // Tải file ảnh trực tiếp từ máy (PNG, JPG, WEBP...)
+  function handleImageFileUpload(file: File) {
+    if (!file.type.startsWith("image/")) {
+      alert("Vui lòng chọn file hình ảnh (PNG, JPG, WebP, GIF...)");
+      return;
+    }
+
+    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (!dataUrl) {
+        setIsUploading(false);
+        return;
+      }
+
+      // Nén & tối ưu kích thước ảnh để đảm bảo vừa bộ nhớ localStorage
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = 1920;
+        const MAX_HEIGHT = 1080;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+          if (width / height > MAX_WIDTH / MAX_HEIGHT) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          } else {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+          applyAndSave({
+            type: "image",
+            imageUrl: compressedDataUrl,
+            imageOpacity: customOpacity / 100,
+          });
+        }
+        setIsUploading(false);
+      };
+      img.onerror = () => {
+        setIsUploading(false);
+        alert("Không thể tải hình ảnh này.");
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -86,7 +149,7 @@ export function BackgroundPicker() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 shadow-2xl">
+        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 shadow-2xl">
           <div className="mb-3 flex items-center justify-between border-b border-[var(--line)] pb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--teal)]">
               Hình nền & Hiệu ứng
@@ -95,7 +158,7 @@ export function BackgroundPicker() {
               onClick={() => handleSelectPreset("default")}
               className="text-[11px] text-[var(--muted)] hover:text-white hover:underline"
             >
-              Mặc định
+              Đặt lại mặc định
             </button>
           </div>
 
@@ -103,7 +166,7 @@ export function BackgroundPicker() {
           <div className="grid grid-cols-2 gap-2">
             {BG_PRESETS.map((preset) => {
               const isActive =
-                (currentConfig.preset === preset.name) ||
+                currentConfig.preset === preset.name ||
                 (currentConfig.type === preset.config.type && !currentConfig.preset && preset.name === "default");
               return (
                 <button
@@ -123,34 +186,73 @@ export function BackgroundPicker() {
             })}
           </div>
 
-          {/* Custom image URL */}
-          <form onSubmit={handleApplyCustomImage} className="mt-4 border-t border-[var(--line)] pt-3">
-            <label className="block text-xs font-medium text-[var(--navy)] mb-1">
-              Ảnh nền cá nhân (URL)
-            </label>
-            <div className="flex gap-1.5">
+          {/* Custom image upload & URL */}
+          <div className="mt-4 border-t border-[var(--line)] pt-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-[var(--navy)]">
+                Ảnh nền tùy chỉnh (PNG, JPG...)
+              </label>
+              {currentConfig.type === "image" && (
+                <span className="text-[10px] text-emerald-400 font-medium">✓ Đang áp dụng</span>
+              )}
+            </div>
+
+            {/* Upload file button */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 rounded-md border border-[var(--line)] bg-[var(--background)] py-2 text-center text-xs font-medium text-[var(--navy)] hover:border-[var(--teal)] transition disabled:opacity-50"
+              >
+                {isUploading ? "Đang xử lý ảnh..." : "📁 Tải ảnh từ máy tính"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImageFileUpload(file);
+                }}
+              />
+              {currentConfig.type === "image" && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset("default")}
+                  title="Xóa hình nền tùy chỉnh"
+                  className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-300 hover:bg-rose-500/20"
+                >
+                  Xóa
+                </button>
+              )}
+            </div>
+
+            {/* Or enter URL */}
+            <form onSubmit={handleApplyCustomImageUrl} className="mt-2.5 flex gap-1.5">
               <input
                 type="url"
-                placeholder="https://... ảnh nền"
+                placeholder="Hoặc dán URL link ảnh..."
                 value={customUrl}
                 onChange={(e) => setCustomUrl(e.target.value)}
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--navy)] outline-none focus:border-[var(--teal)]"
               />
               <button
                 type="submit"
-                className="rounded-md bg-[var(--surface-strong)] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-white/20"
+                className="rounded-md bg-[var(--surface-strong)] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-white/20 shrink-0"
               >
                 Áp dụng
               </button>
-            </div>
+            </form>
 
             {/* Opacity slider */}
-            <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--muted)]">
-              <span>Độ mờ: {customOpacity}%</span>
+            <div className="mt-3 flex items-center justify-between text-[11px] text-[var(--muted)]">
+              <span>Độ mờ nền: {customOpacity}%</span>
               <input
                 type="range"
                 min="5"
-                max="50"
+                max="60"
                 value={customOpacity}
                 onChange={(e) => {
                   const val = Number(e.target.value);
@@ -162,10 +264,10 @@ export function BackgroundPicker() {
                     });
                   }
                 }}
-                className="w-24 accent-[var(--teal)]"
+                className="w-28 accent-[var(--teal)]"
               />
             </div>
-          </form>
+          </div>
         </div>
       )}
     </div>
