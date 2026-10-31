@@ -123,7 +123,7 @@ export default async function ProblemListPage({
           </thead>
           <tbody>
             {problems.map((p) => (
-              <tr key={p.id} className="border-t border-[var(--line)]">
+              <tr key={p.id} className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
                 <td className="px-3 py-2 font-mono text-xs">{p.slug}</td>
                 <td className="px-3 py-2">
                   <Link
@@ -147,13 +147,19 @@ export default async function ProblemListPage({
                     </>
                   )}
                 </td>
-                <td className="px-3 py-2">{DIFF[p.difficulty]}</td>
+                <td className="px-3 py-2">
+                  <DifficultyBadge difficulty={p.difficulty} />
+                </td>
                 {user && (
                   <td className="px-3 py-2">
                     {p.submissions.length > 0 ? (
-                      <span className="font-medium text-emerald-700">✓ Đã giải</span>
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
+                        ✓ Đã giải
+                      </span>
                     ) : (
-                      <span className="text-[var(--muted)]">Chưa giải</span>
+                      <span className="inline-flex items-center rounded-md bg-slate-500/10 px-2 py-0.5 text-xs text-slate-400 ring-1 ring-inset ring-slate-500/20">
+                        Chưa giải
+                      </span>
                     )}
                   </td>
                 )}
@@ -174,5 +180,25 @@ export default async function ProblemListPage({
         </table>
       </div>
     </div>
+  );
+}
+
+function DifficultyBadge({ difficulty }: { difficulty: string }) {
+  if (difficulty === "EASY")
+    return (
+      <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
+        Dễ
+      </span>
+    );
+  if (difficulty === "MEDIUM")
+    return (
+      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 ring-1 ring-inset ring-amber-500/30">
+        Trung bình
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-400 ring-1 ring-inset ring-rose-500/30">
+      Khó
+    </span>
   );
 }

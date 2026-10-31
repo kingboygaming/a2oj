@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -119,34 +119,70 @@ export function GlobalAcmLeaderboard({ standings }: { standings: Standing[] }) {
   );
 }
 
+const AVATAR_COLORS = [
+  "bg-sky-500/20 text-sky-400",
+  "bg-violet-500/20 text-violet-400",
+  "bg-emerald-500/20 text-emerald-400",
+  "bg-amber-500/20 text-amber-400",
+  "bg-rose-500/20 text-rose-400",
+  "bg-teal-500/20 text-teal-400",
+  "bg-orange-500/20 text-orange-400",
+  "bg-pink-500/20 text-pink-400",
+];
+
+function avatarColor(username: string) {
+  let hash = 0;
+  for (const c of username) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 function StandingRow({ standing, rank }: { standing: Standing; rank: number }) {
+  const color = avatarColor(standing.username);
   return (
     <tr className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
       <td className="px-5 py-3">
         <span
-          className={`inline-flex size-7 items-center justify-center rounded-full font-mono text-xs font-bold ${
+          className={`inline-flex size-7 items-center justify-center rounded-full font-mono text-xs font-bold ring-1 ring-inset ${
             rank === 1
-              ? "bg-amber-400/15 text-amber-500"
+              ? "bg-amber-400/15 text-amber-400 ring-amber-400/30"
               : rank === 2
-                ? "bg-slate-400/15 text-slate-400"
+                ? "bg-slate-400/15 text-slate-300 ring-slate-400/30"
                 : rank === 3
-                  ? "bg-orange-500/15 text-orange-500"
-                  : "text-[var(--muted)]"
+                  ? "bg-orange-500/15 text-orange-400 ring-orange-500/30"
+                  : "text-[var(--muted)] ring-transparent"
           }`}
         >
           {rank}
         </span>
       </td>
       <td className="px-3 py-3">
-        <Link
-          href={`/users/${encodeURIComponent(standing.username)}`}
-          className="font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
-        >
-          {standing.displayName}
-        </Link>
-        <p className="text-[11px] text-[var(--muted)]">@{standing.username}</p>
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ring-white/10 ${color}`}
+          >
+            {getInitials(standing.displayName)}
+          </span>
+          <div className="min-w-0">
+            <Link
+              href={`/users/${encodeURIComponent(standing.username)}`}
+              className="block font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
+            >
+              {standing.displayName}
+            </Link>
+            <p className="text-[11px] text-[var(--muted)]">@{standing.username}</p>
+          </div>
+        </div>
       </td>
-      <td className="px-3 py-3 text-right font-mono font-semibold tabular-nums text-emerald-500">
+      <td className="px-3 py-3 text-right font-mono font-semibold tabular-nums text-emerald-400">
         {standing.solved}
       </td>
       <td className="px-5 py-3 text-right font-mono text-xs tabular-nums text-[var(--muted)]">

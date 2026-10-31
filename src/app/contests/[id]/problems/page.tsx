@@ -62,7 +62,7 @@ export default async function ContestProblemsPage({
               const accepted = acceptedProblemIds.has(contestProblem.problem.id);
               const displayName = contestProblem.customTitle || contestProblem.problem.title;
               return (
-                <tr key={contestProblem.problemId} className="border-t border-[var(--line)]">
+                <tr key={contestProblem.problemId} className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
                   <td className="px-3 py-3 font-semibold">{contestProblem.letter}</td>
                   <td className="px-3 py-3">
                     <Link
@@ -74,20 +74,16 @@ export default async function ContestProblemsPage({
 
                   </td>
                   <td className="px-3 py-3">
-                    {contestProblem.problem.difficulty === "EASY"
-                      ? "Dễ"
-                      : contestProblem.problem.difficulty === "MEDIUM"
-                        ? "Trung bình"
-                        : "Khó"}
+                    <DifficultyBadge difficulty={contestProblem.problem.difficulty} />
                   </td>
                   <td className="px-3 py-3">{contestProblem.points}</td>
                   {user && (
                     <td className="px-3 py-3">
                       {accepted ? (
-                        <span className="font-medium text-emerald-700">✓ Đã AC</span>
-                      ) : (
-                        <span className="text-[var(--muted)]">Chưa AC</span>
-                      )}
+                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">✓ AC</span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-md bg-slate-500/10 px-2 py-0.5 text-xs text-slate-400 ring-1 ring-inset ring-slate-500/20">Chưa AC</span>
+                        )}
                     </td>
                   )}
                 </tr>
@@ -107,5 +103,25 @@ export default async function ContestProblemsPage({
         </table>
       </div>
     </div>
+  );
+}
+
+function DifficultyBadge({ difficulty }: { difficulty: string }) {
+  if (difficulty === "EASY")
+    return (
+      <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
+        Dễ
+      </span>
+    );
+  if (difficulty === "MEDIUM")
+    return (
+      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 ring-1 ring-inset ring-amber-500/30">
+        Trung bình
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-400 ring-1 ring-inset ring-rose-500/30">
+      Khó
+    </span>
   );
 }
