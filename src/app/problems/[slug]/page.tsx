@@ -62,6 +62,39 @@ export default async function ProblemDetailPage({
       {user?.role === "ADMIN" && (
         <PreviousPageButton fallbackHref="/admin" />
       )}
+      {!problem.published && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold uppercase text-amber-900">
+                Chờ duyệt
+              </span>
+              <span className="text-sm font-semibold">Bài tập này chưa được phê duyệt</span>
+            </div>
+            <p className="mt-1 text-xs text-amber-800">
+              Bài tập chưa được xuất bản công khai. Tác giả có quyền chỉnh sửa nội dung và bộ test trước khi quản trị viên phê duyệt.
+            </p>
+          </div>
+          {(user?.role === "ADMIN" || user?.id === problem.authorId) && (
+            <Link
+              href={`/problems/${problem.slug}/edit`}
+              className="rounded-lg bg-amber-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-amber-700"
+            >
+              Chỉnh sửa bài tập
+            </Link>
+          )}
+        </div>
+      )}
+      {problem.published && user?.role === "ADMIN" && (
+        <div className="mb-4 flex justify-end">
+          <Link
+            href={`/admin/problems/${problem.id}/edit`}
+            className="inline-flex items-center rounded-lg border border-[var(--line)] bg-[var(--paper)] px-3 py-1.5 text-xs font-medium text-[var(--navy)] hover:border-[var(--teal)] hover:text-[var(--teal)]"
+          >
+            Chỉnh sửa bài tập
+          </Link>
+        </div>
+      )}
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--paper)] shadow-sm">
           <div className="border-b border-[var(--line)] bg-[var(--surface-strong)] px-5 py-5 text-white sm:px-7">

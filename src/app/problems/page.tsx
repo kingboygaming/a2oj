@@ -48,7 +48,11 @@ export default async function ProblemListPage({
           ? { NOT: { submissions: { some: userAcSubmission } } }
           : {},
         { contestOnly: false },
-        staff ? {} : { published: true },
+        staff
+          ? {}
+          : user
+            ? { OR: [{ published: true }, { authorId: user.id }] }
+            : { published: true },
       ],
     },
     orderBy: { createdAt: "desc" },
@@ -130,7 +134,17 @@ export default async function ProblemListPage({
                     {p.title}
                   </Link>
                   {!p.published && (
-                    <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>
+                    <>
+                      <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>
+                      {(staff || p.authorId === user?.id) && (
+                        <Link
+                          href={`/problems/${p.slug}/edit`}
+                          className="ml-2 text-xs font-medium text-[var(--teal)] hover:underline"
+                        >
+                          [Chỉnh sửa]
+                        </Link>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="px-3 py-2">{DIFF[p.difficulty]}</td>

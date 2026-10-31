@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ContributeForm } from "@/components/ContributeForm";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -12,14 +12,19 @@ export default async function EditProblemPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getCurrentUser();
-  if (user?.role !== "ADMIN") notFound();
-
   const { id } = await params;
   const problem = await prisma.problem.findUnique({
     where: { id },
     include: { testCases: { orderBy: { order: "asc" } } },
   });
   if (!problem) notFound();
+
+  if (user?.role !== "ADMIN") {
+    if (user && problem.authorId === user.id && !problem.published) {
+      redirect(`/problems/${problem.slug}/edit`);
+    }
+    notFound();
+  }
 
   return (
     <div className="max-w-3xl">
@@ -51,6 +56,7 @@ export default async function EditProblemPage({
             points,
           })),
         }}
+        returnUrl="/admin/problems"
       />
     </div>
   );

@@ -17,7 +17,7 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [profile, submissionCount, solvedProblems, contestAcSubmissions, recentSubmissions] = await Promise.all([
+  const [profile, submissionCount, solvedProblems, contestAcSubmissions, recentSubmissions, myContributedProblems] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: {
@@ -51,6 +51,11 @@ export default async function ProfilePage() {
         createdAt: true,
         problem: { select: { slug: true, title: true } },
       },
+    }),
+    prisma.problem.findMany({
+      where: { authorId: user.id, contestOnly: false },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, slug: true, title: true, difficulty: true, published: true },
     }),
   ]);
   const contestSolvedCount = new Set(
@@ -106,6 +111,61 @@ export default async function ProfilePage() {
           <Stat label="Lần nộp" value={submissionCount} />
         </div>
       </section>
+
+      {myContributedProblems.length > 0 && (
+        <section className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold text-[var(--navy)]">Bài tập đã đóng góp</h2>
+            <Link href="/problems/new" className="text-sm text-[var(--teal)] hover:underline">
+              + Đóng góp đề mới
+            </Link>
+          </div>
+          <ul className="mt-3 divide-y divide-[var(--line)]">
+            {myContributedProblems.map((problem) => (
+              <li
+                key={problem.id}
+                className="flex flex-wrap items-center justify-between gap-3 py-2.5 text-sm"
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="font-mono text-xs text-[var(--muted)]">
+                    {problem.slug}
+                  </span>
+                  <Link
+                    href={`/problems/${problem.slug}`}
+                    className="font-medium hover:text-[var(--teal)] hover:underline"
+                  >
+                    {problem.title}
+                  </Link>
+                  <span className="text-xs text-[var(--muted)]">
+                    {problem.difficulty === "EASY"
+                      ? "Dễ"
+                      : problem.difficulty === "MEDIUM"
+                        ? "Trung bình"
+                        : "Khó"}
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                      problem.published
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-900"
+                    }`}
+                  >
+                    {problem.published ? "Đã duyệt" : "Chờ duyệt"}
+                  </span>
+                </div>
+                {!problem.published && (
+                  <Link
+                    href={`/problems/${problem.slug}/edit`}
+                    className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    Chỉnh sửa
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
         <div className="flex items-center justify-between gap-3">

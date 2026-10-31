@@ -25,8 +25,10 @@ type ProblemDraft = {
 
 export function ContributeForm({
   problem,
+  returnUrl,
 }: {
   problem?: ProblemDraft;
+  returnUrl?: string;
 }) {
   const router = useRouter();
   const [slug, setSlug] = useState(problem?.slug ?? "");
@@ -83,7 +85,7 @@ export function ContributeForm({
     setError("");
     try {
       const res = await fetch(
-        problem ? `/api/admin/problems/${problem.id}` : "/api/problems",
+        problem ? `/api/problems/${problem.id}` : "/api/problems",
         {
           method: problem ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
@@ -104,7 +106,15 @@ export function ContributeForm({
         return;
       }
 
-      router.push(problem ? "/admin/problems" : `/problems/${data.slug}`);
+      const nextSlug = data.slug ?? slug;
+      if (returnUrl) {
+        const targetUrl = problem?.slug
+          ? returnUrl.replace(`/problems/${problem.slug}`, `/problems/${nextSlug}`)
+          : returnUrl;
+        router.push(targetUrl);
+      } else {
+        router.push(problem ? `/problems/${nextSlug}` : `/problems/${data.slug}`);
+      }
       router.refresh();
     } catch {
       setError("Không thể kết nối để lưu đề. Hãy thử lại.");

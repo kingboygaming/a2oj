@@ -10,8 +10,8 @@ const reviewSchema = z.object({
 const testCaseSchema = z.object({
   input: z.string(),
   output: z.string(),
-  isSample: z.boolean(),
-  points: z.number().int().min(0),
+  isSample: z.boolean().optional(),
+  points: z.number().int().min(0).optional(),
 });
 
 const updateSchema = z.object({
@@ -29,8 +29,31 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const user = await getCurrentUser();
-  if (user?.role !== "ADMIN") {
-    return NextResponse.json({ error: "Bạn không có quyền quản trị." }, { status: 403 });
+  if (!user) {
+    return NextResponse.json({ error: "Cần đăng nhập." }, { status: 401 });
+  }
+
+  const { id } = await context.params;
+  const problem = await prisma.problem.findUnique({
+    where: { id },
+    select: { id: true, authorId: true, published: true },
+  });
+  if (!problem) {
+    return NextResponse.json({ error: "Không tìm thấy bài tập." }, { status: 404 });
+  }
+
+  const canEdit =
+    user.role === "ADMIN" ||
+    (!problem.published && problem.authorId === user.id);
+  if (!canEdit) {
+    return NextResponse.json(
+      {
+        error: problem.published
+          ? "Bài tập đã được duyệt, chỉ quản trị viên mới có thể chỉnh sửa."
+          : "Bạn không có quyền chỉnh sửa bài tập này.",
+      },
+      { status: 403 },
+    );
   }
 
   const json = await request.json().catch(() => null);
@@ -40,15 +63,6 @@ export async function PATCH(
       { error: "Dữ liệu đề bài không hợp lệ.", details: parsed.error.flatten() },
       { status: 400 },
     );
-  }
-
-  const { id } = await context.params;
-  const problem = await prisma.problem.findUnique({
-    where: { id },
-    select: { id: true },
-  });
-  if (!problem) {
-    return NextResponse.json({ error: "Không tìm thấy bài tập." }, { status: 404 });
   }
 
   const slugOwner = await prisma.problem.findUnique({
@@ -74,7 +88,10 @@ export async function PATCH(
     await transaction.testCase.deleteMany({ where: { problemId: id } });
     await transaction.testCase.createMany({
       data: parsed.data.testCases.map((testCase, order) => ({
-        ...testCase,
+        input: testCase.input,
+        output: testCase.output,
+        isSample: testCase.isSample ?? false,
+        points: testCase.points ?? (testCase.isSample ? 0 : 100),
         problemId: id,
         order,
       })),
