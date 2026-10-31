@@ -8,14 +8,17 @@ export type ImportedTestCase = {
   points: number;
 };
 
-const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
-const MAX_ENTRY_BYTES = 2 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+// ZIP archive limit: 50 MB compressed (accommodate n=10^6 inputs after Deflate)
+const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
+// Per-file uncompressed limit: 30 MB (~n=10^6 integers takes ~11 MB raw)
+const MAX_ENTRY_BYTES = 30 * 1024 * 1024;
+// Total uncompressed limit across all test files: 200 MB
+const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 const MAX_CASES = 100;
 
 export function parseTestCaseZip(data: Uint8Array): ImportedTestCase[] {
   if (data.byteLength > MAX_ARCHIVE_BYTES) {
-    throw new Error("File ZIP vượt quá giới hạn 5 MB.");
+    throw new Error("File ZIP vượt quá giới hạn 50 MB.");
   }
 
   let totalUncompressedBytes = 0;
@@ -43,13 +46,13 @@ export function parseTestCaseZip(data: Uint8Array): ImportedTestCase[] {
           file.originalSize < 0 ||
           file.originalSize > MAX_ENTRY_BYTES
         ) {
-          archiveError = "Mỗi file test phải có kích thước không quá 2 MB.";
+          archiveError = "Mỗi file test phải có kích thước không quá 30 MB.";
           return false;
         }
 
         totalUncompressedBytes += file.originalSize;
         if (totalUncompressedBytes > MAX_TOTAL_BYTES) {
-          archiveError = "Tổng dung lượng giải nén của test không được quá 20 MB.";
+          archiveError = "Tổng dung lượng giải nén của test không được quá 200 MB.";
           return false;
         }
         return true;

@@ -225,7 +225,7 @@ export function ContributeForm({
           />
           <span className="mt-2 block text-xs text-[var(--muted)]">
             ZIP chứa các cặp cùng tên như 01.in + 01.out. Có thể đặt trong thư mục con.
-            File tối đa 5 MB, mỗi test tối đa 2 MB và tối đa 100 cặp.
+            File ZIP tối đa 50 MB, mỗi test tối đa 30 MB, tổng giải nén tối đa 200 MB và tối đa 100 cặp.
           </span>
         </label>
         {importMessage && (
