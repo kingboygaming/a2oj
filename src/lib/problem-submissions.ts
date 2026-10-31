@@ -6,15 +6,17 @@ export async function getProblemSubmissionPage(
   problemId: string,
   requestedPage: number,
   pageSize = PROBLEM_SUBMISSIONS_PAGE_SIZE,
+  contestId: string | null = null,
 ) {
-  const total = await prisma.submission.count({ where: { problemId } });
+  const where = { problemId, contestId };
+  const total = await prisma.submission.count({ where });
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const page =
     Number.isSafeInteger(requestedPage) && requestedPage > 0
       ? Math.min(requestedPage, totalPages)
       : 1;
   const items = await prisma.submission.findMany({
-    where: { problemId },
+    where,
     orderBy: { createdAt: "desc" },
     skip: (page - 1) * pageSize,
     take: pageSize,

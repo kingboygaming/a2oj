@@ -12,9 +12,9 @@ export default async function ProblemSubmissionsPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; contest?: string }>;
 }) {
-  const [{ slug }, { page: pageParam }, user] = await Promise.all([
+  const [{ slug }, { page: pageParam, contest: contestParam }, user] = await Promise.all([
     params,
     searchParams,
     getCurrentUser(),
@@ -32,9 +32,20 @@ export default async function ProblemSubmissionsPage({
   });
   if (!problem) notFound();
 
+  const contestContext = contestParam
+    ? await prisma.contest.findFirst({
+        where: {
+          OR: [{ id: contestParam }, { slug: contestParam }],
+          problems: { some: { problemId: problem.id } },
+        },
+        select: { id: true },
+      })
+    : null;
+  if (contestParam && !contestContext) notFound();
+
   const staff = user?.role === "TEACHER" || user?.role === "ADMIN";
   if (
-    (problem.contestOnly && !staff) ||
+    (problem.contestOnly && !staff && !contestContext) ||
     (!problem.published && !staff && user?.id !== problem.authorId)
   ) {
     notFound();
@@ -44,12 +55,14 @@ export default async function ProblemSubmissionsPage({
   const { items, total, page, totalPages } = await getProblemSubmissionPage(
     problem.id,
     requestedPage,
+    undefined,
+    contestContext?.id ?? null,
   );
 
   return (
     <div>
       <Link
-        href={`/problems/${problem.slug}`}
+        href={`/problems/${problem.slug}${contestParam ? `?contest=${contestParam}` : ""}`}
         className="text-sm font-medium text-[var(--teal)] hover:underline"
       >
         ← {problem.title}
@@ -60,7 +73,7 @@ export default async function ProblemSubmissionsPage({
           Danh sách bài nộp
         </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {total} bài nộp · trang {page}/{totalPages}. Mã nguồn chỉ hiển thị với
+          {total} bài nộp{contestContext ? " trong contest" : " ngoài contest"} · trang {page}/{totalPages}. Mã nguồn chỉ hiển thị với
           chủ bài nộp và giáo viên/quản trị viên.
         </p>
       </header>
@@ -69,6 +82,7 @@ export default async function ProblemSubmissionsPage({
         problemSlug={problem.slug}
         currentPage={page}
         totalPages={totalPages}
+        contestSlug={contestParam}
       />
     </div>
   );

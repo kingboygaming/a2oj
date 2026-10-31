@@ -62,7 +62,7 @@ export default async function ProblemDetailPage({
 
   const samples = problem.testCases.filter((t) => t.isSample);
   const { items: recentSubmissions, total, page, totalPages } =
-    await getProblemSubmissionPage(problem.id, 1, 10);
+    await getProblemSubmissionPage(problem.id, 1, 10, contestContext?.id ?? null);
 
   const currentContestProblem = contestContext?.problems?.[0];
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
@@ -262,7 +262,7 @@ export default async function ProblemDetailPage({
           </div>
           {total > 10 && (
             <Link
-              href={`/problems/${problem.slug}/submissions`}
+              href={`/problems/${problem.slug}/submissions${contestContext ? `?contest=${contestContext.slug}` : ""}`}
               className="text-sm font-medium text-[var(--teal)] hover:underline"
             >
               Xem tất cả →

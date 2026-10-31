@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ContestNavigation } from "@/components/ContestNavigation";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { PublishContestProblemButton } from "@/components/PublishContestProblemButton";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function ContestProblemsPage({
               ioMode: true,
               inputFile: true,
               outputFile: true,
+              contestOnly: true,
             },
           },
         },
@@ -55,6 +57,11 @@ export default async function ContestProblemsPage({
       {user && (
         <p className="mt-4 text-sm text-[var(--muted)]">
           Đã AC {acceptedProblemIds.size}/{contest.problems.length} bài trong contest này.
+        </p>
+      )}
+      {user?.role === "ADMIN" && contest.endAt <= new Date() && (
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Contest đã kết thúc. Có thể đưa từng bài vào kho đề công khai bên dưới.
         </p>
       )}
       <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
@@ -112,6 +119,12 @@ export default async function ContestProblemsPage({
                         <span className="inline-flex items-center rounded bg-purple-500/10 px-1.5 py-0.5 text-[11px] font-medium text-purple-700 dark:text-purple-300">
                           🎯 Heuristic
                         </span>
+                      )}
+                      {user?.role === "ADMIN" && contest.endAt <= new Date() && contestProblem.problem.contestOnly && (
+                        <PublishContestProblemButton
+                          contestId={contest.id}
+                          problemId={contestProblem.problem.id}
+                        />
                       )}
                     </div>
                   </td>

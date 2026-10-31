@@ -9,12 +9,14 @@ export function ProblemSubmissionsList({
   problemSlug,
   currentPage,
   totalPages,
+  contestSlug,
   showPagination = true,
 }: {
   submissions: SubmissionPage["items"];
   problemSlug: string;
   currentPage: number;
   totalPages: number;
+  contestSlug?: string;
   showPagination?: boolean;
 }) {
   if (submissions.length === 0) {
@@ -81,7 +83,7 @@ export function ProblemSubmissionsList({
         >
           {currentPage > 1 ? (
             <Link
-              href={`/problems/${problemSlug}/submissions?page=${currentPage - 1}`}
+              href={`/problems/${problemSlug}/submissions?page=${currentPage - 1}${contestSlug ? `&contest=${contestSlug}` : ""}`}
               className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm hover:border-[var(--navy)]/40"
             >
               ← Trang trước
@@ -94,7 +96,7 @@ export function ProblemSubmissionsList({
           </span>
           {currentPage < totalPages ? (
             <Link
-              href={`/problems/${problemSlug}/submissions?page=${currentPage + 1}`}
+              href={`/problems/${problemSlug}/submissions?page=${currentPage + 1}${contestSlug ? `&contest=${contestSlug}` : ""}`}
               className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm hover:border-[var(--navy)]/40"
             >
               Trang sau →

@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
     include: {
       author: { select: { displayName: true } },
-      _count: { select: { submissions: true } },
+      _count: { select: { submissions: { where: { contestId: null } } } },
     },
   });
 
