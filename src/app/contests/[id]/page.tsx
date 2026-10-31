@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { RegisterContestButton } from "@/components/RegisterContestButton";
 import { ContestNavigation } from "@/components/ContestNavigation";
+import { ContestCountdownBadge } from "@/components/ContestCountdownBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -46,8 +47,13 @@ export default async function ContestDetailPage({
 
   return (
     <div>
-      <p className="text-sm text-[var(--teal)]">Contest</p>
-      <h1 className="text-2xl font-semibold text-[var(--navy)]">{contest.title}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-[var(--teal)]">Contest</p>
+          <h1 className="text-2xl font-semibold text-[var(--navy)]">{contest.title}</h1>
+        </div>
+        <ContestCountdownBadge startAt={contest.startAt} endAt={contest.endAt} />
+      </div>
       <ContestNavigation slug={contest.slug} active="overview" />
       <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">{contest.description}</p>
       <p className="mt-2 text-xs text-[var(--muted)]">

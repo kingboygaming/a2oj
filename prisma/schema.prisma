@@ -119,12 +119,13 @@ model Contest {
 }
 
 model ContestProblem {
-  contestId String
-  problemId String
-  letter    String
-  points    Int     @default(100)
-  contest   Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
-  problem   Problem @relation(fields: [problemId], references: [id])
+  contestId   String
+  problemId   String
+  letter      String
+  customTitle String?
+  points      Int     @default(100)
+  contest     Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  problem     Problem @relation(fields: [problemId], references: [id])
 
   @@id([contestId, problemId])
 }

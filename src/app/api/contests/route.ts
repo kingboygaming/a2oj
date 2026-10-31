@@ -22,6 +22,7 @@ const schema = z.object({
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
   problemIds: z.array(z.string().min(1)),
+  problemCustomTitles: z.record(z.string(), z.string()).optional(),
   newProblems: z.array(
     z.object({
       slug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9-]+$/),
@@ -133,11 +134,13 @@ export async function POST(request: Request) {
     }
 
     const problemIds = [...parsed.data.problemIds, ...newProblemIds];
+    const customTitles = parsed.data.problemCustomTitles ?? {};
     await transaction.contestProblem.createMany({
       data: problemIds.map((problemId, index) => ({
         contestId: createdContest.id,
         problemId,
         letter: String.fromCharCode(65 + index),
+        customTitle: customTitles[problemId]?.trim() || null,
         points: 100,
       })),
     });

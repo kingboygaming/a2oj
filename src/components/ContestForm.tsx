@@ -30,6 +30,7 @@ export type InitialContestData = {
   endAt: string;
   testLimit: number;
   problemIds: string[];
+  problemCustomTitles?: Record<string, string>;
 };
 
 function createProblemDraft(): ProblemDraft {
@@ -80,6 +81,9 @@ export function ContestForm({
   );
   const [testLimit, setTestLimit] = useState(initialData?.testLimit ?? 5);
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
+  const [problemCustomTitles, setProblemCustomTitles] = useState<Record<string, string>>(
+    initialData?.problemCustomTitles ?? {},
+  );
   const [newProblems, setNewProblems] = useState<ProblemDraft[]>([]);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -185,6 +189,7 @@ export function ContestForm({
           endAt: new Date(endAt).toISOString(),
           testLimit: Number(testLimit),
           problemIds,
+          problemCustomTitles,
           newProblems,
         }),
       });
@@ -301,49 +306,69 @@ export function ContestForm({
         </div>
 
         {problemIds.length > 0 ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {problemIds.map((id, idx) => {
               const p = availableProblems.find((item) => item.id === id);
+              const customTitleVal = problemCustomTitles[id] ?? "";
               return (
                 <div
                   key={id}
-                  className="flex items-center justify-between rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm"
+                  className="rounded-lg border border-[var(--line)] bg-white p-3 text-sm space-y-2"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-strong)] text-xs font-bold text-white">
-                      {String.fromCharCode(65 + idx)}
-                    </span>
-                    <div>
-                      <span className="font-semibold text-[var(--navy)]">{p?.title ?? id}</span>
-                      <span className="ml-2 font-mono text-xs text-[var(--muted)]">({p?.slug ?? id})</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface-strong)] text-xs font-bold text-white shrink-0">
+                        {String.fromCharCode(65 + idx)}
+                      </span>
+                      <div>
+                        <span className="font-semibold text-[var(--navy)]">{p?.title ?? id}</span>
+                        <span className="ml-2 font-mono text-xs text-[var(--muted)]">({p?.slug ?? id})</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => moveProblemUp(idx)}
+                        className="rounded border border-[var(--line)] px-2 py-0.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--paper)] disabled:opacity-30"
+                        title="Lên trên"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === problemIds.length - 1}
+                        onClick={() => moveProblemDown(idx)}
+                        className="rounded border border-[var(--line)] px-2 py-0.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--paper)] disabled:opacity-30"
+                        title="Xuống dưới"
+                      >
+                        ▼
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggle(id)}
+                        className="rounded border border-rose-200 px-2 py-0.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
+                      >
+                        Bỏ chọn
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={idx === 0}
-                      onClick={() => moveProblemUp(idx)}
-                      className="rounded border border-[var(--line)] px-2 py-0.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--paper)] disabled:opacity-30"
-                      title="Lên trên"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      disabled={idx === problemIds.length - 1}
-                      onClick={() => moveProblemDown(idx)}
-                      className="rounded border border-[var(--line)] px-2 py-0.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--paper)] disabled:opacity-30"
-                      title="Xuống dưới"
-                    >
-                      ▼
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggle(id)}
-                      className="rounded border border-rose-200 px-2 py-0.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
-                    >
-                      Bỏ chọn
-                    </button>
+
+                  <div className="flex items-center gap-2 pt-1 border-t border-[var(--line)]/60 text-xs">
+                    <span className="text-[var(--muted)] whitespace-nowrap">Tên hiển thị trong contest:</span>
+                    <input
+                      type="text"
+                      placeholder={`Mặc định: "${p?.title ?? id}"`}
+                      className="w-full rounded border border-[var(--line)] px-2.5 py-1 text-xs"
+                      value={customTitleVal}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setProblemCustomTitles((prev) => ({
+                          ...prev,
+                          [id]: val,
+                        }));
+                      }}
+                    />
                   </div>
                 </div>
               );

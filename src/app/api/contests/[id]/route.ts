@@ -46,6 +46,7 @@ const updateContestSchema = z.object({
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
   problemIds: z.array(z.string().min(1)),
+  problemCustomTitles: z.record(z.string(), z.string()).optional(),
   newProblems: z.array(
     z.object({
       slug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9-]+$/),
@@ -195,17 +196,20 @@ export async function PATCH(
       },
     });
 
-    // 3. Upsert / update ContestProblem letters and points
+    // 3. Upsert / update ContestProblem letters, customTitle and points
+    const customTitles = parsed.data.problemCustomTitles ?? {};
     for (let i = 0; i < allFinalProblemIds.length; i++) {
       const problemId = allFinalProblemIds[i];
       const letter = String.fromCharCode(65 + i);
+      const customTitle = customTitles[problemId]?.trim() || null;
       await tx.contestProblem.upsert({
         where: { contestId_problemId: { contestId: existingContest.id, problemId } },
-        update: { letter, points: 100 },
+        update: { letter, customTitle, points: 100 },
         create: {
           contestId: existingContest.id,
           problemId,
           letter,
+          customTitle,
           points: 100,
         },
       });

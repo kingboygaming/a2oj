@@ -2,14 +2,18 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { canManageContests } from "@/lib/auth";
+import { ContestCountdownBadge } from "@/components/ContestCountdownBadge";
 
 export const dynamic = "force-dynamic";
 
-function status(startAt: Date, endAt: Date) {
-  const now = Date.now();
-  if (now < startAt.getTime()) return "Sắp diễn ra";
-  if (now > endAt.getTime()) return "Đã kết thúc";
-  return "Đang thi";
+function formatDateTime(d: Date): string {
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  const day = d.getDate();
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const seconds = String(d.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 export default async function ContestsPage() {
@@ -17,6 +21,7 @@ export default async function ContestsPage() {
   const contests = await prisma.contest.findMany({
     orderBy: { startAt: "desc" },
     include: {
+      author: { select: { displayName: true, username: true } },
       _count: { select: { problems: true, registrations: true } },
     },
   });
@@ -37,26 +42,57 @@ export default async function ContestsPage() {
           </Link>
         )}
       </div>
-      <div className="mt-6 space-y-3">
+
+      <div className="mt-6 space-y-4">
         {contests.map((c) => (
           <Link
             key={c.id}
             href={`/contests/${c.slug}`}
-            className="block rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 hover:border-[var(--navy)]/40"
+            className="block rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 transition-all hover:border-[var(--navy)]/40 hover:shadow-sm"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-semibold text-[var(--navy)]">{c.title}</h2>
-              <span className="text-xs font-medium text-[var(--teal)]">
-                {status(c.startAt, c.endAt)}
-              </span>
+            {/* Header: Title & Timer Countdown Badge */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-[var(--navy)]">{c.title}</h2>
+              <ContestCountdownBadge startAt={c.startAt} endAt={c.endAt} />
             </div>
-            <p className="mt-1 text-sm text-[var(--muted)]">{c.description}</p>
-            <p className="mt-2 text-xs text-[var(--muted)]">
-              {c._count.problems} bài · {c._count.registrations} thí sinh ·{" "}
-              {c.startAt.toLocaleString("vi-VN")} → {c.endAt.toLocaleString("vi-VN")}
+
+            {/* Author / GV */}
+            <p className="mt-1.5 text-xs text-[var(--muted)]">
+              GV: <span className="font-medium text-[var(--navy)]">{c.author.displayName}</span>
+              {c.description && <span className="ml-2 font-normal text-[var(--muted)]">· {c.description}</span>}
             </p>
+
+            {/* Table-style Info Bar */}
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[var(--line)]/70 pt-3 text-xs sm:grid-cols-5">
+              <div>
+                <span className="block font-medium text-[var(--muted)]">Bắt đầu</span>
+                <span className="font-mono text-slate-700">{formatDateTime(c.startAt)}</span>
+              </div>
+              <div>
+                <span className="block font-medium text-[var(--muted)]">Kết thúc</span>
+                <span className="font-mono text-slate-700">{formatDateTime(c.endAt)}</span>
+              </div>
+              <div>
+                <span className="block font-medium text-[var(--muted)]">Loại kỳ thi</span>
+                <span className="text-slate-700">Kỳ thi nội bộ ({c._count.problems} bài)</span>
+              </div>
+              <div>
+                <span className="block font-medium text-[var(--muted)]">Cách tính điểm</span>
+                <span className="text-slate-700">OI (Điểm cao nhất)</span>
+              </div>
+              <div>
+                <span className="block font-medium text-[var(--muted)]">Người tạo</span>
+                <span className="font-mono text-slate-700">@{c.author.username}</span>
+              </div>
+            </div>
           </Link>
         ))}
+
+        {contests.length === 0 && (
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-8 text-center text-sm text-[var(--muted)]">
+            Chưa có kỳ thi nào.
+          </div>
+        )}
       </div>
     </div>
   );

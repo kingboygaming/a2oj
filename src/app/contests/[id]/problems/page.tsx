@@ -60,6 +60,7 @@ export default async function ContestProblemsPage({
           <tbody>
             {contest.problems.map((contestProblem) => {
               const accepted = acceptedProblemIds.has(contestProblem.problem.id);
+              const displayName = contestProblem.customTitle || contestProblem.problem.title;
               return (
                 <tr key={contestProblem.problemId} className="border-t border-[var(--line)]">
                   <td className="px-3 py-3 font-semibold">{contestProblem.letter}</td>
@@ -68,10 +69,15 @@ export default async function ContestProblemsPage({
                       href={`/problems/${contestProblem.problem.slug}?contest=${contest.id}`}
                       className="font-medium text-[var(--teal)] hover:underline"
                     >
-                      {contestProblem.problem.title}
+                      {displayName}
                     </Link>
                     <p className="mt-1 font-mono text-xs text-[var(--muted)]">
                       {contestProblem.problem.slug}
+                      {contestProblem.customTitle && (
+                        <span className="ml-1.5 text-[var(--muted)] font-sans italic">
+                          (gốc: {contestProblem.problem.title})
+                        </span>
+                      )}
                     </p>
                   </td>
                   <td className="px-3 py-3">

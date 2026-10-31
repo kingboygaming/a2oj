@@ -27,7 +27,7 @@ export default async function EditContestPage({
     include: {
       problems: {
         orderBy: { letter: "asc" },
-        select: { problemId: true, letter: true },
+        select: { problemId: true, letter: true, customTitle: true },
       },
     },
   });
@@ -78,6 +78,11 @@ export default async function EditContestPage({
           endAt: contest.endAt.toISOString(),
           testLimit: contest.testLimit,
           problemIds: contest.problems.map((p) => p.problemId),
+          problemCustomTitles: Object.fromEntries(
+            contest.problems
+              .filter((p) => p.customTitle)
+              .map((p) => [p.problemId, p.customTitle as string]),
+          ),
         }}
       />
     </div>
