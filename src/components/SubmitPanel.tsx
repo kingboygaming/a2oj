@@ -174,7 +174,7 @@ export function SubmitPanel({
 
   return (
     <aside className="code-workspace min-w-0 overflow-hidden rounded-2xl border border-slate-700 shadow-xl">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#111827] px-4 py-3.5 sm:px-5">
+      <div className="relative z-20 flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#111827] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg border border-sky-400/20 bg-sky-400/10 font-mono text-sm font-bold text-sky-300">
             {"</>"}
@@ -219,7 +219,7 @@ export function SubmitPanel({
               <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{outputFile || "OUTPUT.OUT"}</code>
             </span>
           </div>
-          <span className="text-[11px] text-amber-300/80">Hệ thống hỗ trợ cả freopen lẫn cin/cout</span>
+          <span className="text-[11px] text-amber-300/80">Bắt buộc đọc từ {inputFile || "INPUT.INP"} và ghi ra {outputFile || "OUTPUT.OUT"}</span>
         </div>
       )}
 

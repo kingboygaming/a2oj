@@ -233,7 +233,13 @@ namespace __a2oj_file_bridge {
                 }
                 fclose(in_file);
             }
-            freopen("${inputFile}", "r", stdin);
+            #ifdef _WIN32
+            freopen("NUL", "r", stdin);
+            freopen("NUL", "w", stdout);
+            #else
+            freopen("/dev/null", "r", stdin);
+            freopen("/dev/null", "w", stdout);
+            #endif
             atexit(__flush_to_real_stdout);
         }
     } __bridge_init;
@@ -252,7 +258,13 @@ try:
     __input_data = sys.stdin.read()
     with open("${inputFile}", "w", encoding="utf-8") as __in_f:
         __in_f.write(__input_data)
-    sys.stdin = open("${inputFile}", "r", encoding="utf-8")
+    sys.stdin = open(os.devnull, "r", encoding="utf-8")
+    __devnull_out = open(os.devnull, "w", encoding="utf-8")
+    sys.stdout = __devnull_out
+    try:
+        os.dup2(__devnull_out.fileno(), 1)
+    except Exception:
+        pass
     def __a2oj_dump_output():
         try:
             sys.stdout.flush()
@@ -307,19 +319,23 @@ async function gradeWithCompiler(
           if (inputFile) {
             await fs.writeFile(path.join(testDir, inputFile), test.input, "utf8");
           }
-          const run = await runTimed(py, [srcPath], test.input, timeLimitMs + 500, testDir);
+          const processInput = inputFile ? "" : test.input;
+          const run = await runTimed(py, [srcPath], processInput, timeLimitMs + 500, testDir);
 
-          let actualStdout = run.stdout;
+          let actualStdout = "";
+          let outputFileFound = true;
           if (outputFile) {
             try {
-              const fileContent = await fs.readFile(path.join(testDir, outputFile), "utf8");
-              if (fileContent.trim().length > 0 || actualStdout.trim().length === 0) {
-                actualStdout = fileContent;
-              }
-            } catch {}
+              actualStdout = await fs.readFile(path.join(testDir, outputFile), "utf8");
+            } catch {
+              outputFileFound = false;
+              actualStdout = "__A2OJ_FILE_NOT_FOUND__";
+            }
+          } else {
+            actualStdout = run.stdout;
           }
 
-          return { test, index, run: { ...run, stdout: actualStdout } };
+          return { test, index, run: { ...run, stdout: actualStdout }, outputFileFound };
         }),
       );
 
@@ -341,7 +357,7 @@ async function gradeWithCompiler(
       let firstFailingVerdict: Verdict | null = null;
       const testResults: JudgeResult["testResults"] = [];
 
-      for (const { test, index, run } of testRuns) {
+      for (const { test, index, run, outputFileFound } of testRuns) {
         total += test.points;
         maxTime = Math.max(maxTime, run.timeMs);
         let testVerdict: Verdict = "WA";
@@ -352,6 +368,9 @@ async function gradeWithCompiler(
         } else if (!run.ok) {
           testVerdict = "RTE";
           logs.push(`Test ${index + 1} RTE: ${run.stderr}`);
+        } else if (!outputFileFound) {
+          testVerdict = "WA";
+          logs.push(`Test ${index + 1}: Không tìm thấy file output (${outputFile})`);
         } else if (compareOutput(run.stdout, test.output)) {
           testVerdict = "AC";
           passed += test.points;
@@ -424,19 +443,23 @@ async function gradeWithCompiler(
         if (inputFile) {
           await fs.writeFile(path.join(testDir, inputFile), test.input, "utf8");
         }
-        const run = await runTimed(exePath, [], test.input, timeLimitMs + 500, testDir);
+        const processInput = inputFile ? "" : test.input;
+        const run = await runTimed(exePath, [], processInput, timeLimitMs + 500, testDir);
 
-        let actualStdout = run.stdout;
+        let actualStdout = "";
+        let outputFileFound = true;
         if (outputFile) {
           try {
-            const fileContent = await fs.readFile(path.join(testDir, outputFile), "utf8");
-            if (fileContent.trim().length > 0 || actualStdout.trim().length === 0) {
-              actualStdout = fileContent;
-            }
-          } catch {}
+            actualStdout = await fs.readFile(path.join(testDir, outputFile), "utf8");
+          } catch {
+            outputFileFound = false;
+            actualStdout = "__A2OJ_FILE_NOT_FOUND__";
+          }
+        } else {
+          actualStdout = run.stdout;
         }
 
-        return { test, index, run: { ...run, stdout: actualStdout } };
+        return { test, index, run: { ...run, stdout: actualStdout }, outputFileFound };
       }),
     );
 
@@ -445,7 +468,7 @@ async function gradeWithCompiler(
     let firstFailingVerdict: Verdict | null = null;
     const testResults: JudgeResult["testResults"] = [];
 
-    for (const { test, index, run } of testRuns) {
+    for (const { test, index, run, outputFileFound } of testRuns) {
       total += test.points;
       maxTime = Math.max(maxTime, run.timeMs);
       let testVerdict: Verdict = "WA";
@@ -456,6 +479,9 @@ async function gradeWithCompiler(
       } else if (!run.ok) {
         testVerdict = "RTE";
         logs.push(`Test ${index + 1} RTE: ${run.stderr}`);
+      } else if (!outputFileFound) {
+        testVerdict = "WA";
+        logs.push(`Test ${index + 1}: Không tìm thấy file output (${outputFile})`);
       } else if (compareOutput(run.stdout, test.output)) {
         testVerdict = "AC";
         passed += test.points;
