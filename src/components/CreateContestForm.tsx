@@ -17,6 +17,9 @@ type ProblemDraft = {
   difficulty: "EASY" | "MEDIUM" | "HARD";
   timeLimitMs: number;
   memoryLimitMb: number;
+  ioMode?: "STDIO" | "FILE";
+  inputFile?: string;
+  outputFile?: string;
   testCases: TestCaseDraft[];
 };
 

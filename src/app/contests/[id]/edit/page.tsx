@@ -27,7 +27,14 @@ export default async function EditContestPage({
     include: {
       problems: {
         orderBy: { letter: "asc" },
-        select: { problemId: true, letter: true, customTitle: true },
+        select: {
+          problemId: true,
+          letter: true,
+          customTitle: true,
+          ioMode: true,
+          inputFile: true,
+          outputFile: true,
+        },
       },
     },
   });
@@ -51,7 +58,15 @@ export default async function EditContestPage({
       ],
     },
     orderBy: { title: "asc" },
-    select: { id: true, slug: true, title: true, difficulty: true },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      difficulty: true,
+      ioMode: true,
+      inputFile: true,
+      outputFile: true,
+    },
   });
 
   return (
@@ -82,6 +97,21 @@ export default async function EditContestPage({
             contest.problems
               .filter((p) => p.customTitle)
               .map((p) => [p.problemId, p.customTitle as string]),
+          ),
+          problemIoModes: Object.fromEntries(
+            contest.problems
+              .filter((p) => p.ioMode)
+              .map((p) => [p.problemId, p.ioMode as "STDIO" | "FILE"]),
+          ),
+          problemInputFiles: Object.fromEntries(
+            contest.problems
+              .filter((p) => p.inputFile)
+              .map((p) => [p.problemId, p.inputFile as string]),
+          ),
+          problemOutputFiles: Object.fromEntries(
+            contest.problems
+              .filter((p) => p.outputFile)
+              .map((p) => [p.problemId, p.outputFile as string]),
           ),
         }}
       />

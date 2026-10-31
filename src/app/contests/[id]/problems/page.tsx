@@ -17,7 +17,17 @@ export default async function ContestProblemsPage({
     include: {
       problems: {
         include: {
-          problem: { select: { id: true, slug: true, title: true, difficulty: true } },
+          problem: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              difficulty: true,
+              ioMode: true,
+              inputFile: true,
+              outputFile: true,
+            },
+          },
         },
         orderBy: { letter: "asc" },
       },
@@ -61,17 +71,41 @@ export default async function ContestProblemsPage({
             {contest.problems.map((contestProblem) => {
               const accepted = acceptedProblemIds.has(contestProblem.problem.id);
               const displayName = contestProblem.customTitle || contestProblem.problem.title;
+              const effectiveIoMode =
+                contestProblem.ioMode || contestProblem.problem.ioMode || "STDIO";
+              const effectiveInputFile =
+                effectiveIoMode === "FILE"
+                  ? contestProblem.inputFile ||
+                    contestProblem.problem.inputFile ||
+                    `${contestProblem.problem.slug.toUpperCase()}.INP`
+                  : null;
+              const effectiveOutputFile =
+                effectiveIoMode === "FILE"
+                  ? contestProblem.outputFile ||
+                    contestProblem.problem.outputFile ||
+                    `${contestProblem.problem.slug.toUpperCase()}.OUT`
+                  : null;
               return (
                 <tr key={contestProblem.problemId} className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
                   <td className="px-3 py-3 font-semibold">{contestProblem.letter}</td>
                   <td className="px-3 py-3">
-                    <Link
-                      href={`/problems/${contestProblem.problem.slug}?contest=${contest.id}`}
-                      className="font-medium text-[var(--teal)] hover:underline"
-                    >
-                      {displayName}
-                    </Link>
-
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/problems/${contestProblem.problem.slug}?contest=${contest.id}`}
+                        className="font-medium text-[var(--teal)] hover:underline"
+                      >
+                        {displayName}
+                      </Link>
+                      {effectiveIoMode === "FILE" ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                          📁 {effectiveInputFile} / {effectiveOutputFile}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-500">
+                          stdin/stdout
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <DifficultyBadge difficulty={contestProblem.problem.difficulty} />

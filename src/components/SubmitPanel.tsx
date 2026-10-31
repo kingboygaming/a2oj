@@ -28,12 +28,18 @@ export function SubmitPanel({
   loggedIn,
   contestId,
   samples,
+  ioMode,
+  inputFile,
+  outputFile,
 }: {
   problemId: string;
   userId: string;
   loggedIn: boolean;
   contestId?: string;
   samples: Sample[];
+  ioMode?: string | null;
+  inputFile?: string | null;
+  outputFile?: string | null;
 }) {
   const router = useRouter();
   const [language, setLanguage] = useState<Language>("CPP");
@@ -201,6 +207,19 @@ export function SubmitPanel({
           </label>
         </div>
       </div>
+
+      {ioMode === "FILE" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-amber-300">📁 Chấm File I/O:</span>
+            <span>
+              Đọc từ <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{inputFile || "INPUT.INP"}</code>, ghi ra <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{outputFile || "OUTPUT.OUT"}</code>
+            </span>
+          </div>
+          <span className="text-[11px] text-amber-300/80">Hệ thống hỗ trợ cả freopen lẫn cin/cout</span>
+        </div>
+      )}
+
       <div className="p-3 sm:p-5">
         <section className="overflow-hidden rounded-xl border border-white/10 bg-[#0b1220]">
           <div className="flex items-center justify-between border-b border-white/10 bg-[#111827] px-3 py-2.5">

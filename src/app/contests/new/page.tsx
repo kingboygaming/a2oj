@@ -18,7 +18,15 @@ export default async function NewContestPage() {
   const problems = await prisma.problem.findMany({
     where: { published: true, contestOnly: false },
     orderBy: { title: "asc" },
-    select: { id: true, slug: true, title: true, difficulty: true },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      difficulty: true,
+      ioMode: true,
+      inputFile: true,
+      outputFile: true,
+    },
   });
 
   return (

@@ -23,6 +23,9 @@ const schema = z.object({
   testLimit: z.number().int().min(0).max(100).default(5),
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
+  problemIoModes: z.record(z.string(), z.enum(["STDIO", "FILE"])).optional(),
+  problemInputFiles: z.record(z.string(), z.string()).optional(),
+  problemOutputFiles: z.record(z.string(), z.string()).optional(),
   newProblems: z.array(
     z.object({
       slug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9-]+$/),
@@ -31,6 +34,9 @@ const schema = z.object({
       difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
       timeLimitMs: z.number().int().positive(),
       memoryLimitMb: z.number().int().positive(),
+      ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
+      inputFile: z.string().trim().max(100).nullable().optional(),
+      outputFile: z.string().trim().max(100).nullable().optional(),
       testCases: z.array(
         z.object({
           input: z.string(),
@@ -115,9 +121,13 @@ export async function POST(request: Request) {
 
     const newProblemIds: string[] = [];
     for (const problem of parsed.data.newProblems) {
+      const ioMode = problem.ioMode ?? "STDIO";
       const createdProblem = await transaction.problem.create({
         data: {
           ...problem,
+          ioMode,
+          inputFile: ioMode === "FILE" ? (problem.inputFile || `${problem.slug.toUpperCase()}.INP`) : null,
+          outputFile: ioMode === "FILE" ? (problem.outputFile || `${problem.slug.toUpperCase()}.OUT`) : null,
           published: true,
           contestOnly: true,
           authorId: user.id,
@@ -135,12 +145,19 @@ export async function POST(request: Request) {
 
     const problemIds = [...parsed.data.problemIds, ...newProblemIds];
     const customTitles = parsed.data.problemCustomTitles ?? {};
+    const problemIoModes = parsed.data.problemIoModes ?? {};
+    const problemInputFiles = parsed.data.problemInputFiles ?? {};
+    const problemOutputFiles = parsed.data.problemOutputFiles ?? {};
+
     await transaction.contestProblem.createMany({
       data: problemIds.map((problemId, index) => ({
         contestId: createdContest.id,
         problemId,
         letter: String.fromCharCode(65 + index),
         customTitle: customTitles[problemId]?.trim() || null,
+        ioMode: problemIoModes[problemId] || null,
+        inputFile: problemInputFiles[problemId]?.trim() || null,
+        outputFile: problemOutputFiles[problemId]?.trim() || null,
         points: 100,
       })),
     });

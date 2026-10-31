@@ -173,30 +173,123 @@ function runTimed(
   });
 }
 
+function wrapSourceForFileIO(
+  language: Language,
+  source: string,
+  inputFile?: string | null,
+  outputFile?: string | null,
+): string {
+  if (!inputFile || !outputFile) return source;
+
+  if (language === "CPP") {
+    const bridge = `
+#include <stdio.h>
+#include <stdlib.h>
+#ifdef __cplusplus
+namespace __a2oj_file_bridge {
+    static struct __BridgeInit {
+        __BridgeInit() {
+            FILE* in_chk = fopen("${inputFile}", "r");
+            if (!in_chk) {
+                FILE* in_fp = fopen("${inputFile}", "w");
+                if (in_fp) {
+                    char buf[4096];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
+                        fwrite(buf, 1, n, in_fp);
+                    }
+                    fclose(in_fp);
+                }
+            } else {
+                fclose(in_chk);
+            }
+            atexit([]() {
+                FILE* out_fp = fopen("${outputFile}", "r");
+                if (out_fp) {
+                    char buf[4096];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), out_fp)) > 0) {
+                        fwrite(buf, 1, n, stdout);
+                    }
+                    fclose(out_fp);
+                }
+            });
+        }
+    } __bridge_init;
+}
+#endif
+`;
+    return bridge + "\n" + source;
+  }
+
+  if (language === "PYTHON") {
+    const bridge = `
+import os, sys, atexit
+try:
+    if not os.path.exists("${inputFile}"):
+        _input_data = sys.stdin.read()
+        with open("${inputFile}", "w", encoding="utf-8") as _in_f:
+            _in_f.write(_input_data)
+    def __a2oj_dump_output():
+        if os.path.exists("${outputFile}"):
+            try:
+                with open("${outputFile}", "r", encoding="utf-8") as _out_f:
+                    sys.stdout.write(_out_f.read())
+            except Exception:
+                pass
+    atexit.register(__a2oj_dump_output)
+except Exception:
+    pass
+`;
+    return bridge + "\n" + source;
+  }
+
+  return source;
+}
+
 async function gradeWithCompiler(
   language: Language,
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
+  inputFile?: string | null,
+  outputFile?: string | null,
 ): Promise<JudgeResult> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tinoj-"));
   let maxTime = 0;
   const logs: string[] = [];
+  const effectiveSource = wrapSourceForFileIO(language, source, inputFile, outputFile);
 
   try {
     if (language === "PYTHON") {
       const srcPath = path.join(dir, "main.py");
-      await fs.writeFile(srcPath, source, "utf8");
+      await fs.writeFile(srcPath, effectiveSource, "utf8");
       const py = (await commandExists("python")) ? "python" : "python3";
       if (!(await commandExists(py))) {
         throw new Error("NO_PYTHON");
       }
 
-      // Chạy song song các testcase Python
+      // Chạy song song các testcase Python trong thư mục riêng để tránh xung đột file IO
       const testRuns = await Promise.all(
         tests.map(async (test, index) => {
-          const run = await runTimed(py, [srcPath], test.input, timeLimitMs + 500, dir);
-          return { test, index, run };
+          const testDir = path.join(dir, `test_${index}`);
+          await fs.mkdir(testDir, { recursive: true });
+          if (inputFile) {
+            await fs.writeFile(path.join(testDir, inputFile), test.input, "utf8");
+          }
+          const run = await runTimed(py, [srcPath], test.input, timeLimitMs + 500, testDir);
+
+          let actualStdout = run.stdout;
+          if (outputFile) {
+            try {
+              const fileContent = await fs.readFile(path.join(testDir, outputFile), "utf8");
+              if (fileContent.trim().length > 0 || actualStdout.trim().length === 0) {
+                actualStdout = fileContent;
+              }
+            } catch {}
+          }
+
+          return { test, index, run: { ...run, stdout: actualStdout } };
         }),
       );
 
@@ -255,7 +348,7 @@ async function gradeWithCompiler(
 
     const srcPath = path.join(dir, "main.cpp");
     const exePath = path.join(dir, process.platform === "win32" ? "main.exe" : "main");
-    await fs.writeFile(srcPath, source, "utf8");
+    await fs.writeFile(srcPath, effectiveSource, "utf8");
     const compilers = (await Promise.all(
       ["g++", "clang++"].map(async (compiler) =>
         (await commandExists(compiler)) ? compiler : null,
@@ -267,7 +360,6 @@ async function gradeWithCompiler(
 
     let compiled = false;
     for (const compiler of compilers) {
-      // Bật tối ưu hóa -O3 và -pipe để xử lý các bài toán giới hạn lớn (10^9) cực nhanh
       const compile = await runTimed(
         compiler,
         ["-O3", "-std=c++17", "-pipe", srcPath, "-o", exePath],
@@ -294,11 +386,27 @@ async function gradeWithCompiler(
       };
     }
 
-    // Chạy song song tất cả testcase với binary đã biên dịch
+    // Chạy song song tất cả testcase trong thư mục riêng để hỗ trợ File I/O
     const testRuns = await Promise.all(
       tests.map(async (test, index) => {
-        const run = await runTimed(exePath, [], test.input, timeLimitMs + 500, dir);
-        return { test, index, run };
+        const testDir = path.join(dir, `test_${index}`);
+        await fs.mkdir(testDir, { recursive: true });
+        if (inputFile) {
+          await fs.writeFile(path.join(testDir, inputFile), test.input, "utf8");
+        }
+        const run = await runTimed(exePath, [], test.input, timeLimitMs + 500, testDir);
+
+        let actualStdout = run.stdout;
+        if (outputFile) {
+          try {
+            const fileContent = await fs.readFile(path.join(testDir, outputFile), "utf8");
+            if (fileContent.trim().length > 0 || actualStdout.trim().length === 0) {
+              actualStdout = fileContent;
+            }
+          } catch {}
+        }
+
+        return { test, index, run: { ...run, stdout: actualStdout } };
       }),
     );
 
@@ -778,13 +886,16 @@ async function gradeWithCloud(
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
+  inputFile?: string | null,
+  outputFile?: string | null,
 ): Promise<JudgeResult> {
+  const effectiveSource = wrapSourceForFileIO(language, source, inputFile, outputFile);
   try {
-    return await gradeWithJudge0(language, source, tests, timeLimitMs);
+    return await gradeWithJudge0(language, effectiveSource, tests, timeLimitMs);
   } catch (errJudge0) {
     console.warn("Judge0 failed or unreachable, falling back to Wandbox:", errJudge0);
     try {
-      return await gradeWithWandbox(language, source, tests, timeLimitMs);
+      return await gradeWithWandbox(language, effectiveSource, tests, timeLimitMs);
     } catch (errWandbox) {
       const message = errWandbox instanceof Error ? errWandbox.message : String(errWandbox);
       return {
@@ -803,6 +914,8 @@ export async function judgeSubmission(
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
+  inputFile?: string | null,
+  outputFile?: string | null,
 ): Promise<JudgeResult> {
   const mode = process.env.JUDGE_MODE?.toLowerCase();
   if (mode === "mock") {
@@ -817,15 +930,15 @@ export async function judgeSubmission(
 
   if (!isCloudForced) {
     try {
-      return await gradeWithCompiler(language, source, tests, timeLimitMs);
+      return await gradeWithCompiler(language, source, tests, timeLimitMs, inputFile, outputFile);
     } catch (err) {
       if (err instanceof Error && (err.message === "NO_CXX" || err.message === "NO_PYTHON")) {
-        return await gradeWithCloud(language, source, tests, timeLimitMs);
+        return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile);
       }
       const message = err instanceof Error ? err.message : String(err);
       return { verdict: "CE", score: 0, timeMs: 0, log: message, testResults: [] };
     }
   }
 
-  return await gradeWithCloud(language, source, tests, timeLimitMs);
+  return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile);
 }

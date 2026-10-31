@@ -156,6 +156,11 @@ export default async function ProblemListPage({
                     >
                       {p.title}
                     </Link>
+                    {p.ioMode === "FILE" && (
+                      <span className="ml-2 inline-flex items-center rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                        📁 {p.inputFile || `${p.slug.toUpperCase()}.INP`}
+                      </span>
+                    )}
                     {!p.published && (
                       <>
                         <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>

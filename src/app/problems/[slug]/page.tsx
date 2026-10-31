@@ -44,7 +44,13 @@ export default async function ProblemDetailPage({
           title: true,
           problems: {
             where: { problemId: problem.id },
-            select: { letter: true, customTitle: true },
+            select: {
+              letter: true,
+              customTitle: true,
+              ioMode: true,
+              inputFile: true,
+              outputFile: true,
+            },
           },
         },
       })
@@ -59,6 +65,15 @@ export default async function ProblemDetailPage({
 
   const currentContestProblem = contestContext?.problems?.[0];
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
+  const effectiveIoMode = currentContestProblem?.ioMode || problem.ioMode || "STDIO";
+  const effectiveInputFile =
+    effectiveIoMode === "FILE"
+      ? currentContestProblem?.inputFile || problem.inputFile || `${problem.slug.toUpperCase()}.INP`
+      : null;
+  const effectiveOutputFile =
+    effectiveIoMode === "FILE"
+      ? currentContestProblem?.outputFile || problem.outputFile || `${problem.slug.toUpperCase()}.OUT`
+      : null;
 
   return (
     <div>
@@ -137,6 +152,17 @@ export default async function ProblemDetailPage({
                 ◈ {problem.memoryLimitMb} MB
               </span>
               <span className="rounded-md border border-white/10 px-2.5 py-1.5">
+                {effectiveIoMode === "FILE" ? (
+                  <>
+                    📁 Tệp vào/ra: <span className="font-mono font-semibold text-amber-300">{effectiveInputFile}</span> / <span className="font-mono font-semibold text-amber-300">{effectiveOutputFile}</span>
+                  </>
+                ) : (
+                  <>
+                    📥 Vào/ra: <span className="font-mono text-sky-200">stdin / stdout</span>
+                  </>
+                )}
+              </span>
+              <span className="rounded-md border border-white/10 px-2.5 py-1.5">
                 Tác giả: {problem.author.displayName}
               </span>
             </div>
@@ -202,6 +228,9 @@ export default async function ProblemDetailPage({
           userId={user?.id ?? ""}
           loggedIn={Boolean(user)}
           contestId={contestContext?.id}
+          ioMode={effectiveIoMode}
+          inputFile={effectiveInputFile}
+          outputFile={effectiveOutputFile}
           samples={samples.map((sample, index) => ({
             id: sample.id,
             label: `Sample ${index + 1}`,

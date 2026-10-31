@@ -57,12 +57,20 @@ export async function POST(request: Request) {
     );
   }
 
-  let contestConfig: { testLimit: number } | null = null;
+  let contestConfig: {
+    testLimit: number;
+    ioMode?: string | null;
+    inputFile?: string | null;
+    outputFile?: string | null;
+  } | null = null;
   if (parsed.data.contestId) {
     const contest = await prisma.contest.findUnique({
       where: { id: parsed.data.contestId },
       include: {
-        problems: { where: { problemId: problem.id }, select: { problemId: true } },
+        problems: {
+          where: { problemId: problem.id },
+          select: { problemId: true, ioMode: true, inputFile: true, outputFile: true },
+        },
         registrations: { where: { userId: user.id }, select: { userId: true } },
       },
     });
@@ -85,7 +93,13 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    contestConfig = { testLimit: contest.testLimit };
+    const cp = contest.problems[0];
+    contestConfig = {
+      testLimit: contest.testLimit,
+      ioMode: cp.ioMode,
+      inputFile: cp.inputFile,
+      outputFile: cp.outputFile,
+    };
   }
 
   // Chấm test:
@@ -127,11 +141,23 @@ export async function POST(request: Request) {
     },
   });
 
+  const effectiveIoMode = contestConfig?.ioMode || problem.ioMode || "STDIO";
+  const effectiveInputFile =
+    effectiveIoMode === "FILE"
+      ? contestConfig?.inputFile || problem.inputFile || `${problem.slug.toUpperCase()}.INP`
+      : null;
+  const effectiveOutputFile =
+    effectiveIoMode === "FILE"
+      ? contestConfig?.outputFile || problem.outputFile || `${problem.slug.toUpperCase()}.OUT`
+      : null;
+
   const result = await judgeSubmission(
     parsed.data.language,
     parsed.data.source,
     gradingSet,
     problem.timeLimitMs,
+    effectiveInputFile,
+    effectiveOutputFile,
   );
 
   const updated = await prisma.submission.update({

@@ -83,6 +83,9 @@ model Problem {
   difficulty    Difficulty       @default(EASY)
   published     Boolean          @default(true)
   contestOnly   Boolean          @default(false)
+  ioMode        String           @default("STDIO")
+  inputFile     String?
+  outputFile    String?
   authorId      String
   author        User             @relation("Author", fields: [authorId], references: [id])
   createdAt     DateTime         @default(now())
@@ -123,6 +126,9 @@ model ContestProblem {
   problemId   String
   letter      String
   customTitle String?
+  ioMode      String?
+  inputFile   String?
+  outputFile  String?
   points      Int     @default(100)
   contest     Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
   problem     Problem @relation(fields: [problemId], references: [id])

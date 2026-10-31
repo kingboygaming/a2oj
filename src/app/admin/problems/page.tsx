@@ -19,6 +19,9 @@ export default async function AdminProblemsPage() {
       difficulty: true,
       published: true,
       createdAt: true,
+      ioMode: true,
+      inputFile: true,
+      outputFile: true,
       author: { select: { displayName: true, username: true } },
       _count: { select: { testCases: true, submissions: true } },
     },
@@ -67,8 +70,13 @@ export default async function AdminProblemsPage() {
                     >
                       {problem.title}
                     </Link>
-                    <p className="mt-1 font-mono text-xs text-[var(--muted)]">
-                      {problem.slug}
+                    <p className="mt-1 font-mono text-xs text-[var(--muted)] flex items-center gap-2">
+                      <span>{problem.slug}</span>
+                      {problem.ioMode === "FILE" && (
+                        <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                          📁 {problem.inputFile || `${problem.slug.toUpperCase()}.INP`} / {problem.outputFile || `${problem.slug.toUpperCase()}.OUT`}
+                        </span>
+                      )}
                     </p>
                   </td>
                   <td className="px-4 py-3">

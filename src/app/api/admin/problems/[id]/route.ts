@@ -23,6 +23,9 @@ const updateSchema = z.object({
   difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
   timeLimitMs: z.number().int().positive(),
   memoryLimitMb: z.number().int().positive(),
+  ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
+  inputFile: z.string().trim().max(100).nullable().optional(),
+  outputFile: z.string().trim().max(100).nullable().optional(),
   testCases: z.array(testCaseSchema).min(1),
 });
 
@@ -86,6 +89,9 @@ export async function PATCH(
           difficulty: parsed.data.difficulty,
           timeLimitMs: parsed.data.timeLimitMs,
           memoryLimitMb: parsed.data.memoryLimitMb,
+          ioMode: parsed.data.ioMode ?? "STDIO",
+          inputFile: parsed.data.ioMode === "FILE" ? (parsed.data.inputFile || `${parsed.data.slug.toUpperCase()}.INP`) : null,
+          outputFile: parsed.data.ioMode === "FILE" ? (parsed.data.outputFile || `${parsed.data.slug.toUpperCase()}.OUT`) : null,
         },
       });
       await transaction.testCase.deleteMany({ where: { problemId: id } });

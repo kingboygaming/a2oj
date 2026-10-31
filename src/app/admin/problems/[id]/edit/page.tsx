@@ -49,6 +49,9 @@ export default async function EditProblemPage({
           difficulty: problem.difficulty,
           timeLimitMs: problem.timeLimitMs,
           memoryLimitMb: problem.memoryLimitMb,
+          ioMode: problem.ioMode,
+          inputFile: problem.inputFile,
+          outputFile: problem.outputFile,
           testCases: problem.testCases.map(({ input, output, isSample, points }) => ({
             input,
             output,

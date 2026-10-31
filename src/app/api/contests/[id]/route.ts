@@ -47,6 +47,9 @@ const updateContestSchema = z.object({
   testLimit: z.number().int().min(0).max(100).default(5),
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
+  problemIoModes: z.record(z.string(), z.enum(["STDIO", "FILE"])).optional(),
+  problemInputFiles: z.record(z.string(), z.string()).optional(),
+  problemOutputFiles: z.record(z.string(), z.string()).optional(),
   newProblems: z.array(
     z.object({
       slug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9-]+$/),
@@ -55,6 +58,9 @@ const updateContestSchema = z.object({
       difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
       timeLimitMs: z.number().int().positive(),
       memoryLimitMb: z.number().int().positive(),
+      ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
+      inputFile: z.string().trim().max(100).nullable().optional(),
+      outputFile: z.string().trim().max(100).nullable().optional(),
       testCases: z.array(
         z.object({
           input: z.string(),
@@ -168,9 +174,13 @@ export async function PATCH(
     // 1. Create newly added problems
     const createdNewProblemIds: string[] = [];
     for (const prob of parsed.data.newProblems) {
+      const ioMode = prob.ioMode ?? "STDIO";
       const created = await tx.problem.create({
         data: {
           ...prob,
+          ioMode,
+          inputFile: ioMode === "FILE" ? (prob.inputFile || `${prob.slug.toUpperCase()}.INP`) : null,
+          outputFile: ioMode === "FILE" ? (prob.outputFile || `${prob.slug.toUpperCase()}.OUT`) : null,
           published: true,
           contestOnly: true,
           authorId: user.id,
@@ -198,18 +208,28 @@ export async function PATCH(
 
     // 3. Upsert / update ContestProblem letters, customTitle and points
     const customTitles = parsed.data.problemCustomTitles ?? {};
+    const problemIoModes = parsed.data.problemIoModes ?? {};
+    const problemInputFiles = parsed.data.problemInputFiles ?? {};
+    const problemOutputFiles = parsed.data.problemOutputFiles ?? {};
+
     for (let i = 0; i < allFinalProblemIds.length; i++) {
       const problemId = allFinalProblemIds[i];
       const letter = String.fromCharCode(65 + i);
       const customTitle = customTitles[problemId]?.trim() || null;
+      const ioMode = problemIoModes[problemId] || null;
+      const inputFile = problemInputFiles[problemId]?.trim() || null;
+      const outputFile = problemOutputFiles[problemId]?.trim() || null;
       await tx.contestProblem.upsert({
         where: { contestId_problemId: { contestId: existingContest.id, problemId } },
-        update: { letter, customTitle, points: 100 },
+        update: { letter, customTitle, ioMode, inputFile, outputFile, points: 100 },
         create: {
           contestId: existingContest.id,
           problemId,
           letter,
           customTitle,
+          ioMode,
+          inputFile,
+          outputFile,
           points: 100,
         },
       });

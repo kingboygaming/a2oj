@@ -18,6 +18,9 @@ export type ProblemDraft = {
   difficulty: "EASY" | "MEDIUM" | "HARD";
   timeLimitMs: number;
   memoryLimitMb: number;
+  ioMode?: "STDIO" | "FILE";
+  inputFile?: string;
+  outputFile?: string;
   testCases: TestCaseDraft[];
 };
 
@@ -31,6 +34,9 @@ export type InitialContestData = {
   testLimit: number;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
+  problemIoModes?: Record<string, "STDIO" | "FILE">;
+  problemInputFiles?: Record<string, string>;
+  problemOutputFiles?: Record<string, string>;
 };
 
 function createProblemDraft(): ProblemDraft {
@@ -41,6 +47,9 @@ function createProblemDraft(): ProblemDraft {
     difficulty: "EASY",
     timeLimitMs: 1000,
     memoryLimitMb: 256,
+    ioMode: "STDIO",
+    inputFile: "",
+    outputFile: "",
     testCases: [
       { input: "", output: "", isSample: true, points: 0 },
       { input: "", output: "", isSample: false, points: 100 },
@@ -64,7 +73,15 @@ export function ContestForm({
   availableProblems,
   initialData,
 }: {
-  availableProblems: { id: string; slug: string; title: string; difficulty?: string }[];
+  availableProblems: {
+    id: string;
+    slug: string;
+    title: string;
+    difficulty?: string;
+    ioMode?: string | null;
+    inputFile?: string | null;
+    outputFile?: string | null;
+  }[];
   initialData?: InitialContestData;
 }) {
   const router = useRouter();
@@ -83,6 +100,15 @@ export function ContestForm({
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
   const [problemCustomTitles, setProblemCustomTitles] = useState<Record<string, string>>(
     initialData?.problemCustomTitles ?? {},
+  );
+  const [problemIoModes, setProblemIoModes] = useState<Record<string, "STDIO" | "FILE">>(
+    initialData?.problemIoModes ?? {},
+  );
+  const [problemInputFiles, setProblemInputFiles] = useState<Record<string, string>>(
+    initialData?.problemInputFiles ?? {},
+  );
+  const [problemOutputFiles, setProblemOutputFiles] = useState<Record<string, string>>(
+    initialData?.problemOutputFiles ?? {},
   );
   const [newProblems, setNewProblems] = useState<ProblemDraft[]>([]);
   const [error, setError] = useState("");
@@ -178,6 +204,38 @@ export function ContestForm({
       const endpoint = isEditing ? `/api/contests/${initialData!.id}` : "/api/contests";
       const method = isEditing ? "PATCH" : "POST";
 
+      const finalIoModes: Record<string, "STDIO" | "FILE"> = {};
+      const finalInputFiles: Record<string, string> = {};
+      const finalOutputFiles: Record<string, string> = {};
+
+      for (const id of problemIds) {
+        const p = availableProblems.find((item) => item.id === id);
+        const mode = problemIoModes[id] || (p?.ioMode === "FILE" ? "FILE" : "STDIO");
+        finalIoModes[id] = mode;
+        if (mode === "FILE") {
+          finalInputFiles[id] =
+            problemInputFiles[id]?.trim() ||
+            p?.inputFile ||
+            (p?.slug ? `${p.slug.toUpperCase()}.INP` : "INPUT.INP");
+          finalOutputFiles[id] =
+            problemOutputFiles[id]?.trim() ||
+            p?.outputFile ||
+            (p?.slug ? `${p.slug.toUpperCase()}.OUT` : "OUTPUT.OUT");
+        }
+      }
+
+      const formattedNewProblems = newProblems.map((prob) => {
+        const mode = prob.ioMode ?? "STDIO";
+        const defaultInpFile = prob.slug ? `${prob.slug.toUpperCase()}.INP` : "INPUT.INP";
+        const defaultOutFile = prob.slug ? `${prob.slug.toUpperCase()}.OUT` : "OUTPUT.OUT";
+        return {
+          ...prob,
+          ioMode: mode,
+          inputFile: mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
+          outputFile: mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
+        };
+      });
+
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -190,7 +248,10 @@ export function ContestForm({
           testLimit: Number(testLimit),
           problemIds,
           problemCustomTitles,
-          newProblems,
+          problemIoModes: finalIoModes,
+          problemInputFiles: finalInputFiles,
+          problemOutputFiles: finalOutputFiles,
+          newProblems: formattedNewProblems,
         }),
       });
 
@@ -370,6 +431,72 @@ export function ContestForm({
                       }}
                     />
                   </div>
+
+                  {/* Cấu hình Nhập / Xuất */}
+                  <div className="grid gap-2 pt-2 border-t border-[var(--line)]/60 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[var(--muted)] font-medium">Nhập / xuất bài thi:</span>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`io-mode-${id}`}
+                            value="STDIO"
+                            checked={(problemIoModes[id] ?? (p?.ioMode || "STDIO")) === "STDIO"}
+                            onChange={() =>
+                              setProblemIoModes((prev) => ({ ...prev, [id]: "STDIO" }))
+                            }
+                          />
+                          <span>Chuẩn (stdin / stdout)</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`io-mode-${id}`}
+                            value="FILE"
+                            checked={(problemIoModes[id] ?? (p?.ioMode || "STDIO")) === "FILE"}
+                            onChange={() =>
+                              setProblemIoModes((prev) => ({ ...prev, [id]: "FILE" }))
+                            }
+                          />
+                          <span>Tệp tin (File I/O)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {(problemIoModes[id] ?? (p?.ioMode || "STDIO")) === "FILE" && (
+                      <div className="grid gap-2 sm:grid-cols-2 rounded border border-[var(--line)] bg-[var(--background)] p-2">
+                        <div>
+                          <label className="block text-[11px] text-[var(--muted)] mb-1">
+                            File vào (Input file):
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-[var(--line)] px-2 py-1 font-mono text-xs bg-white"
+                            placeholder={p?.inputFile || (p?.slug ? `${p.slug.toUpperCase()}.INP` : "INPUT.INP")}
+                            value={problemInputFiles[id] ?? ""}
+                            onChange={(e) =>
+                              setProblemInputFiles((prev) => ({ ...prev, [id]: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-[var(--muted)] mb-1">
+                            File ra (Output file):
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-[var(--line)] px-2 py-1 font-mono text-xs bg-white"
+                            placeholder={p?.outputFile || (p?.slug ? `${p.slug.toUpperCase()}.OUT` : "OUTPUT.OUT")}
+                            value={problemOutputFiles[id] ?? ""}
+                            onChange={(e) =>
+                              setProblemOutputFiles((prev) => ({ ...prev, [id]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -517,6 +644,64 @@ export function ContestForm({
                   onChange={(e) => updateProblem(problemIndex, { memoryLimitMb: Number(e.target.value) })}
                 />
               </label>
+            </div>
+
+            {/* Phương thức vào / ra */}
+            <div className="rounded border border-[var(--line)] bg-gray-50/50 p-3 text-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-[var(--navy)]">Phương thức nhập / xuất:</span>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`new-prob-io-${problemIndex}`}
+                      value="STDIO"
+                      checked={(problem.ioMode ?? "STDIO") === "STDIO"}
+                      onChange={() => updateProblem(problemIndex, { ioMode: "STDIO" })}
+                    />
+                    <span>Chuẩn (stdin / stdout)</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`new-prob-io-${problemIndex}`}
+                      value="FILE"
+                      checked={problem.ioMode === "FILE"}
+                      onChange={() => updateProblem(problemIndex, { ioMode: "FILE" })}
+                    />
+                    <span>Tệp tin (File I/O)</span>
+                  </label>
+                </div>
+              </div>
+
+              {problem.ioMode === "FILE" && (
+                <div className="grid gap-2 sm:grid-cols-2 pt-1">
+                  <div>
+                    <label className="block text-[11px] text-[var(--muted)] mb-1">
+                      Tên file Input:
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded border border-[var(--line)] px-2 py-1 font-mono text-xs bg-white"
+                      placeholder={problem.slug ? `${problem.slug.toUpperCase()}.INP` : "INPUT.INP"}
+                      value={problem.inputFile ?? ""}
+                      onChange={(e) => updateProblem(problemIndex, { inputFile: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-[var(--muted)] mb-1">
+                      Tên file Output:
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded border border-[var(--line)] px-2 py-1 font-mono text-xs bg-white"
+                      placeholder={problem.slug ? `${problem.slug.toUpperCase()}.OUT` : "OUTPUT.OUT"}
+                      value={problem.outputFile ?? ""}
+                      onChange={(e) => updateProblem(problemIndex, { outputFile: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <label className="block text-xs font-medium">

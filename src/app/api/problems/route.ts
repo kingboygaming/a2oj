@@ -56,6 +56,9 @@ const createSchema = z.object({
   difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
   timeLimitMs: z.number().int().positive().optional(),
   memoryLimitMb: z.number().int().positive().optional(),
+  ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
+  inputFile: z.string().trim().max(100).nullable().optional(),
+  outputFile: z.string().trim().max(100).nullable().optional(),
   testCases: z.array(testSchema).min(1),
 });
 
@@ -84,6 +87,9 @@ export async function POST(request: Request) {
       difficulty: parsed.data.difficulty ?? "EASY",
       timeLimitMs: parsed.data.timeLimitMs ?? 1000,
       memoryLimitMb: parsed.data.memoryLimitMb ?? 256,
+      ioMode: parsed.data.ioMode ?? "STDIO",
+      inputFile: parsed.data.ioMode === "FILE" ? (parsed.data.inputFile || `${parsed.data.slug.toUpperCase()}.INP`) : null,
+      outputFile: parsed.data.ioMode === "FILE" ? (parsed.data.outputFile || `${parsed.data.slug.toUpperCase()}.OUT`) : null,
       published: canPublish(user.role),
       authorId: user.id,
       testCases: {

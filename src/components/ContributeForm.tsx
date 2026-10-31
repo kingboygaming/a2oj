@@ -20,6 +20,9 @@ type ProblemDraft = {
   difficulty: string;
   timeLimitMs: number;
   memoryLimitMb: number;
+  ioMode?: string | null;
+  inputFile?: string | null;
+  outputFile?: string | null;
   testCases: Case[];
 };
 
@@ -39,6 +42,11 @@ export function ContributeForm({
   const [difficulty, setDifficulty] = useState(problem?.difficulty ?? "EASY");
   const [timeLimitMs, setTimeLimitMs] = useState(problem?.timeLimitMs ?? 1000);
   const [memoryLimitMb, setMemoryLimitMb] = useState(problem?.memoryLimitMb ?? 256);
+  const [ioMode, setIoMode] = useState<"STDIO" | "FILE">(
+    problem?.ioMode === "FILE" ? "FILE" : "STDIO",
+  );
+  const [inputFile, setInputFile] = useState(problem?.inputFile ?? "");
+  const [outputFile, setOutputFile] = useState(problem?.outputFile ?? "");
   const [cases, setCases] = useState<Case[]>(
     problem?.testCases ?? [
       { input: "", output: "", isSample: true, points: 0 },
@@ -96,6 +104,15 @@ export function ContributeForm({
             difficulty,
             timeLimitMs,
             memoryLimitMb,
+            ioMode,
+            inputFile:
+              ioMode === "FILE"
+                ? inputFile.trim() || `${slug.trim().toUpperCase()}.INP`
+                : null,
+            outputFile:
+              ioMode === "FILE"
+                ? outputFile.trim() || `${slug.trim().toUpperCase()}.OUT`
+                : null,
             testCases: cases,
           }),
           signal: AbortSignal.timeout(120_000),
@@ -187,6 +204,86 @@ export function ContributeForm({
             onChange={(e) => setMemoryLimitMb(Number(e.target.value))}
           />
         </label>
+      </div>
+
+      {/* Phương thức nhập / xuất (I/O) */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 space-y-3">
+        <div>
+          <label className="text-sm font-semibold text-[var(--navy)]">
+            Phương thức nhập / xuất dữ liệu
+          </label>
+          <p className="text-xs text-[var(--muted)]">
+            Tùy chọn chấm bằng luồng chuẩn (stdin, stdout) hoặc nhập xuất qua file (.INP, .OUT).
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-6">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="ioMode"
+              value="STDIO"
+              checked={ioMode === "STDIO"}
+              onChange={() => setIoMode("STDIO")}
+              className="text-[var(--teal)] focus:ring-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">Chuẩn (stdin / stdout)</strong>
+              <span className="block text-xs text-[var(--muted)]">
+                Nhập từ bàn phím (cin/scanf), in ra màn hình (cout/printf)
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="ioMode"
+              value="FILE"
+              checked={ioMode === "FILE"}
+              onChange={() => setIoMode("FILE")}
+              className="text-[var(--teal)] focus:ring-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">Tệp tin (File I/O)</strong>
+              <span className="block text-xs text-[var(--muted)]">
+                Đọc từ file .INP và ghi ra file .OUT (chuẩn thi HSG / Olympic)
+              </span>
+            </span>
+          </label>
+        </div>
+
+        {ioMode === "FILE" && (
+          <div className="mt-2 grid gap-3 sm:grid-cols-2 rounded-lg border border-[var(--line)] bg-white p-3">
+            <label className="text-xs font-medium">
+              Tên file Input (tệp dữ liệu vào)
+              <input
+                type="text"
+                placeholder={slug.trim() ? `${slug.trim().toUpperCase()}.INP` : "INPUT.INP"}
+                className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-1.5 font-mono text-xs text-[var(--navy)]"
+                value={inputFile}
+                onChange={(e) => setInputFile(e.target.value)}
+              />
+              <span className="mt-1 block text-[11px] text-[var(--muted)]">
+                Mặc định: <code className="font-mono">{slug.trim() ? `${slug.trim().toUpperCase()}.INP` : "SLUG.INP"}</code> nếu để trống
+              </span>
+            </label>
+
+            <label className="text-xs font-medium">
+              Tên file Output (tệp kết quả ra)
+              <input
+                type="text"
+                placeholder={slug.trim() ? `${slug.trim().toUpperCase()}.OUT` : "OUTPUT.OUT"}
+                className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-1.5 font-mono text-xs text-[var(--navy)]"
+                value={outputFile}
+                onChange={(e) => setOutputFile(e.target.value)}
+              />
+              <span className="mt-1 block text-[11px] text-[var(--muted)]">
+                Mặc định: <code className="font-mono">{slug.trim() ? `${slug.trim().toUpperCase()}.OUT` : "SLUG.OUT"}</code> nếu để trống
+              </span>
+            </label>
+          </div>
+        )}
       </div>
       <label className="block text-sm">
         Đề bài (Markdown + KaTeX)
