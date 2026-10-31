@@ -71,9 +71,7 @@ export default async function ContestProblemsPage({
                     >
                       {displayName}
                     </Link>
-                    <p className="mt-1 font-mono text-xs text-[var(--muted)]">
-                      {contestProblem.problem.slug}
-                    </p>
+
                   </td>
                   <td className="px-3 py-3">
                     {contestProblem.problem.difficulty === "EASY"
