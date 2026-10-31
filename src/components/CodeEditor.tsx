@@ -138,71 +138,50 @@ function defineCustomThemes(monaco: Monaco) {
 // ---------------------------------------------------------------------------
 // Keymap helpers
 // ---------------------------------------------------------------------------
+type KeymapDisposable = { dispose: () => void };
+
 async function applyKeymap(
-  monaco: Monaco,
   editorInstance: MonacoEditor.IStandaloneCodeEditor,
   keymap: string,
+  statusBarElement: HTMLDivElement | null,
+  activeModeRef: React.MutableRefObject<KeymapDisposable | null>,
 ) {
-  if (keymap === "vim") {
-    applyBasicVimKeybindings(monaco, editorInstance);
-  } else if (keymap === "emacs") {
-    applyBasicEmacsKeybindings(monaco, editorInstance);
+  // Dispose any existing active keymap mode (Vim or Emacs)
+  if (activeModeRef.current) {
+    try {
+      activeModeRef.current.dispose();
+    } catch (e) {
+      console.warn("Failed to dispose previous keymap mode:", e);
+    }
+    activeModeRef.current = null;
   }
-}
 
-function applyBasicVimKeybindings(
-  monaco: Monaco,
-  ed: MonacoEditor.IStandaloneCodeEditor,
-) {
-  // Ctrl+[ or Ctrl+C → cancel selection (Vim idiom for Escape)
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.BracketLeft, () => {
-    ed.trigger("keyboard", "cancelSelection", null);
-  });
-  // Ctrl+W → delete word left
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => {
-    ed.trigger("keyboard", "deleteWordLeft", null);
-  });
-  // Ctrl+H → delete char left (backspace)
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyH, () => {
-    ed.trigger("keyboard", "deleteLeft", null);
-  });
-  // Ctrl+U → delete to line start
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyU, () => {
-    ed.trigger("keyboard", "deleteAllLeft", null);
-  });
-}
+  if (statusBarElement) {
+    statusBarElement.innerHTML = "";
+    statusBarElement.style.display = "none";
+  }
 
-function applyBasicEmacsKeybindings(
-  monaco: Monaco,
-  ed: MonacoEditor.IStandaloneCodeEditor,
-) {
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyA, () => {
-    ed.trigger("keyboard", "cursorHome", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE, () => {
-    ed.trigger("keyboard", "cursorEnd", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
-    ed.trigger("keyboard", "deleteAllRight", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD, () => {
-    ed.trigger("keyboard", "deleteRight", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => {
-    ed.trigger("keyboard", "deleteWordLeft", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP, () => {
-    ed.trigger("keyboard", "cursorUp", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, () => {
-    ed.trigger("keyboard", "cursorDown", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => {
-    ed.trigger("keyboard", "cursorRight", null);
-  });
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB, () => {
-    ed.trigger("keyboard", "cursorLeft", null);
-  });
+  if (keymap === "vim") {
+    try {
+      const { initVimMode } = await import("monaco-vim");
+      if (statusBarElement) {
+        statusBarElement.style.display = "block";
+      }
+      const vimMode = initVimMode(editorInstance, statusBarElement);
+      activeModeRef.current = vimMode;
+    } catch (err) {
+      console.error("Failed to initialize Vim mode:", err);
+    }
+  } else if (keymap === "emacs") {
+    try {
+      const { EmacsExtension } = await import("monaco-emacs");
+      const emacsMode = new EmacsExtension(editorInstance);
+      emacsMode.start();
+      activeModeRef.current = emacsMode;
+    } catch (err) {
+      console.error("Failed to initialize Emacs mode:", err);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +202,8 @@ export function CodeEditor({
   // Refs to the live Monaco + editor instances so we can apply new keymap on change
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const keymapModeRef = useRef<KeymapDisposable | null>(null);
+  const vimStatusRef = useRef<HTMLDivElement>(null);
 
   // Listen for settings changes dispatched by EditorSettingsPanel
   useEffect(() => {
@@ -230,16 +211,26 @@ export function CodeEditor({
       setTheme(loadEditorTheme());
       setFontSize(loadEditorFontSize());
 
-      // Re-apply keymap when it changes (best-effort; full modal vim not re-init'd)
-      const monaco = monacoRef.current;
       const editor = editorRef.current;
-      if (monaco && editor) {
-        void applyKeymap(monaco, editor, loadEditorKeymap());
+      if (editor) {
+        void applyKeymap(editor, loadEditorKeymap(), vimStatusRef.current, keymapModeRef);
       }
     }
 
     window.addEventListener(EDITOR_SETTINGS_EVENT, handleSettingsChange);
     return () => window.removeEventListener(EDITOR_SETTINGS_EVENT, handleSettingsChange);
+  }, []);
+
+  // Cleanup active keymap mode on unmount
+  useEffect(() => {
+    return () => {
+      if (keymapModeRef.current) {
+        try {
+          keymapModeRef.current.dispose();
+        } catch {}
+        keymapModeRef.current = null;
+      }
+    };
   }, []);
 
   function handleMount(
@@ -254,7 +245,7 @@ export function CodeEditor({
     // Apply the stored theme (must be defined before setting)
     monaco.editor.setTheme(loadEditorTheme());
 
-    void applyKeymap(monaco, editorInstance, loadEditorKeymap());
+    void applyKeymap(editorInstance, loadEditorKeymap(), vimStatusRef.current, keymapModeRef);
   }
 
   return (
@@ -279,6 +270,10 @@ export function CodeEditor({
           automaticLayout: true,
           tabSize: 4,
         }}
+      />
+      <div
+        ref={vimStatusRef}
+        className="hidden border-t border-white/10 bg-[#0d1525] px-3 py-1 font-mono text-xs text-sky-300"
       />
     </div>
   );
