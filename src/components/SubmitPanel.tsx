@@ -213,7 +213,10 @@ export function SubmitPanel({
           <div className="flex items-center gap-2">
             <span className="font-semibold text-amber-300">📁 Chấm File I/O:</span>
             <span>
-              Đọc từ <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{inputFile || "INPUT.INP"}</code>, ghi ra <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{outputFile || "OUTPUT.OUT"}</code>
+              Đọc từ{" "}
+              <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{inputFile || "INPUT.INP"}</code>
+              {", ghi ra "}
+              <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono font-bold text-amber-300">{outputFile || "OUTPUT.OUT"}</code>
             </span>
           </div>
           <span className="text-[11px] text-amber-300/80">Hệ thống hỗ trợ cả freopen lẫn cin/cout</span>
