@@ -185,35 +185,56 @@ function wrapSourceForFileIO(
     const bridge = `
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#include <io.h>
+#define __a2oj_dup _dup
+#define __a2oj_read _read
+#else
+#include <unistd.h>
+#define __a2oj_dup dup
+#define __a2oj_read read
+#endif
+
 #ifdef __cplusplus
 namespace __a2oj_file_bridge {
+    static int __real_stdout_fd = -1;
+    static FILE* __real_stdout = NULL;
+
+    static void __flush_to_real_stdout() {
+        fflush(NULL);
+        FILE* fp = fopen("${outputFile}", "r");
+        if (fp) {
+            char buf[8192];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+                if (__real_stdout) {
+                    fwrite(buf, 1, n, __real_stdout);
+                } else if (__real_stdout_fd >= 0) {
+                    (void)write(__real_stdout_fd, buf, (unsigned int)n);
+                }
+            }
+            fclose(fp);
+            if (__real_stdout) fflush(__real_stdout);
+        }
+    }
+
     static struct __BridgeInit {
         __BridgeInit() {
-            FILE* in_chk = fopen("${inputFile}", "r");
-            if (!in_chk) {
-                FILE* in_fp = fopen("${inputFile}", "w");
-                if (in_fp) {
-                    char buf[4096];
-                    size_t n;
-                    while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
-                        fwrite(buf, 1, n, in_fp);
-                    }
-                    fclose(in_fp);
-                }
-            } else {
-                fclose(in_chk);
+            __real_stdout_fd = __a2oj_dup(1);
+            if (__real_stdout_fd >= 0) {
+                __real_stdout = fdopen(__real_stdout_fd, "w");
             }
-            atexit([]() {
-                FILE* out_fp = fopen("${outputFile}", "r");
-                if (out_fp) {
-                    char buf[4096];
-                    size_t n;
-                    while ((n = fread(buf, 1, sizeof(buf), out_fp)) > 0) {
-                        fwrite(buf, 1, n, stdout);
-                    }
-                    fclose(out_fp);
+            FILE* in_file = fopen("${inputFile}", "w");
+            if (in_file) {
+                char buf[8192];
+                int n;
+                while ((n = __a2oj_read(0, buf, sizeof(buf))) > 0) {
+                    fwrite(buf, 1, n, in_file);
                 }
-            });
+                fclose(in_file);
+            }
+            freopen("${inputFile}", "r", stdin);
+            atexit(__flush_to_real_stdout);
         }
     } __bridge_init;
 }
@@ -226,15 +247,24 @@ namespace __a2oj_file_bridge {
     const bridge = `
 import os, sys, atexit
 try:
-    if not os.path.exists("${inputFile}"):
-        _input_data = sys.stdin.read()
-        with open("${inputFile}", "w", encoding="utf-8") as _in_f:
-            _in_f.write(_input_data)
+    __real_stdout_fd = os.dup(1)
+    __real_stdout = os.fdopen(__real_stdout_fd, "w", encoding="utf-8", buffering=1)
+    __input_data = sys.stdin.read()
+    with open("${inputFile}", "w", encoding="utf-8") as __in_f:
+        __in_f.write(__input_data)
+    sys.stdin = open("${inputFile}", "r", encoding="utf-8")
     def __a2oj_dump_output():
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
         if os.path.exists("${outputFile}"):
             try:
-                with open("${outputFile}", "r", encoding="utf-8") as _out_f:
-                    sys.stdout.write(_out_f.read())
+                with open("${outputFile}", "r", encoding="utf-8") as __out_f:
+                    __content = __out_f.read()
+                    if __content:
+                        __real_stdout.write(__content)
+                        __real_stdout.flush()
             except Exception:
                 pass
     atexit.register(__a2oj_dump_output)
@@ -258,7 +288,7 @@ async function gradeWithCompiler(
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tinoj-"));
   let maxTime = 0;
   const logs: string[] = [];
-  const effectiveSource = wrapSourceForFileIO(language, source, inputFile, outputFile);
+  const effectiveSource = source;
 
   try {
     if (language === "PYTHON") {
