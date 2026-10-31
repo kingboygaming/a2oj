@@ -69,6 +69,7 @@ export function parseJudgeResults(log: string): StoredTestResults | null {
         test: testResult.test,
         verdict: testResult.verdict as Verdict,
         timeMs: testResult.timeMs,
+        score: typeof testResult.score === "number" ? testResult.score : undefined,
       });
     }
 

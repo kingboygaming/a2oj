@@ -31,6 +31,7 @@ export default async function EditContestPage({
           problemId: true,
           letter: true,
           customTitle: true,
+          judgeType: true,
           ioMode: true,
           inputFile: true,
           outputFile: true,
@@ -63,6 +64,7 @@ export default async function EditContestPage({
       slug: true,
       title: true,
       difficulty: true,
+      judgeType: true,
       ioMode: true,
       inputFile: true,
       outputFile: true,
@@ -102,6 +104,11 @@ export default async function EditContestPage({
             contest.problems
               .filter((p) => p.ioMode)
               .map((p) => [p.problemId, p.ioMode as "STDIO" | "FILE"]),
+          ),
+          problemJudgeTypes: Object.fromEntries(
+            contest.problems
+              .filter((p) => p.judgeType)
+              .map((p) => [p.problemId, p.judgeType as "STANDARD" | "HEURISTIC"]),
           ),
           problemInputFiles: Object.fromEntries(
             contest.problems

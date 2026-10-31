@@ -71,9 +71,11 @@ export function SubmissionTestResults({
             const rowStyle = result
               ? result.verdict === "AC"
                 ? "border-emerald-200 bg-emerald-50"
-                : result.verdict === "CE"
+                : (result.score ?? 0) > 0
                   ? "border-amber-200 bg-amber-50"
-                  : "border-rose-200 bg-rose-50"
+                  : result.verdict === "CE"
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-rose-200 bg-rose-50"
               : "border-[var(--line)] bg-[var(--paper)]";
 
             return (
@@ -88,6 +90,11 @@ export function SubmissionTestResults({
                   {result ? (
                     <>
                       <VerdictBadge verdict={result.verdict} />
+                      {typeof result.score === "number" && (
+                        <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                          {result.score}đ
+                        </span>
+                      )}
                       <span className="min-w-12 text-right font-mono text-xs text-[var(--muted)]">
                         {result.timeMs} ms
                       </span>

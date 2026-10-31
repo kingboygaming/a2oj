@@ -23,6 +23,7 @@ type ProblemDraft = {
   ioMode?: string | null;
   inputFile?: string | null;
   outputFile?: string | null;
+  judgeType?: string | null;
   testCases: Case[];
 };
 
@@ -44,6 +45,9 @@ export function ContributeForm({
   const [memoryLimitMb, setMemoryLimitMb] = useState(problem?.memoryLimitMb ?? 256);
   const [ioMode, setIoMode] = useState<"STDIO" | "FILE">(
     problem?.ioMode === "FILE" ? "FILE" : "STDIO",
+  );
+  const [judgeType, setJudgeType] = useState<"STANDARD" | "HEURISTIC">(
+    problem?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD",
   );
   const [inputFile, setInputFile] = useState(problem?.inputFile ?? "");
   const [outputFile, setOutputFile] = useState(problem?.outputFile ?? "");
@@ -104,6 +108,7 @@ export function ContributeForm({
             difficulty,
             timeLimitMs,
             memoryLimitMb,
+            judgeType,
             ioMode,
             inputFile:
               ioMode === "FILE"
@@ -204,6 +209,54 @@ export function ContributeForm({
             onChange={(e) => setMemoryLimitMb(Number(e.target.value))}
           />
         </label>
+      </div>
+
+      {/* Phương thức chấm bài (Judge Type) */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 space-y-3">
+        <div>
+          <label className="text-sm font-semibold text-[var(--navy)]">
+            Phương thức chấm điểm (Judge Type)
+          </label>
+          <p className="text-xs text-[var(--muted)]">
+            Chọn cách hệ thống chấm bài và tính điểm cho các test case.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-6">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="judgeType"
+              value="STANDARD"
+              checked={judgeType === "STANDARD"}
+              onChange={() => setJudgeType("STANDARD")}
+              className="text-[var(--teal)] focus:ring-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">Bộ chấm chuẩn (Standard / Exact Match)</strong>
+              <span className="block text-xs text-[var(--muted)]">
+                So khớp chính xác từng token output (bỏ qua khoảng trắng thừa). Đúng hoàn toàn mới đạt điểm test.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="judgeType"
+              value="HEURISTIC"
+              checked={judgeType === "HEURISTIC"}
+              onChange={() => setJudgeType("HEURISTIC")}
+              className="text-[var(--teal)] focus:ring-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">Bộ chấm Heuristic (Chấm xấp xỉ / Tối ưu)</strong>
+              <span className="block text-xs text-[var(--muted)]">
+                So khớp độ gần đúng của các giá trị số để cho điểm theo tỉ lệ (dành cho bài toán tối ưu, xấp xỉ).
+              </span>
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* Phương thức nhập / xuất (I/O) */}

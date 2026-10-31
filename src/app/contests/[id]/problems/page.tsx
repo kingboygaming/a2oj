@@ -23,6 +23,7 @@ export default async function ContestProblemsPage({
               slug: true,
               title: true,
               difficulty: true,
+              judgeType: true,
               ioMode: true,
               inputFile: true,
               outputFile: true,
@@ -71,6 +72,8 @@ export default async function ContestProblemsPage({
             {contest.problems.map((contestProblem) => {
               const accepted = acceptedProblemIds.has(contestProblem.problem.id);
               const displayName = contestProblem.customTitle || contestProblem.problem.title;
+              const effectiveJudgeType =
+                contestProblem.judgeType || contestProblem.problem.judgeType || "STANDARD";
               const effectiveIoMode =
                 contestProblem.ioMode || contestProblem.problem.ioMode || "STDIO";
               const effectiveInputFile =
@@ -103,6 +106,11 @@ export default async function ContestProblemsPage({
                       ) : (
                         <span className="inline-flex items-center rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-500">
                           stdin/stdout
+                        </span>
+                      )}
+                      {effectiveJudgeType === "HEURISTIC" && (
+                        <span className="inline-flex items-center rounded bg-purple-500/10 px-1.5 py-0.5 text-[11px] font-medium text-purple-700 dark:text-purple-300">
+                          🎯 Heuristic
                         </span>
                       )}
                     </div>

@@ -18,6 +18,7 @@ export type ProblemDraft = {
   difficulty: "EASY" | "MEDIUM" | "HARD";
   timeLimitMs: number;
   memoryLimitMb: number;
+  judgeType?: "STANDARD" | "HEURISTIC";
   ioMode?: "STDIO" | "FILE";
   inputFile?: string;
   outputFile?: string;
@@ -34,6 +35,7 @@ export type InitialContestData = {
   testLimit: number;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
+  problemJudgeTypes?: Record<string, "STANDARD" | "HEURISTIC">;
   problemIoModes?: Record<string, "STDIO" | "FILE">;
   problemInputFiles?: Record<string, string>;
   problemOutputFiles?: Record<string, string>;
@@ -47,6 +49,7 @@ function createProblemDraft(): ProblemDraft {
     difficulty: "EASY",
     timeLimitMs: 1000,
     memoryLimitMb: 256,
+    judgeType: "STANDARD",
     ioMode: "STDIO",
     inputFile: "",
     outputFile: "",
@@ -78,6 +81,7 @@ export function ContestForm({
     slug: string;
     title: string;
     difficulty?: string;
+    judgeType?: string | null;
     ioMode?: string | null;
     inputFile?: string | null;
     outputFile?: string | null;
@@ -100,6 +104,9 @@ export function ContestForm({
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
   const [problemCustomTitles, setProblemCustomTitles] = useState<Record<string, string>>(
     initialData?.problemCustomTitles ?? {},
+  );
+  const [problemJudgeTypes, setProblemJudgeTypes] = useState<Record<string, "STANDARD" | "HEURISTIC">>(
+    initialData?.problemJudgeTypes ?? {},
   );
   const [problemIoModes, setProblemIoModes] = useState<Record<string, "STDIO" | "FILE">>(
     initialData?.problemIoModes ?? {},
@@ -204,12 +211,15 @@ export function ContestForm({
       const endpoint = isEditing ? `/api/contests/${initialData!.id}` : "/api/contests";
       const method = isEditing ? "PATCH" : "POST";
 
+      const finalJudgeTypes: Record<string, "STANDARD" | "HEURISTIC"> = {};
       const finalIoModes: Record<string, "STDIO" | "FILE"> = {};
       const finalInputFiles: Record<string, string> = {};
       const finalOutputFiles: Record<string, string> = {};
 
       for (const id of problemIds) {
         const p = availableProblems.find((item) => item.id === id);
+        const jType = problemJudgeTypes[id] || (p?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD");
+        finalJudgeTypes[id] = jType;
         const mode = problemIoModes[id] || (p?.ioMode === "FILE" ? "FILE" : "STDIO");
         finalIoModes[id] = mode;
         if (mode === "FILE") {
@@ -225,11 +235,13 @@ export function ContestForm({
       }
 
       const formattedNewProblems = newProblems.map((prob) => {
+        const jType = prob.judgeType ?? "STANDARD";
         const mode = prob.ioMode ?? "STDIO";
         const defaultInpFile = prob.slug ? `${prob.slug.toUpperCase()}.INP` : "INPUT.INP";
         const defaultOutFile = prob.slug ? `${prob.slug.toUpperCase()}.OUT` : "OUTPUT.OUT";
         return {
           ...prob,
+          judgeType: jType,
           ioMode: mode,
           inputFile: mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
           outputFile: mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
@@ -248,6 +260,7 @@ export function ContestForm({
           testLimit: Number(testLimit),
           problemIds,
           problemCustomTitles,
+          problemJudgeTypes: finalJudgeTypes,
           problemIoModes: finalIoModes,
           problemInputFiles: finalInputFiles,
           problemOutputFiles: finalOutputFiles,
@@ -432,8 +445,38 @@ export function ContestForm({
                     />
                   </div>
 
-                  {/* Cấu hình Nhập / Xuất */}
+                  {/* Cấu hình Nhập / Xuất & Bộ chấm */}
                   <div className="grid gap-2 pt-2 border-t border-[var(--line)]/60 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[var(--muted)] font-medium">Bộ chấm bài thi:</span>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`judge-type-${id}`}
+                            value="STANDARD"
+                            checked={(problemJudgeTypes[id] ?? (p?.judgeType || "STANDARD")) === "STANDARD"}
+                            onChange={() =>
+                              setProblemJudgeTypes((prev) => ({ ...prev, [id]: "STANDARD" }))
+                            }
+                          />
+                          <span>Chuẩn (Standard)</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`judge-type-${id}`}
+                            value="HEURISTIC"
+                            checked={(problemJudgeTypes[id] ?? (p?.judgeType || "STANDARD")) === "HEURISTIC"}
+                            onChange={() =>
+                              setProblemJudgeTypes((prev) => ({ ...prev, [id]: "HEURISTIC" }))
+                            }
+                          />
+                          <span>Heuristic (Xấp xỉ)</span>
+                        </label>
+                      </div>
+                    </div>
+
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[var(--muted)] font-medium">Nhập / xuất bài thi:</span>
                       <div className="flex items-center gap-3">
@@ -644,6 +687,35 @@ export function ContestForm({
                   onChange={(e) => updateProblem(problemIndex, { memoryLimitMb: Number(e.target.value) })}
                 />
               </label>
+            </div>
+
+            {/* Bộ chấm bài */}
+            <div className="rounded border border-[var(--line)] bg-gray-50/50 p-3 text-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-[var(--navy)]">Bộ chấm bài:</span>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`new-prob-judge-${problemIndex}`}
+                      value="STANDARD"
+                      checked={(problem.judgeType ?? "STANDARD") === "STANDARD"}
+                      onChange={() => updateProblem(problemIndex, { judgeType: "STANDARD" })}
+                    />
+                    <span>Chuẩn (Standard)</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`new-prob-judge-${problemIndex}`}
+                      value="HEURISTIC"
+                      checked={problem.judgeType === "HEURISTIC"}
+                      onChange={() => updateProblem(problemIndex, { judgeType: "HEURISTIC" })}
+                    />
+                    <span>Heuristic (Xấp xỉ)</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
             {/* Phương thức vào / ra */}

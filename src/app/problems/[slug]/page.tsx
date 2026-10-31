@@ -47,6 +47,7 @@ export default async function ProblemDetailPage({
             select: {
               letter: true,
               customTitle: true,
+              judgeType: true,
               ioMode: true,
               inputFile: true,
               outputFile: true,
@@ -65,6 +66,7 @@ export default async function ProblemDetailPage({
 
   const currentContestProblem = contestContext?.problems?.[0];
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
+  const effectiveJudgeType = currentContestProblem?.judgeType || problem.judgeType || "STANDARD";
   const effectiveIoMode = currentContestProblem?.ioMode || problem.ioMode || "STDIO";
   const effectiveInputFile =
     effectiveIoMode === "FILE"
@@ -165,6 +167,11 @@ export default async function ProblemDetailPage({
               <span className="rounded-md border border-white/10 px-2.5 py-1.5">
                 Tác giả: {problem.author.displayName}
               </span>
+              {effectiveJudgeType === "HEURISTIC" && (
+                <span className="rounded-md border border-purple-400/30 bg-purple-500/20 px-2.5 py-1.5 font-medium text-purple-200">
+                  🎯 Chấm xấp xỉ (Heuristic)
+                </span>
+              )}
             </div>
           </div>
           <div className="p-5 sm:p-7">
@@ -228,6 +235,7 @@ export default async function ProblemDetailPage({
           userId={user?.id ?? ""}
           loggedIn={Boolean(user)}
           contestId={contestContext?.id}
+          judgeType={effectiveJudgeType}
           ioMode={effectiveIoMode}
           inputFile={effectiveInputFile}
           outputFile={effectiveOutputFile}

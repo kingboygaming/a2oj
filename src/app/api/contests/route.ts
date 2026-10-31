@@ -23,6 +23,7 @@ const schema = z.object({
   testLimit: z.number().int().min(0).max(100).default(5),
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
+  problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC"])).optional(),
   problemIoModes: z.record(z.string(), z.enum(["STDIO", "FILE"])).optional(),
   problemInputFiles: z.record(z.string(), z.string()).optional(),
   problemOutputFiles: z.record(z.string(), z.string()).optional(),
@@ -34,6 +35,7 @@ const schema = z.object({
       difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
       timeLimitMs: z.number().int().positive(),
       memoryLimitMb: z.number().int().positive(),
+      judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
       ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
       inputFile: z.string().trim().max(100).nullable().optional(),
       outputFile: z.string().trim().max(100).nullable().optional(),
@@ -145,6 +147,7 @@ export async function POST(request: Request) {
 
     const problemIds = [...parsed.data.problemIds, ...newProblemIds];
     const customTitles = parsed.data.problemCustomTitles ?? {};
+    const problemJudgeTypes = parsed.data.problemJudgeTypes ?? {};
     const problemIoModes = parsed.data.problemIoModes ?? {};
     const problemInputFiles = parsed.data.problemInputFiles ?? {};
     const problemOutputFiles = parsed.data.problemOutputFiles ?? {};
@@ -155,6 +158,7 @@ export async function POST(request: Request) {
         problemId,
         letter: String.fromCharCode(65 + index),
         customTitle: customTitles[problemId]?.trim() || null,
+        judgeType: problemJudgeTypes[problemId] || null,
         ioMode: problemIoModes[problemId] || null,
         inputFile: problemInputFiles[problemId]?.trim() || null,
         outputFile: problemOutputFiles[problemId]?.trim() || null,

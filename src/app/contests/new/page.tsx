@@ -23,6 +23,7 @@ export default async function NewContestPage() {
       slug: true,
       title: true,
       difficulty: true,
+      judgeType: true,
       ioMode: true,
       inputFile: true,
       outputFile: true,

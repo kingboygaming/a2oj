@@ -19,6 +19,7 @@ export default async function AdminProblemsPage() {
       difficulty: true,
       published: true,
       createdAt: true,
+      judgeType: true,
       ioMode: true,
       inputFile: true,
       outputFile: true,
@@ -75,6 +76,11 @@ export default async function AdminProblemsPage() {
                       {problem.ioMode === "FILE" && (
                         <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
                           📁 {problem.inputFile || `${problem.slug.toUpperCase()}.INP`} / {problem.outputFile || `${problem.slug.toUpperCase()}.OUT`}
+                        </span>
+                      )}
+                      {problem.judgeType === "HEURISTIC" && (
+                        <span className="rounded bg-purple-500/10 px-1 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300">
+                          🎯 Heuristic
                         </span>
                       )}
                     </p>

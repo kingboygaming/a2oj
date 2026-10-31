@@ -28,6 +28,7 @@ export function SubmitPanel({
   loggedIn,
   contestId,
   samples,
+  judgeType,
   ioMode,
   inputFile,
   outputFile,
@@ -37,6 +38,7 @@ export function SubmitPanel({
   loggedIn: boolean;
   contestId?: string;
   samples: Sample[];
+  judgeType?: string | null;
   ioMode?: string | null;
   inputFile?: string | null;
   outputFile?: string | null;
@@ -207,6 +209,16 @@ export function SubmitPanel({
           </label>
         </div>
       </div>
+
+      {judgeType === "HEURISTIC" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-purple-500/20 bg-purple-500/10 px-4 py-2.5 text-xs text-purple-200">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-purple-300">🎯 Chấm Heuristic:</span>
+            <span>Bài tập tính điểm theo độ lệch xấp xỉ so với kết quả mẫu cho từng test.</span>
+          </div>
+          <span className="text-[11px] text-purple-300/80">Có tính điểm thành phần (partial score)</span>
+        </div>
+      )}
 
       {ioMode === "FILE" && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">

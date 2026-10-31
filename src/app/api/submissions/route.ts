@@ -62,6 +62,7 @@ export async function POST(request: Request) {
     ioMode?: string | null;
     inputFile?: string | null;
     outputFile?: string | null;
+    judgeType?: string | null;
   } | null = null;
   if (parsed.data.contestId) {
     const contest = await prisma.contest.findUnique({
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
       include: {
         problems: {
           where: { problemId: problem.id },
-          select: { problemId: true, ioMode: true, inputFile: true, outputFile: true },
+          select: { problemId: true, ioMode: true, inputFile: true, outputFile: true, judgeType: true },
         },
         registrations: { where: { userId: user.id }, select: { userId: true } },
       },
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
       ioMode: cp.ioMode,
       inputFile: cp.inputFile,
       outputFile: cp.outputFile,
+      judgeType: cp.judgeType,
     };
   }
 
@@ -151,6 +153,8 @@ export async function POST(request: Request) {
       ? contestConfig?.outputFile || problem.outputFile || `${problem.slug.toUpperCase()}.OUT`
       : null;
 
+  const effectiveJudgeType = contestConfig?.judgeType || problem.judgeType || "STANDARD";
+
   const result = await judgeSubmission(
     parsed.data.language,
     parsed.data.source,
@@ -158,6 +162,7 @@ export async function POST(request: Request) {
     problem.timeLimitMs,
     effectiveInputFile,
     effectiveOutputFile,
+    effectiveJudgeType,
   );
 
   const updated = await prisma.submission.update({

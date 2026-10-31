@@ -13,7 +13,7 @@ export type JudgeResult = {
   score: number;
   timeMs: number;
   log: string;
-  testResults: { test: number; verdict: Verdict; timeMs: number }[];
+  testResults: { test: number; verdict: Verdict; timeMs: number; score?: number }[];
 };
 
 /**
@@ -50,6 +50,44 @@ function compareOutput(actual: string, expected: string): boolean {
     if (tokensA[i] !== tokensE[i]) return false;
   }
   return true;
+}
+
+/**
+ * Chấm xấp xỉ (Heuristic): so sánh độ gần nhau của các số trong output.
+ * Trả về điểm 0..testPoints theo tỉ lệ trung bình của các cặp số.
+ */
+function heuristicScore(actual: string, expected: string, testPoints: number): number {
+  // Nếu khớp chính xác → full điểm
+  if (compareOutput(actual, expected)) return testPoints;
+
+  const parseNums = (s: string): number[] => {
+    const tokens = normalize(s).split(/\s+/).filter(Boolean);
+    const nums = tokens.map(Number);
+    return nums.every((n) => !isNaN(n)) ? nums : [];
+  };
+
+  const aVals = parseNums(actual);
+  const eVals = parseNums(expected);
+
+  // Nếu expected không thuần số → dùng exact match (đã trả false ở trên)
+  if (eVals.length === 0) return 0;
+  // Số lượng token khác nhau → 0 điểm
+  if (aVals.length !== eVals.length) return 0;
+
+  let ratioSum = 0;
+  for (let i = 0; i < eVals.length; i++) {
+    const e = eVals[i];
+    const a = aVals[i];
+    if (e === 0 && a === 0) {
+      ratioSum += 1;
+    } else if (e === 0 || Math.sign(a) !== Math.sign(e)) {
+      // Sai dấu hoặc expected=0 mà actual≠0 → ratio 0
+      ratioSum += 0;
+    } else {
+      ratioSum += Math.min(Math.abs(a), Math.abs(e)) / Math.max(Math.abs(a), Math.abs(e));
+    }
+  }
+  return Math.max(0, Math.min(testPoints, Math.round((ratioSum / eVals.length) * testPoints)));
 }
 
 async function commandExists(cmd: string) {
@@ -296,6 +334,7 @@ async function gradeWithCompiler(
   timeLimitMs: number,
   inputFile?: string | null,
   outputFile?: string | null,
+  judgeType?: string | null,
 ): Promise<JudgeResult> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tinoj-"));
   let maxTime = 0;
@@ -371,15 +410,23 @@ async function gradeWithCompiler(
         } else if (!outputFileFound) {
           testVerdict = "WA";
           logs.push(`Test ${index + 1}: Không tìm thấy file output (${outputFile})`);
+        } else if (judgeType === "HEURISTIC") {
+          const pts = heuristicScore(run.stdout, test.output, test.points);
+          passed += pts;
+          testVerdict = pts === test.points ? "AC" : "WA";
+          if (pts < test.points) {
+            logs.push(`Test ${index + 1}: Heuristic ${pts}/${test.points} điểm`);
+          }
+          testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs, score: pts });
         } else if (compareOutput(run.stdout, test.output)) {
           testVerdict = "AC";
           passed += test.points;
+          testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
         } else {
           testVerdict = "WA";
           logs.push(`Test ${index + 1}: Wrong Answer`);
+          testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
         }
-
-        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
         if (testVerdict !== "AC" && !firstFailingVerdict) {
           firstFailingVerdict = testVerdict;
         }
@@ -482,15 +529,23 @@ async function gradeWithCompiler(
       } else if (!outputFileFound) {
         testVerdict = "WA";
         logs.push(`Test ${index + 1}: Không tìm thấy file output (${outputFile})`);
+      } else if (judgeType === "HEURISTIC") {
+        const pts = heuristicScore(run.stdout, test.output, test.points);
+        passed += pts;
+        testVerdict = pts === test.points ? "AC" : "WA";
+        if (pts < test.points) {
+          logs.push(`Test ${index + 1}: Heuristic ${pts}/${test.points} điểm`);
+        }
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs, score: pts });
       } else if (compareOutput(run.stdout, test.output)) {
         testVerdict = "AC";
         passed += test.points;
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
       } else {
         testVerdict = "WA";
         logs.push(`Test ${index + 1}: Wrong Answer`);
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
       }
-
-      testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
       if (testVerdict !== "AC" && !firstFailingVerdict) {
         firstFailingVerdict = testVerdict;
       }
@@ -593,6 +648,7 @@ async function gradeWithJudge0(
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
+  judgeType?: string | null,
 ): Promise<JudgeResult> {
   const baseUrl = (process.env.JUDGE0_URL || "https://ce.judge0.com").replace(/\/+$/, "");
   // C++: 105 (GCC 14.1.0) hoặc 54 (GCC 9.2.0) | Python: 100 (Python 3.12.5) hoặc 92 (Python 3.11.2)
@@ -725,19 +781,28 @@ async function gradeWithJudge0(
       const err = sub.stderr || sub.message || sub.status.description || "Runtime Error";
       logs.push(`Test ${i + 1} RTE: ${err.trim()}`);
     } else if (sub.status.id === 3 || sub.status.id === 4) {
-      if (compareOutput(sub.stdout ?? "", test.output)) {
+      if (judgeType === "HEURISTIC") {
+        const pts = heuristicScore(sub.stdout ?? "", test.output, test.points);
+        passed += pts;
+        testVerdict = pts === test.points ? "AC" : "WA";
+        if (pts < test.points) {
+          logs.push(`Test ${i + 1}: Heuristic ${pts}/${test.points} điểm`);
+        }
+        testResults.push({ test: i + 1, verdict: testVerdict, timeMs, score: pts });
+      } else if (compareOutput(sub.stdout ?? "", test.output)) {
         testVerdict = "AC";
         passed += test.points;
+        testResults.push({ test: i + 1, verdict: testVerdict, timeMs });
       } else {
         testVerdict = "WA";
         logs.push(`Test ${i + 1}: Wrong Answer`);
+        testResults.push({ test: i + 1, verdict: testVerdict, timeMs });
       }
     } else {
       testVerdict = "RTE";
       logs.push(`Test ${i + 1} RTE: ${sub.status.description}`);
+      testResults.push({ test: i + 1, verdict: testVerdict, timeMs });
     }
-
-    testResults.push({ test: i + 1, verdict: testVerdict, timeMs });
     if (testVerdict !== "AC" && !firstFailingVerdict) {
       firstFailingVerdict = testVerdict;
     }
@@ -830,6 +895,7 @@ async function gradeWithWandbox(
   source: string,
   tests: TestCase[],
   timeLimitMs: number,
+  judgeType?: string | null,
 ): Promise<JudgeResult> {
   const timeout = Math.max(timeLimitMs + 5000, 16000);
 
@@ -908,16 +974,25 @@ async function gradeWithWandbox(
         testVerdict = "RTE";
         const errorMsg = data.program_error || data.program_message || `exit code ${data.status}`;
         logs.push(`Test ${index + 1} RTE: ${errorMsg}`);
+      } else if (judgeType === "HEURISTIC") {
+        const pts = heuristicScore(data.program_output ?? "", test.output, test.points);
+        passed += pts;
+        testVerdict = pts === test.points ? "AC" : "WA";
+        if (pts < test.points) {
+          logs.push(`Test ${index + 1}: Heuristic ${pts}/${test.points} điểm`);
+        }
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed, score: pts });
       } else if (compareOutput(data.program_output ?? "", test.output)) {
         testVerdict = "AC";
         passed += test.points;
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed });
       } else {
         testVerdict = "WA";
         logs.push(`Test ${index + 1}: Wrong Answer`);
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed });
       }
     }
 
-    testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed });
     if (testVerdict !== "AC" && !firstFailingVerdict) {
       firstFailingVerdict = testVerdict;
     }
@@ -944,14 +1019,15 @@ async function gradeWithCloud(
   timeLimitMs: number,
   inputFile?: string | null,
   outputFile?: string | null,
+  judgeType?: string | null,
 ): Promise<JudgeResult> {
   const effectiveSource = wrapSourceForFileIO(language, source, inputFile, outputFile);
   try {
-    return await gradeWithJudge0(language, effectiveSource, tests, timeLimitMs);
+    return await gradeWithJudge0(language, effectiveSource, tests, timeLimitMs, judgeType);
   } catch (errJudge0) {
     console.warn("Judge0 failed or unreachable, falling back to Wandbox:", errJudge0);
     try {
-      return await gradeWithWandbox(language, effectiveSource, tests, timeLimitMs);
+      return await gradeWithWandbox(language, effectiveSource, tests, timeLimitMs, judgeType);
     } catch (errWandbox) {
       const message = errWandbox instanceof Error ? errWandbox.message : String(errWandbox);
       return {
@@ -972,6 +1048,7 @@ export async function judgeSubmission(
   timeLimitMs: number,
   inputFile?: string | null,
   outputFile?: string | null,
+  judgeType?: string | null,
 ): Promise<JudgeResult> {
   const mode = process.env.JUDGE_MODE?.toLowerCase();
   if (mode === "mock") {
@@ -986,15 +1063,15 @@ export async function judgeSubmission(
 
   if (!isCloudForced) {
     try {
-      return await gradeWithCompiler(language, source, tests, timeLimitMs, inputFile, outputFile);
+      return await gradeWithCompiler(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType);
     } catch (err) {
       if (err instanceof Error && (err.message === "NO_CXX" || err.message === "NO_PYTHON")) {
-        return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile);
+        return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType);
       }
       const message = err instanceof Error ? err.message : String(err);
       return { verdict: "CE", score: 0, timeMs: 0, log: message, testResults: [] };
     }
   }
 
-  return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile);
+  return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType);
 }

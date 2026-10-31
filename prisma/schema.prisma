@@ -83,6 +83,7 @@ model Problem {
   difficulty    Difficulty       @default(EASY)
   published     Boolean          @default(true)
   contestOnly   Boolean          @default(false)
+  judgeType     String           @default("STANDARD")
   ioMode        String           @default("STDIO")
   inputFile     String?
   outputFile    String?
@@ -126,6 +127,7 @@ model ContestProblem {
   problemId   String
   letter      String
   customTitle String?
+  judgeType   String?
   ioMode      String?
   inputFile   String?
   outputFile  String?

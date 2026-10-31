@@ -161,6 +161,11 @@ export default async function ProblemListPage({
                         📁 {p.inputFile || `${p.slug.toUpperCase()}.INP`}
                       </span>
                     )}
+                    {p.judgeType === "HEURISTIC" && (
+                      <span className="ml-2 inline-flex items-center rounded bg-purple-500/10 px-1.5 py-0.5 text-[11px] font-medium text-purple-700 dark:text-purple-400">
+                        🎯 Heuristic
+                      </span>
+                    )}
                     {!p.published && (
                       <>
                         <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>

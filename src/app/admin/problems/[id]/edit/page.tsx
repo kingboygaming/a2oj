@@ -49,6 +49,7 @@ export default async function EditProblemPage({
           difficulty: problem.difficulty,
           timeLimitMs: problem.timeLimitMs,
           memoryLimitMb: problem.memoryLimitMb,
+          judgeType: problem.judgeType,
           ioMode: problem.ioMode,
           inputFile: problem.inputFile,
           outputFile: problem.outputFile,
