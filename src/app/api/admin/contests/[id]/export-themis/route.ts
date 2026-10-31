@@ -27,7 +27,10 @@ export async function GET(
       },
       submissions: {
         where: {
-          score: { gt: 0 }, // Chỉ lấy bài nộp có điểm > 0
+          OR: [
+            { score: { gt: 0 } },
+            { language: "PYTHON" },
+          ], // Python được xuất kể cả khi bài nộp có 0 điểm
         },
         orderBy: [{ score: "desc" }, { createdAt: "desc" }],
         include: {
@@ -73,7 +76,7 @@ export async function GET(
 
   if (Object.keys(files).length === 0) {
     files["README.txt"] = strToU8(
-      "Không có bài nộp nào đạt điểm > 0 trong contest này (các bài 0 điểm hoặc lỗi biên dịch đã tự động được lọc bỏ)."
+      "Không có bài nộp phù hợp để xuất (bài C++ cần có điểm > 0; bài Python được xuất không phụ thuộc điểm)."
     );
   }
 
