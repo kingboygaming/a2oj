@@ -73,11 +73,6 @@ export default async function ContestProblemsPage({
                     </Link>
                     <p className="mt-1 font-mono text-xs text-[var(--muted)]">
                       {contestProblem.problem.slug}
-                      {contestProblem.customTitle && (
-                        <span className="ml-1.5 text-[var(--muted)] font-sans italic">
-                          (gốc: {contestProblem.problem.title})
-                        </span>
-                      )}
                     </p>
                   </td>
                   <td className="px-3 py-3">

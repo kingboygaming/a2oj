@@ -38,7 +38,15 @@ export default async function ProblemDetailPage({
           OR: [{ id: contest }, { slug: contest }],
           problems: { some: { problemId: problem.id } },
         },
-        select: { id: true, slug: true, title: true },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          problems: {
+            where: { problemId: problem.id },
+            select: { letter: true, customTitle: true },
+          },
+        },
       })
     : null;
   if ((contest && !contestContext) || (problem.contestOnly && !contestContext && !staff)) {
@@ -48,6 +56,9 @@ export default async function ProblemDetailPage({
   const samples = problem.testCases.filter((t) => t.isSample);
   const { items: recentSubmissions, total, page, totalPages } =
     await getProblemSubmissionPage(problem.id, 1, 10);
+
+  const currentContestProblem = contestContext?.problems?.[0];
+  const problemDisplayName = currentContestProblem?.customTitle || problem.title;
 
   return (
     <div>
@@ -99,6 +110,11 @@ export default async function ProblemDetailPage({
         <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--paper)] shadow-sm">
           <div className="border-b border-[var(--line)] bg-[var(--surface-strong)] px-5 py-5 text-white sm:px-7">
             <div className="flex flex-wrap items-center gap-2 text-xs">
+              {currentContestProblem && (
+                <span className="rounded-md bg-[var(--teal)] px-2.5 py-1 font-bold text-white">
+                  Bài {currentContestProblem.letter}
+                </span>
+              )}
               <span className="rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-sky-200">
                 {problem.slug}
               </span>
@@ -111,7 +127,7 @@ export default async function ProblemDetailPage({
               </span>
             </div>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {problem.title}
+              {problemDisplayName}
             </h1>
             <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
               <span className="rounded-md border border-white/10 px-2.5 py-1.5">
