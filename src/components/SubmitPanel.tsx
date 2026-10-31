@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeEditor, defaultSource } from "./CodeEditor";
 import { VerdictBadge } from "./VerdictBadge";
+import { EditorSettingsPanel } from "./EditorSettingsPanel";
+import { playSound } from "@/lib/sound";
 
 type Language = "CPP" | "PYTHON";
 type Sample = { id: string; label: string; input: string; output: string };
@@ -141,6 +143,10 @@ export function SubmitPanel({
         return;
       }
       setResult(data);
+      if (data?.verdict === "AC") playSound("ac");
+      else if (data?.verdict === "WA") playSound("wa");
+      else if (data?.verdict === "CE") playSound("ce");
+      else if (data?.verdict === "TLE") playSound("tle");
       router.refresh();
     } catch {
       setError("Không thể kết nối để nộp bài.");
@@ -180,17 +186,20 @@ export function SubmitPanel({
             </p>
           </div>
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-400">
-          Ngôn ngữ
-          <select
-            value={language}
-            onChange={(e) => changeLanguage(e.target.value as Language)}
-            className="rounded-lg border border-white/10 bg-[#1f2937] px-3 py-2 text-sm text-white outline-none transition focus:border-sky-400/60"
-          >
-            <option value="CPP">C++17</option>
-            <option value="PYTHON">Python 3</option>
-          </select>
-        </label>
+        <div className="flex items-center gap-3">
+          <EditorSettingsPanel />
+          <label className="flex items-center gap-2 text-xs text-slate-400">
+            Ngôn ngữ
+            <select
+              value={language}
+              onChange={(e) => changeLanguage(e.target.value as Language)}
+              className="rounded-lg border border-white/10 bg-[#1f2937] px-3 py-2 text-sm text-white outline-none transition focus:border-sky-400/60"
+            >
+              <option value="CPP">C++17</option>
+              <option value="PYTHON">Python 3</option>
+            </select>
+          </label>
+        </div>
       </div>
       <div className="p-3 sm:p-5">
         <section className="overflow-hidden rounded-xl border border-white/10 bg-[#0b1220]">

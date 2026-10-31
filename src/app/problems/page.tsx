@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -110,75 +111,88 @@ export default async function ProblemListPage({
         </form>
       </div>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
-        <table className="w-full min-w-[700px] text-left text-sm">
-          <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
-            <tr>
-              <th className="px-3 py-2 font-medium">Mã</th>
-              <th className="px-3 py-2 font-medium">Tiêu đề</th>
-              <th className="px-3 py-2 font-medium">Độ khó</th>
-              {user && <th className="px-3 py-2 font-medium">Trạng thái</th>}
-              <th className="px-3 py-2 font-medium">Nộp</th>
-            </tr>
-          </thead>
-          <tbody>
-            {problems.map((p) => (
-              <tr key={p.id} className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
-                <td className="px-3 py-2 font-mono text-xs">{p.slug}</td>
-                <td className="px-3 py-2">
-                  <Link
-                    href={`/problems/${p.slug}`}
-                    prefetch={true}
-                    className="font-medium text-[var(--teal)] hover:underline"
-                  >
-                    {p.title}
-                  </Link>
-                  {!p.published && (
-                    <>
-                      <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>
-                      {(staff || p.authorId === user?.id) && (
-                        <Link
-                          href={`/problems/${p.slug}/edit`}
-                          className="ml-2 text-xs font-medium text-[var(--teal)] hover:underline"
-                        >
-                          [Chỉnh sửa]
-                        </Link>
-                      )}
-                    </>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  <DifficultyBadge difficulty={p.difficulty} />
-                </td>
-                {user && (
+      {problems.length === 0 ? (
+        <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+          <EmptyState
+            type={q || difficulty || solvedFilter ? "no-results" : "no-problems"}
+            title={
+              q || difficulty || solvedFilter
+                ? "Không tìm thấy bài tập phù hợp"
+                : "Chưa có bài tập nào"
+            }
+            description={
+              q || difficulty || solvedFilter
+                ? "Thử thay đổi từ khóa hoặc đặt lại bộ lọc để tìm kiếm rộng hơn."
+                : "Hãy là người đầu tiên tạo bài tập và chia sẻ với cộng đồng!"
+            }
+            action={
+              q || difficulty || solvedFilter
+                ? { label: "Xóa bộ lọc", href: "/problems" }
+                : { label: "Đóng góp bài tập mới", href: "/problems/new" }
+            }
+          />
+        </div>
+      ) : (
+        <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+          <table className="w-full min-w-[700px] text-left text-sm">
+            <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
+              <tr>
+                <th className="px-3 py-2 font-medium">Mã</th>
+                <th className="px-3 py-2 font-medium">Tiêu đề</th>
+                <th className="px-3 py-2 font-medium">Độ khó</th>
+                {user && <th className="px-3 py-2 font-medium">Trạng thái</th>}
+                <th className="px-3 py-2 font-medium">Nộp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {problems.map((p) => (
+                <tr key={p.id} className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
+                  <td className="px-3 py-2 font-mono text-xs">{p.slug}</td>
                   <td className="px-3 py-2">
-                    {p.submissions.length > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
-                        ✓ Đã giải
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-md bg-slate-500/10 px-2 py-0.5 text-xs text-slate-400 ring-1 ring-inset ring-slate-500/20">
-                        Chưa giải
-                      </span>
+                    <Link
+                      href={`/problems/${p.slug}`}
+                      prefetch={true}
+                      className="font-medium text-[var(--teal)] hover:underline"
+                    >
+                      {p.title}
+                    </Link>
+                    {!p.published && (
+                      <>
+                        <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>
+                        {(staff || p.authorId === user?.id) && (
+                          <Link
+                            href={`/problems/${p.slug}/edit`}
+                            className="ml-2 text-xs font-medium text-[var(--teal)] hover:underline"
+                          >
+                            [Chỉnh sửa]
+                          </Link>
+                        )}
+                      </>
                     )}
                   </td>
-                )}
-                <td className="px-3 py-2">{p._count.submissions}</td>
-              </tr>
-            ))}
-            {problems.length === 0 && (
-              <tr>
-                <td
-                  colSpan={user ? 5 : 4}
-                  className="px-3 py-8 text-center text-sm text-[var(--muted)]"
-                >
-                  Không tìm thấy bài tập phù hợp.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  <td className="px-3 py-2">
+                    <DifficultyBadge difficulty={p.difficulty} />
+                  </td>
+                  {user && (
+                    <td className="px-3 py-2">
+                      {p.submissions.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
+                          ✓ Đã giải
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-md bg-slate-500/10 px-2 py-0.5 text-xs text-slate-400 ring-1 ring-inset ring-slate-500/20">
+                          Chưa giải
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  <td className="px-3 py-2">{p._count.submissions}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

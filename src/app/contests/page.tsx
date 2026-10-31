@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { canManageContests } from "@/lib/auth";
 import { ContestCountdownBadge } from "@/components/ContestCountdownBadge";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,8 @@ export default async function ContestsPage() {
     },
   });
 
+  const canCreate = user && canManageContests(user.role);
+
   return (
     <div>
       <div className="flex items-end justify-between">
@@ -33,7 +36,7 @@ export default async function ContestsPage() {
           <h1 className="text-2xl font-semibold text-[var(--navy)]">Contest</h1>
           <p className="text-sm text-[var(--muted)]">Kỳ thi nội bộ và bảng xếp hạng</p>
         </div>
-        {user && canManageContests(user.role) && (
+        {canCreate && (
           <Link
             href="/contests/new"
             className="rounded-md bg-[var(--surface-strong)] px-3 py-2 text-sm text-white"
@@ -89,8 +92,23 @@ export default async function ContestsPage() {
         ))}
 
         {contests.length === 0 && (
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-8 text-center text-sm text-[var(--muted)]">
-            Chưa có kỳ thi nào.
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+            <EmptyState
+              type="no-contests"
+              title="Chưa có kỳ thi nào"
+              description="Hiện tại chưa có kỳ thi hoặc lớp học nào diễn ra."
+              action={
+                canCreate
+                  ? {
+                      label: "Tạo kỳ thi mới",
+                      href: "/contests/new",
+                    }
+                  : {
+                      label: "Khám phá bài tập",
+                      href: "/problems",
+                    }
+              }
+            />
           </div>
         )}
       </div>

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { UserMenu } from "./UserMenu";
 import { ThemeToggle } from "./ThemeToggle";
+import { SoundToggle } from "./SoundToggle";
+import { BackgroundPicker } from "./BackgroundPicker";
 
 const links = [
   { href: "/problems", label: "Bài tập" },
@@ -37,7 +39,9 @@ export async function Header() {
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-2 text-sm">
+          <BackgroundPicker />
+          <SoundToggle />
           <ThemeToggle />
           {user ? (
             <UserMenu user={user} />

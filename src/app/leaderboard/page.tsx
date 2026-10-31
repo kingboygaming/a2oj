@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
 import { prisma } from "@/lib/prisma";
+import { EmptyState } from "@/components/EmptyState";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -139,18 +140,19 @@ export default async function LeaderboardPage({
         </div>
 
         {filtered.length === 0 ? (
-          <div className="px-5 py-16 text-center">
-            <p className="text-4xl">🔍</p>
-            <p className="mt-3 font-medium text-[var(--navy)]">
-              Không tìm thấy thí sinh nào
-            </p>
-            <Link
-              href="/leaderboard"
-              className="mt-2 inline-block text-sm text-[var(--teal)] hover:underline"
-            >
-              Xem toàn bộ bảng xếp hạng →
-            </Link>
-          </div>
+          <EmptyState
+            type="no-results"
+            title="Không tìm thấy thí sinh nào"
+            description={
+              query
+                ? `Không có kết quả phù hợp với từ khóa "${q}".`
+                : "Chưa có dữ liệu xếp hạng."
+            }
+            action={{
+              label: "Xem toàn bộ bảng xếp hạng",
+              href: "/leaderboard",
+            }}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[520px] text-left text-sm">

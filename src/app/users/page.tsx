@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +27,15 @@ export default async function UsersPage() {
         className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--paper)]"
       >
         {standings.length === 0 ? (
-          <div className="px-5 py-10 text-center">
-            <p className="font-medium text-[var(--navy)]">Chưa có thí sinh nào.</p>
-            <Link
-              href="/problems"
-              className="mt-2 inline-block text-sm text-[var(--teal)] hover:underline"
-            >
-              Khám phá bài tập →
-            </Link>
-          </div>
+          <EmptyState
+            type="no-users"
+            title="Chưa có thí sinh nào"
+            description="Chưa có tài khoản nào tham gia giải bài trên hệ thống."
+            action={{
+              label: "Khám phá bài tập",
+              href: "/problems",
+            }}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[480px] text-left text-sm">

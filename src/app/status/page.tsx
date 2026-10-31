@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { SubmissionScopeToggle } from "@/components/SubmissionScopeToggle";
+import { EmptyState } from "@/components/EmptyState";
 import { getCurrentUser } from "@/lib/auth";
 import {
   getPublicSubmissionPage,
@@ -45,16 +46,20 @@ export default async function PublicStatusPage({
       </div>
 
       {submissions.length === 0 ? (
-        <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-6 text-center">
-          <p className="font-medium text-[var(--navy)]">
-            {mine ? "Bạn chưa nộp bài nào." : "Chưa có bài nộp nào."}
-          </p>
-          <Link
-            href="/problems"
-            className="mt-2 inline-block text-sm text-[var(--teal)] hover:underline"
-          >
-            Chọn bài để luyện tập
-          </Link>
+        <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+          <EmptyState
+            type="no-submissions"
+            title={mine ? "Bạn chưa nộp bài nào" : "Chưa có bài nộp nào"}
+            description={
+              mine
+                ? "Bắt đầu làm bài để ghi nhận điểm số và lịch sử nộp bài của bạn."
+                : "Hệ thống chưa có lượt nộp bài nào gần đây."
+            }
+            action={{
+              label: "Chọn bài để luyện tập",
+              href: "/problems",
+            }}
+          />
         </div>
       ) : (
         <>
@@ -155,14 +160,20 @@ function statusPageHref(page: number, mine: boolean) {
 
 function LoginRequired() {
   return (
-    <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-6 text-center">
-      <p className="font-medium text-[var(--navy)]">Đăng nhập để xem bài nộp của bạn.</p>
-      <Link
-        href="/login"
-        className="mt-3 inline-block rounded-md bg-[var(--surface-strong)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--surface-strong-hover)]"
-      >
-        Đăng nhập
-      </Link>
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+      <EmptyState
+        type="login-required"
+        title="Yêu cầu đăng nhập"
+        description="Đăng nhập để xem toàn bộ lịch sử các bài nộp và mã nguồn của bạn."
+        action={{
+          label: "Đăng nhập ngay",
+          href: "/login",
+        }}
+        secondaryAction={{
+          label: "Chưa có tài khoản? Đăng ký tại đây",
+          href: "/register",
+        }}
+      />
     </div>
   );
 }
