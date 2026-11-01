@@ -57,7 +57,7 @@ export default async function PublicProfilePage({
             </span>
           )}
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold text-[var(--navy)]">
+            <h1 className={`truncate text-2xl font-semibold ${rankSummary.rank.color}`}>
               {user.displayName}
             </h1>
             <p className="mt-1 text-sm text-[var(--muted)]">@{user.username}</p>

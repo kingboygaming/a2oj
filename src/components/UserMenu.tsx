@@ -20,6 +20,7 @@ const RANK_COLORS: Record<string, string> = {
   Specialist: "text-cyan-300",
   Expert: "text-violet-300",
   "Candidate Master": "text-amber-300",
+  Admin: "text-amber-300",
   Master: "text-orange-300",
   Grandmaster: "text-rose-300",
   Legend: "text-fuchsia-300",
@@ -101,7 +102,7 @@ export function UserMenu({ user, rank }: UserMenuProps) {
         )}
           <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-            <span className="truncate">{user.displayName}</span>
+            <span className={`truncate ${RANK_COLORS[displayedRank?.name ?? ""] ?? "text-[var(--cream)]"}`}>{user.displayName}</span>
             {displayedRank && <span title={`Rank ${displayedRank.name}`} className={`shrink-0 text-[10px] font-semibold ${RANK_COLORS[displayedRank.name] ?? (user.role === "ADMIN" ? "text-amber-300" : "text-[var(--cream)]")}`}>{displayedRank.badge} {displayedRank.name}</span>}
           </span>
         </span>
