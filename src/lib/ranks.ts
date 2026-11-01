@@ -71,8 +71,15 @@ type AchievementProgress = {
   waCount: number;
   ceStreak: number;
   points: number;
+  cePenalty: number;
   heuristicScores: Map<string, number>;
 };
+
+const MAX_CE_PENALTY = 1_000_000_000;
+
+function cePenaltyForStreak(streak: number) {
+  return Math.min(MAX_CE_PENALTY, 10 * 2 ** Math.min(streak - 1, 26));
+}
 
 export function getRankFromPoints(points: number) {
   for (let i = RANKS.length - 1; i >= 0; i -= 1) {
@@ -131,20 +138,30 @@ export async function getRankColorClasses(userIds: string[]) {
   const ids = [...new Set(userIds)];
   if (!ids.length) return {} as Record<string, string>;
   const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, nameColorMode: true, nameColorAchievementId: true } });
-  const progress = new Map<string, AchievementProgress>(ids.map((id) => [id, { solvedCount: 0, solvedSlugs: new Set(), contestCount: 0, podiumCount: 0, winCount: 0, waCount: 0, ceStreak: 0, points: 0, heuristicScores: new Map() }]));
-  const accepted = await prisma.submission.findMany({
-    where: { userId: { in: ids }, verdict: "AC", contestId: null },
-    select: { userId: true, problemId: true, problem: { select: { slug: true, difficulty: true } } },
+  const progress = new Map<string, AchievementProgress>(ids.map((id) => [id, { solvedCount: 0, solvedSlugs: new Set(), contestCount: 0, podiumCount: 0, winCount: 0, waCount: 0, ceStreak: 0, points: 0, cePenalty: 0, heuristicScores: new Map() }]));
+  const practiceSubmissions = await prisma.submission.findMany({
+    where: { userId: { in: ids }, contestId: null, verdict: { notIn: ["QUEUED", "RUNNING"] } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { userId: true, problemId: true, verdict: true, problem: { select: { slug: true, difficulty: true } } },
   });
   const solved = new Set<string>();
-  for (const sub of accepted) {
+  const ceStreaks = new Map<string, number>();
+  for (const sub of practiceSubmissions) {
     const key = `${sub.userId}:${sub.problemId}`;
-    if (solved.has(key)) continue;
-    solved.add(key);
     const p = progress.get(sub.userId)!;
-    p.solvedCount += 1;
-    p.solvedSlugs.add(sub.problem.slug);
-    p.points += sub.problem.difficulty === "EASY" ? 3 : sub.problem.difficulty === "MEDIUM" ? 8 : 15;
+    if (sub.verdict === "CE") {
+      const streak = (ceStreaks.get(key) ?? 0) + 1;
+      ceStreaks.set(key, streak);
+      p.cePenalty = Math.min(MAX_CE_PENALTY, p.cePenalty + cePenaltyForStreak(streak));
+    } else {
+      ceStreaks.delete(key);
+      if (sub.verdict === "AC" && !solved.has(key)) {
+        solved.add(key);
+        p.solvedCount += 1;
+        p.solvedSlugs.add(sub.problem.slug);
+        p.points += sub.problem.difficulty === "EASY" ? 3 : sub.problem.difficulty === "MEDIUM" ? 8 : 15;
+      }
+    }
   }
 
   const contests = await prisma.contest.findMany({
@@ -181,6 +198,8 @@ export async function getRankColorClasses(userIds: string[]) {
       if (place === 1) p.winCount += 1;
     }
   }
+
+  for (const p of progress.values()) p.points -= p.cePenalty;
 
   const selectedAchievementIds = users.flatMap((user) => user.nameColorMode === "ACHIEVEMENT" && user.nameColorAchievementId ? [user.nameColorAchievementId] : []);
   const selectedAchievements = selectedAchievementIds.length ? await prisma.achievement.findMany({ where: { id: { in: selectedAchievementIds }, nameColorEnabled: true } }) : [];
@@ -239,17 +258,28 @@ export async function getRankColorClasses(userIds: string[]) {
 }
 
 export async function getUserRankSummary(userId: string) {
-  const [user, accepted] = await Promise.all([
+  const [user, practiceSubmissions] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true, nameColorMode: true, nameColorAchievementId: true } }),
     prisma.submission.findMany({
-      where: { userId, verdict: "AC", contestId: null },
-      orderBy: { createdAt: "asc" },
-      select: { problemId: true, problem: { select: { slug: true, difficulty: true } } },
+      where: { userId, contestId: null, verdict: { notIn: ["QUEUED", "RUNNING"] } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { problemId: true, verdict: true, problem: { select: { slug: true, difficulty: true } } },
     }),
   ]);
-  const firstSolveByProblem = new Map<string, (typeof accepted)[number]>();
-  for (const submission of accepted) {
-    if (!firstSolveByProblem.has(submission.problemId)) firstSolveByProblem.set(submission.problemId, submission);
+  const firstSolveByProblem = new Map<string, (typeof practiceSubmissions)[number]>();
+  const ceStreaks = new Map<string, number>();
+  let cePenalty = 0;
+  for (const submission of practiceSubmissions) {
+    if (submission.verdict === "CE") {
+      const streak = (ceStreaks.get(submission.problemId) ?? 0) + 1;
+      ceStreaks.set(submission.problemId, streak);
+      cePenalty = Math.min(MAX_CE_PENALTY, cePenalty + cePenaltyForStreak(streak));
+    } else {
+      ceStreaks.delete(submission.problemId);
+      if (submission.verdict === "AC" && !firstSolveByProblem.has(submission.problemId)) {
+        firstSolveByProblem.set(submission.problemId, submission);
+      }
+    }
   }
   const solvedSlugs = new Set([...firstSolveByProblem.values()].map((submission) => submission.problem.slug));
   const solvedCount = firstSolveByProblem.size;
@@ -287,7 +317,8 @@ export async function getUserRankSummary(userId: string) {
     else if (place === 3) { contestPoints += 50; podiumCount += 1; }
   }
 
-  const points = problemPoints + contestPoints;
+  cePenalty = Math.min(MAX_CE_PENALTY, cePenalty);
+  const points = problemPoints + contestPoints - cePenalty;
   const { rank, rankIndex, nextRank } = getRankFromPoints(points);
   const badges: RankBadge[] = [
     { key: "first-ac", title: "AC đầu tiên", description: "Giải bài tập đầu tiên.", icon: "🎯", rarity: "COMMON", earned: solvedCount >= 1 },
@@ -329,7 +360,7 @@ export async function getUserRankSummary(userId: string) {
   const ceStreak = customAchievements.some((achievement) => achievement.triggerType === "CE_STREAK")
     ? await getLongestCeStreak(userId)
     : 0;
-  const progress: AchievementProgress = { solvedCount, solvedSlugs, contestCount: completedContests.length, podiumCount, winCount: wins, waCount, ceStreak, points, heuristicScores };
+  const progress: AchievementProgress = { solvedCount, solvedSlugs, contestCount: completedContests.length, podiumCount, winCount: wins, waCount, ceStreak, points, cePenalty, heuristicScores };
   const customBadges = customAchievements.flatMap((achievement) => {
     const earned = achievementIsEarned(achievement, progress);
     if (achievement.secret && !earned) return [];
@@ -342,7 +373,7 @@ export async function getUserRankSummary(userId: string) {
     : user.role === "ADMIN" ? RANK_NAME_COLORS.Admin : rank.color;
 
   return {
-    points, problemPoints, contestPoints, solvedCount, contestCount: completedContests.length,
+    points, problemPoints, contestPoints, cePenalty, solvedCount, contestCount: completedContests.length,
     rank, rankIndex, nextRank, badges, nameColorMode: user.nameColorMode,
     nameColorAchievementId: user.nameColorAchievementId, nameColor,
   };
