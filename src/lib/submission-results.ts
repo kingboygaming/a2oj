@@ -18,6 +18,13 @@ export type StoredTestResults = {
   message: string;
 };
 
+export function hideHeuristicTestScores(message: string) {
+  return message.replace(
+    /(Test \d+: )Heuristic \d+\/\d+ điểm/g,
+    "$1Wrong Answer",
+  );
+}
+
 export function serializeJudgeResults(
   result: JudgeResult,
   totalTests: number,
@@ -69,11 +76,14 @@ export function parseJudgeResults(log: string): StoredTestResults | null {
         test: testResult.test,
         verdict: testResult.verdict as Verdict,
         timeMs: testResult.timeMs,
-        score: typeof testResult.score === "number" ? testResult.score : undefined,
       });
     }
 
-    return { totalTests: record.totalTests, results, message: record.message };
+    return {
+      totalTests: record.totalTests,
+      results,
+      message: hideHeuristicTestScores(record.message),
+    };
   } catch {
     return null;
   }

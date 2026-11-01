@@ -443,9 +443,9 @@ async function gradeWithCompiler(
           passed += pts;
           testVerdict = pts === test.points ? "AC" : "WA";
           if (pts < test.points) {
-            logs.push(`Test ${index + 1}: Heuristic ${pts}/${test.points} điểm`);
+            logs.push(`Test ${index + 1}: Wrong Answer`);
           }
-          testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs, score: pts });
+          testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
         } else if (compareOutput(run.stdout, test.output)) {
           testVerdict = "AC";
           passed += test.points;
@@ -562,9 +562,9 @@ async function gradeWithCompiler(
         passed += pts;
         testVerdict = pts === test.points ? "AC" : "WA";
         if (pts < test.points) {
-          logs.push(`Test ${index + 1}: Heuristic ${pts}/${test.points} điểm`);
+          logs.push(`Test ${index + 1}: Wrong Answer`);
         }
-        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs, score: pts });
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: run.timeMs });
       } else if (compareOutput(run.stdout, test.output)) {
         testVerdict = "AC";
         passed += test.points;
@@ -826,9 +826,9 @@ async function gradeWithJudge0(
         passed += pts;
         testVerdict = pts === test.points ? "AC" : "WA";
         if (pts < test.points) {
-          logs.push(`Test ${i + 1}: Heuristic ${pts}/${test.points} điểm`);
+          logs.push(`Test ${i + 1}: Wrong Answer`);
         }
-        testResults.push({ test: i + 1, verdict: testVerdict, timeMs, score: pts });
+        testResults.push({ test: i + 1, verdict: testVerdict, timeMs });
       } else if (compareOutput(sub.stdout ?? "", test.output)) {
         testVerdict = "AC";
         passed += test.points;
@@ -1020,9 +1020,9 @@ async function gradeWithWandbox(
         passed += pts;
         testVerdict = pts === test.points ? "AC" : "WA";
         if (pts < test.points) {
-          logs.push(`Test ${index + 1}: Heuristic ${pts}/${test.points} điểm`);
+          logs.push(`Test ${index + 1}: Wrong Answer`);
         }
-        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed, score: pts });
+        testResults.push({ test: index + 1, verdict: testVerdict, timeMs: elapsed });
       } else if (compareOutput(data.program_output ?? "", test.output)) {
         testVerdict = "AC";
         passed += test.points;

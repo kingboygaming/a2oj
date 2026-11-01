@@ -1,5 +1,5 @@
 import { VerdictBadge } from "@/components/VerdictBadge";
-import { parseJudgeResults } from "@/lib/submission-results";
+import { hideHeuristicTestScores, parseJudgeResults } from "@/lib/submission-results";
 import type { Verdict } from "@prisma/client";
 
 const FAILURE_VERDICTS = new Set<Verdict>(["WA", "TLE", "RTE", "MLE"]);
@@ -27,7 +27,7 @@ export function SubmissionTestResults({
         </p>
         {log && (
           <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-[var(--paper)] p-4 text-sm text-[var(--muted)]">
-            {log}
+            {hideHeuristicTestScores(log)}
           </pre>
         )}
       </section>
@@ -71,11 +71,9 @@ export function SubmissionTestResults({
             const rowStyle = result
               ? result.verdict === "AC"
                 ? "border-emerald-200 bg-emerald-50"
-                : (result.score ?? 0) > 0
+                : result.verdict === "CE"
                   ? "border-amber-200 bg-amber-50"
-                  : result.verdict === "CE"
-                    ? "border-amber-200 bg-amber-50"
-                    : "border-rose-200 bg-rose-50"
+                  : "border-rose-200 bg-rose-50"
               : "border-[var(--line)] bg-[var(--paper)]";
 
             return (
@@ -90,11 +88,6 @@ export function SubmissionTestResults({
                   {result ? (
                     <>
                       <VerdictBadge verdict={result.verdict} />
-                      {typeof result.score === "number" && (
-                        <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                          {result.score}đ
-                        </span>
-                      )}
                       <span className="min-w-12 text-right font-mono text-xs text-[var(--muted)]">
                         {result.timeMs} ms
                       </span>
