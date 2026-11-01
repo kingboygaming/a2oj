@@ -94,7 +94,7 @@ export default async function AdminPage() {
         <AdminModule title="Bài tập" detail={`${problemCount} đề · ${publishedCount} đã xuất bản`} href="/admin/problems" />
         <AdminModule title="Đăng tin" detail="Tạo thông báo hiển thị trên trang chủ" href="/admin/news" />
         <AdminModule title="Quản lý tài khoản" detail={`${userCount} tài khoản`} href="/admin/users" />
-        <AdminModule title="Bài nộp" detail={`${submissionCount} lượt nộp`} href="/status" />
+        <AdminModule title="Bài nộp" detail={`${submissionCount} lượt nộp · quản lý lịch sử`} href="/admin/submissions" />
         <AdminModule title="Quản lý contest" detail={`${contestCount} kỳ thi`} href="/admin/contests" />
         <AdminModule title="Thành tựu" detail="Tạo huy hiệu, điều kiện mở khóa và màu tên" href="/admin/achievements" />
       </section>
