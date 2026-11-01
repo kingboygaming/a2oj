@@ -14,6 +14,15 @@ export async function getGlobalAcmLeaderboard() {
       user: { select: { username: true, displayName: true, avatarMimeType: true } },
     },
   });
+  const contestAccepted = await prisma.submission.findMany({
+    where: { contestId: { not: null }, verdict: "AC" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: {
+      userId: true,
+      problemId: true,
+      user: { select: { username: true, displayName: true, avatarMimeType: true } },
+    },
+  });
 
   type Standing = {
     userId: string;
@@ -52,6 +61,26 @@ export async function getGlobalAcmLeaderboard() {
     }
 
     attempts.set(key, problemAttempts);
+    standings.set(submission.userId, standing);
+  }
+
+  // Count contest ACs toward total solved problems, without mixing contest
+  // wrong attempts and penalties into the regular ACM practice standings.
+  for (const submission of contestAccepted) {
+    const standing = standings.get(submission.userId) ?? {
+      userId: submission.userId,
+      username: submission.user.username,
+      displayName: submission.user.displayName,
+      hasAvatar: Boolean(submission.user.avatarMimeType),
+      solved: 0,
+      penalty: 0,
+    };
+    const key = `${submission.userId}:${submission.problemId}`;
+    const problemAttempts = attempts.get(key);
+    if (!problemAttempts?.accepted) {
+      standing.solved += 1;
+      attempts.set(key, { accepted: true, wrongAttempts: problemAttempts?.wrongAttempts ?? 0 });
+    }
     standings.set(submission.userId, standing);
   }
 

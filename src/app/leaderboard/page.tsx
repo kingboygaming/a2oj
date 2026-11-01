@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Bảng xếp hạng — A2OJ",
-  description: "Bảng xếp hạng ACM toàn hệ thống A2OJ — xếp theo số bài AC và penalty.",
+  description: "Bảng xếp hạng bài AC từ luyện tập và contest trên A2OJ.",
 };
 
 const AVATAR_COLORS = [
@@ -56,7 +56,7 @@ export default async function LeaderboardPage({
   const [standings, totalProblems, totalSubmissions] = await Promise.all([
     getGlobalAcmLeaderboard(),
     prisma.problem.count({ where: { published: true, contestOnly: false } }),
-    prisma.submission.count({ where: { verdict: "AC", contestId: null } }),
+    prisma.submission.count({ where: { verdict: "AC" } }),
   ]);
   const rankColors = await getRankColorClasses(standings.map((standing) => standing.userId));
 
@@ -102,7 +102,7 @@ export default async function LeaderboardPage({
             Bảng xếp hạng ACM
           </h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Xếp theo số bài AC giảm dần · penalty tăng dần.{" "}
+            Xếp theo tổng bài AC từ luyện tập và contest · penalty tính từ bài luyện tập.{" "}
             <span className="tabular-nums">
               {standings.length.toLocaleString("vi-VN")} thí sinh
             </span>
