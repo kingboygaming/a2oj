@@ -8,11 +8,13 @@ export const dynamic = "force-dynamic";
 
 export default async function EditProblemPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ contest?: string }>;
 }) {
   const user = await getCurrentUser();
-  const { id } = await params;
+  const [{ id }, { contest }] = await Promise.all([params, searchParams]);
   const problem = await prisma.problem.findUnique({
     where: { id },
     include: { testCases: { orderBy: { order: "asc" } }, tags: true },
@@ -26,13 +28,24 @@ export default async function EditProblemPage({
     notFound();
   }
 
+  const contestContext = contest ? await prisma.contest.findFirst({
+    where: {
+      OR: [{ id: contest }, { slug: contest }],
+      problems: { some: { problemId: problem.id } },
+    },
+    select: { id: true, slug: true, title: true },
+  }) : null;
+  const returnUrl = contestContext
+    ? `/problems/${problem.slug}?contest=${encodeURIComponent(contestContext.id)}`
+    : "/admin/problems";
+
   return (
     <div className="max-w-3xl">
       <Link
-        href="/admin/problems"
+        href={returnUrl}
         className="text-sm font-medium text-[var(--teal)] hover:underline"
       >
-        ← Quay lại danh sách bài tập
+        {contestContext ? `← Quay lại ${contestContext.title}` : "← Quay lại danh sách bài tập"}
       </Link>
       <h1 className="mt-4 text-2xl font-semibold text-[var(--navy)]">
         Chỉnh sửa bài tập
@@ -65,7 +78,7 @@ export default async function EditProblemPage({
             points,
           })),
         }}
-        returnUrl="/admin/problems"
+        returnUrl={returnUrl}
       />
     </div>
   );

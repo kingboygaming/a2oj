@@ -171,7 +171,7 @@ export default async function ProblemDetailPage({
       {problem.published && user?.role === "ADMIN" && (
         <div className="mb-4 flex justify-end">
           <Link
-            href={`/admin/problems/${problem.id}/edit`}
+            href={`/admin/problems/${problem.id}/edit${contestContext ? `?contest=${encodeURIComponent(contestContext.id)}` : ""}`}
             className="inline-flex items-center rounded-lg border border-[var(--line)] bg-[var(--paper)] px-3 py-1.5 text-xs font-medium text-[var(--navy)] hover:border-[var(--teal)] hover:text-[var(--teal)]"
           >
             Chỉnh sửa bài tập
