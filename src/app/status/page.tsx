@@ -7,6 +7,7 @@ import {
   getPublicSubmissionPage,
   PUBLIC_SUBMISSIONS_PAGE_SIZE,
 } from "@/lib/public-submissions";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function PublicStatusPage({
     Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const { items: submissions, total, totalPages, page: currentPage } =
     await getPublicSubmissionPage(page, mine ? user?.id : undefined);
+  const rankColors = await getRankColorClasses(submissions.map((submission) => submission.user.id));
 
   return (
     <div>
@@ -85,7 +87,7 @@ export default async function PublicStatusPage({
                     <td className="whitespace-nowrap px-3 py-2">
                       <Link
                         href={`/users/${encodeURIComponent(submission.user.username)}`}
-                        className="hover:text-[var(--teal)] hover:underline"
+                        className={`${rankColors[submission.user.id] ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
                       >
                         {submission.user.displayName}
                       </Link>

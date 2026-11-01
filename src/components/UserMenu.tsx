@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { RANK_NAME_COLORS } from "@/lib/rank-colors";
 
 type UserMenuProps = {
   user: {
@@ -12,21 +13,10 @@ type UserMenuProps = {
     avatarMimeType: string | null;
   };
   rank?: { name: string; badge: string };
+  nameColorClass?: string;
 };
 
-const RANK_COLORS: Record<string, string> = {
-  Newbie: "text-slate-300",
-  Pupil: "text-emerald-300",
-  Specialist: "text-cyan-300",
-  Expert: "text-violet-300",
-  "Candidate Master": "text-amber-300",
-  Admin: "text-amber-300",
-  Master: "text-orange-300",
-  Grandmaster: "text-rose-300",
-  Legend: "text-fuchsia-300",
-};
-
-export function UserMenu({ user, rank }: UserMenuProps) {
+export function UserMenu({ user, rank, nameColorClass }: UserMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -102,8 +92,8 @@ export function UserMenu({ user, rank }: UserMenuProps) {
         )}
           <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-            <span className={`truncate ${RANK_COLORS[displayedRank?.name ?? ""] ?? "text-[var(--cream)]"}`}>{user.displayName}</span>
-            {displayedRank && <span title={`Rank ${displayedRank.name}`} className={`shrink-0 text-[10px] font-semibold ${RANK_COLORS[displayedRank.name] ?? (user.role === "ADMIN" ? "text-amber-300" : "text-[var(--cream)]")}`}>{displayedRank.badge} {displayedRank.name}</span>}
+            <span className={`truncate ${nameColorClass ?? RANK_NAME_COLORS[displayedRank?.name ?? ""] ?? "text-[var(--cream)]"}`}>{user.displayName}</span>
+            {displayedRank && <span title={`Rank ${displayedRank.name}`} className={`shrink-0 text-[10px] font-semibold ${RANK_NAME_COLORS[displayedRank.name] ?? "text-[var(--cream)]"}`}>{displayedRank.badge} {displayedRank.name}</span>}
           </span>
         </span>
         <svg

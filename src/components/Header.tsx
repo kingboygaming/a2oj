@@ -17,7 +17,8 @@ const links = [
 
 export async function Header() {
   const user = await getCurrentUser();
-  const rank = user ? (await getUserRankSummary(user.id)).rank : undefined;
+  const rankSummary = user ? await getUserRankSummary(user.id) : undefined;
+  const rank = rankSummary?.rank;
 
   return (
     <header className="border-b border-white/10 bg-[var(--surface-strong)] text-[var(--cream)]">
@@ -47,7 +48,7 @@ export async function Header() {
           <SoundToggle />
           <ThemeToggle />
           {user ? (
-            <UserMenu user={user} rank={rank ? { name: rank.name, badge: rank.badge } : undefined} />
+            <UserMenu user={user} rank={rank ? { name: rank.name, badge: rank.badge } : undefined} nameColorClass={rankSummary?.nameColor} />
           ) : (
             <>
               <Link

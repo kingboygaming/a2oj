@@ -8,6 +8,7 @@ import Link from "next/link";
 import { getProblemSubmissionPage } from "@/lib/problem-submissions";
 import { ProblemSubmissionsList } from "@/components/ProblemSubmissionsList";
 import { ContestPasswordForm } from "@/components/ContestPasswordForm";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,7 @@ export default async function ProblemDetailPage({
   const samples = problem.testCases.filter((t) => t.isSample);
   const { items: recentSubmissions, total, page, totalPages } =
     await getProblemSubmissionPage(problem.id, 1, 10, contestContext?.id ?? null);
+  const submissionRankColors = await getRankColorClasses(recentSubmissions.map((submission) => submission.user.id));
 
   const currentContestProblem = contestContext?.problems?.[0];
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
@@ -326,6 +328,7 @@ export default async function ProblemDetailPage({
         </div>
         <ProblemSubmissionsList
           submissions={recentSubmissions}
+          rankColors={submissionRankColors}
           problemSlug={problem.slug}
           currentPage={page}
           totalPages={totalPages}

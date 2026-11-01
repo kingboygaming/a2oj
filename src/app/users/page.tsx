@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
 import { EmptyState } from "@/components/EmptyState";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const standings = await getGlobalAcmLeaderboard();
+  const rankColors = await getRankColorClasses(standings.map((standing) => standing.userId));
 
   return (
     <div>
@@ -61,7 +63,7 @@ export default async function UsersPage() {
                     <td className="px-3 py-3">
                       <Link
                         href={`/users/${encodeURIComponent(standing.username)}`}
-                        className="font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
+                        className={`font-medium ${rankColors[standing.userId] ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
                       >
                         {standing.displayName}
                       </Link>

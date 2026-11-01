@@ -5,6 +5,7 @@ import { VerdictBadge } from "@/components/VerdictBadge";
 import Link from "next/link";
 import { SubmissionTestResults } from "@/components/SubmissionTestResults";
 import { SubmissionStatusRefresh } from "@/components/SubmissionStatusRefresh";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +28,11 @@ export default async function SubmissionPage({
           testCases: { select: { isSample: true } },
         },
       },
-      user: { select: { displayName: true } },
+      user: { select: { id: true, displayName: true } },
     },
   });
   if (!sub) notFound();
+  const rankColors = await getRankColorClasses([sub.user.id]);
   const staff = user?.role === "TEACHER" || user?.role === "ADMIN";
   const canViewPrivateDetails = staff || user?.id === sub.userId;
   if (!sub.problem.published && !staff && user?.id !== sub.userId && user?.id !== sub.problem.authorId) {
@@ -50,7 +52,7 @@ export default async function SubmissionPage({
         <span>{sub.language === "CPP" ? "C++17" : "Python 3"}</span>
         <span>{sub.score} điểm</span>
         <span>{sub.timeMs ?? 0} ms</span>
-        <span>{sub.user.displayName}</span>
+        <span className={rankColors[sub.user.id] ?? "text-slate-600 dark:text-slate-300"}>{sub.user.displayName}</span>
       </div>
       <SubmissionStatusRefresh verdict={sub.verdict} />
       {canViewPrivateDetails ? (

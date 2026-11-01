@@ -27,7 +27,7 @@ export async function getProblemSubmissionPage(
       score: true,
       timeMs: true,
       createdAt: true,
-      user: { select: { displayName: true } },
+      user: { select: { id: true, displayName: true } },
     },
   });
 

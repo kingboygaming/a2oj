@@ -28,7 +28,7 @@ export async function getPublicSubmissionPage(
       score: true,
       timeMs: true,
       createdAt: true,
-      user: { select: { displayName: true, username: true } },
+      user: { select: { id: true, displayName: true, username: true } },
       problem: { select: { slug: true, title: true } },
     },
   });

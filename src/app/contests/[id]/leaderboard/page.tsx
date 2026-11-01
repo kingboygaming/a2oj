@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ContestNavigation } from "@/components/ContestNavigation";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export default async function LeaderboardPage({
   const byUser = new Map<
     string,
     {
+      userId: string;
       name: string;
       username: string;
       hasAvatar: boolean;
@@ -66,6 +68,7 @@ export default async function LeaderboardPage({
     const row =
       byUser.get(sub.userId) ??
       {
+        userId: sub.userId,
         name: sub.user.displayName,
         username: sub.user.username,
         hasAvatar: Boolean(sub.user.avatarMimeType),
@@ -94,6 +97,7 @@ export default async function LeaderboardPage({
     if (b.solved !== a.solved) return b.solved - a.solved;
     return a.penalty - b.penalty;
   });
+  const rankColors = await getRankColorClasses(rows.map((row) => row.userId));
 
   const RANK_STYLES = [
     "bg-amber-400/15 text-amber-400 ring-amber-400/30",
@@ -136,7 +140,7 @@ export default async function LeaderboardPage({
               const color = avatarColor(row.username);
               return (
                 <tr
-                  key={row.username}
+                  key={row.userId}
                   className="border-t border-[var(--line)] transition hover:bg-[var(--background)]"
                 >
                   {/* Rank */}
@@ -167,7 +171,7 @@ export default async function LeaderboardPage({
                       <div className="min-w-0">
                         <Link
                           href={`/users/${encodeURIComponent(row.username)}`}
-                          className="block font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
+                          className={`block font-medium ${rankColors[row.userId] ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
                         >
                           {row.name}
                         </Link>

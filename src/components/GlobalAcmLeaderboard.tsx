@@ -10,6 +10,7 @@ type Standing = {
   hasAvatar: boolean;
   solved: number;
   penalty: number;
+  rankColorClass?: string;
 };
 
 export function GlobalAcmLeaderboard({ standings }: { standings: Standing[] }) {
@@ -189,7 +190,7 @@ function StandingRow({ standing, rank }: { standing: Standing; rank: number }) {
           <div className="min-w-0">
             <Link
               href={`/users/${encodeURIComponent(standing.username)}`}
-              className="block font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
+              className={`block font-medium ${standing.rankColorClass ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
             >
               {standing.displayName}
             </Link>

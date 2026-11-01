@@ -11,6 +11,7 @@ export function ProblemSubmissionsList({
   totalPages,
   contestSlug,
   showPagination = true,
+  rankColors = {},
 }: {
   submissions: SubmissionPage["items"];
   problemSlug: string;
@@ -18,6 +19,7 @@ export function ProblemSubmissionsList({
   totalPages: number;
   contestSlug?: string;
   showPagination?: boolean;
+  rankColors?: Record<string, string>;
 }) {
   if (submissions.length === 0) {
     return (
@@ -49,7 +51,7 @@ export function ProblemSubmissionsList({
                   {submission.createdAt.toLocaleString("vi-VN")}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
-                  {submission.user.displayName}
+                  <span className={rankColors[submission.user.id] ?? "text-slate-600 dark:text-slate-300"}>{submission.user.displayName}</span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   {submission.language === "CPP" ? "C++17" : "Python 3"}

@@ -55,6 +55,8 @@ model User {
   emailVerificationTokenHash String?
   emailVerificationExpiresAt DateTime?
   emailVerificationSentAt DateTime?
+  nameColorMode String @default("RANK")
+  nameColorAchievementId String?
   createdAt     DateTime               @default(now())
   news          News[]
   problems      Problem[]              @relation("Author")
@@ -90,6 +92,24 @@ model WikiArticle {
   updatedAt   DateTime @updatedAt
 
   @@index([category, published])
+}
+
+model Achievement {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  title           String
+  description     String
+  icon            String   @default("🏅")
+  rarity          String   @default("COMMON")
+  secret          Boolean  @default(false)
+  triggerType     String
+  threshold       Int      @default(1)
+  problemSlug     String?
+  nameColorEnabled Boolean @default(false)
+  nameColor       String?
+  createdAt       DateTime @default(now())
+
+  @@index([rarity, secret])
 }
 
 model Problem {

@@ -3,6 +3,7 @@ import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
 import { prisma } from "@/lib/prisma";
 import { EmptyState } from "@/components/EmptyState";
 import type { Metadata } from "next";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export default async function LeaderboardPage({
     prisma.problem.count({ where: { published: true, contestOnly: false } }),
     prisma.submission.count({ where: { verdict: "AC", contestId: null } }),
   ]);
+  const rankColors = await getRankColorClasses(standings.map((standing) => standing.userId));
 
   // Filter by search query
   const query = q.trim().toLowerCase();
@@ -71,6 +73,7 @@ export default async function LeaderboardPage({
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const slice = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const podiumStandings = standings.slice(0, 3).map((standing) => ({ ...standing, rankColorClass: rankColors[standing.userId] }));
 
   // Compute global rank (position in original full standings, unfiltered)
   const rankMap = new Map(standings.map((s, i) => [s.userId, i + 1]));
@@ -116,7 +119,7 @@ export default async function LeaderboardPage({
 
       {/* Top 3 podium */}
       {!query && page === 1 && standings.length >= 1 && (
-        <PodiumSection standings={standings.slice(0, 3)} maxSolved={maxSolved} />
+        <PodiumSection standings={podiumStandings} maxSolved={maxSolved} />
       )}
 
       {/* Search bar */}
@@ -220,7 +223,7 @@ export default async function LeaderboardPage({
                           <div className="min-w-0">
                             <Link
                               href={`/users/${encodeURIComponent(standing.username)}`}
-                              className="block font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
+                              className={`block font-medium ${rankColors[standing.userId] ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
                             >
                               {standing.displayName}
                               {medal && (
@@ -347,6 +350,7 @@ function PodiumSection({
     hasAvatar: boolean;
     solved: number;
     penalty: number;
+    rankColorClass?: string;
   }[];
   maxSolved: number;
 }) {
@@ -391,7 +395,7 @@ function PodiumSection({
                 )}
                 <Link
                   href={`/users/${encodeURIComponent(s.username)}`}
-                  className="max-w-[96px] truncate text-center text-xs font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"
+                  className={`max-w-[96px] truncate text-center text-xs font-medium ${s.rankColorClass ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
                 >
                   {s.displayName}
                 </Link>

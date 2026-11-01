@@ -6,6 +6,7 @@ import { GlobalAcmLeaderboard } from "@/components/GlobalAcmLeaderboard";
 import { HomeRefreshButton } from "@/components/HomeRefreshButton";
 import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
 import { Markdown } from "@/components/Markdown";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ export default async function HomePage() {
       orderBy: { createdAt: "desc" },
       take: 8,
       include: {
-        user: { select: { displayName: true, username: true } },
+        user: { select: { id: true, displayName: true, username: true } },
         problem: { select: { slug: true } },
       },
     }),
@@ -55,6 +56,9 @@ export default async function HomePage() {
     }),
   ]);
   const now = new Date();
+  const rankColors = await getRankColorClasses(standings.map((standing) => standing.userId));
+  const recentSubmissionRankColors = await getRankColorClasses(recentSubmissions.map((submission) => submission.user.id));
+  const standingsWithRankColors = standings.map((standing) => ({ ...standing, rankColorClass: rankColors[standing.userId] }));
   const weekday = new Intl.DateTimeFormat("vi-VN", {
     weekday: "long",
     timeZone: "Asia/Ho_Chi_Minh",
@@ -193,7 +197,7 @@ export default async function HomePage() {
         </div>
         <div className="grid items-start gap-4 xl:grid-cols-3">
           <div className="xl:col-span-3">
-            <GlobalAcmLeaderboard standings={standings} />
+            <GlobalAcmLeaderboard standings={standingsWithRankColors} />
           </div>
 
           <DataCard
@@ -318,7 +322,7 @@ export default async function HomePage() {
                     <td className="whitespace-nowrap px-5 py-3">
                       <Link
                         href={`/users/${encodeURIComponent(submission.user.username)}`}
-                        className="font-medium text-[var(--navy)] hover:text-[var(--teal)]"
+                        className={`font-medium ${recentSubmissionRankColors[submission.user.id] ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
                       >
                         {submission.user.displayName}
                       </Link>

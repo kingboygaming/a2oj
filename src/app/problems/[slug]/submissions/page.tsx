@@ -4,6 +4,7 @@ import { ProblemSubmissionsList } from "@/components/ProblemSubmissionsList";
 import { getCurrentUser } from "@/lib/auth";
 import { getProblemSubmissionPage } from "@/lib/problem-submissions";
 import { prisma } from "@/lib/prisma";
+import { getRankColorClasses } from "@/lib/ranks";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,7 @@ export default async function ProblemSubmissionsPage({
     undefined,
     contestContext?.id ?? null,
   );
+  const rankColors = await getRankColorClasses(items.map((item) => item.user.id));
 
   return (
     <div>
@@ -79,6 +81,7 @@ export default async function ProblemSubmissionsPage({
       </header>
       <ProblemSubmissionsList
         submissions={items}
+        rankColors={rankColors}
         problemSlug={problem.slug}
         currentPage={page}
         totalPages={totalPages}

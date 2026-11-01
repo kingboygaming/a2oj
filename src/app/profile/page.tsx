@@ -64,6 +64,7 @@ export default async function ProfilePage() {
     contestAcSubmissions.map((submission) => `${submission.contestId}:${submission.problemId}`),
   ).size;
   const rankSummary = await getUserRankSummary(user.id);
+  const nameColor = rankSummary.nameColor;
 
   return (
     <div className="space-y-6">
@@ -95,7 +96,7 @@ export default async function ProfilePage() {
             </span>
           )}
           <div className="min-w-0">
-            <h1 className={`truncate text-2xl font-semibold ${rankSummary.rank.color}`}>
+            <h1 className={`truncate text-2xl font-semibold ${nameColor}`}>
               {user.displayName}
             </h1>
             <p className="mt-0.5 text-sm text-[var(--muted)]">@{user.username}</p>
@@ -115,7 +116,7 @@ export default async function ProfilePage() {
         </div>
       </section>
 
-      <RankSummary summary={rankSummary} />
+      <RankSummary summary={rankSummary} showColorPreference />
 
       {myContributedProblems.length > 0 && (
         <section className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
