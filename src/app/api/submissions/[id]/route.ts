@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { parseJudgeResults } from "@/lib/submission-results";
 
 export async function GET(
   _request: Request,
@@ -25,5 +26,9 @@ export async function GET(
     return NextResponse.json({ error: "Không có quyền xem." }, { status: 403 });
   }
 
-  return NextResponse.json(submission);
+  const storedResult = parseJudgeResults(submission.log);
+  return NextResponse.json({
+    ...submission,
+    log: storedResult?.message ?? submission.log,
+  });
 }

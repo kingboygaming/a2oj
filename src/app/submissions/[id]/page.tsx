@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import Link from "next/link";
 import { SubmissionTestResults } from "@/components/SubmissionTestResults";
+import { SubmissionStatusRefresh } from "@/components/SubmissionStatusRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -51,15 +52,18 @@ export default async function SubmissionPage({
         <span>{sub.timeMs ?? 0} ms</span>
         <span>{sub.user.displayName}</span>
       </div>
+      <SubmissionStatusRefresh verdict={sub.verdict} />
       {canViewPrivateDetails ? (
         <>
-          <SubmissionTestResults
-            log={sub.log}
-            currentTestCount={
-              sub.problem.testCases.filter((test) => !test.isSample).length ||
-              sub.problem.testCases.length
-            }
-          />
+          {sub.verdict !== "QUEUED" && sub.verdict !== "RUNNING" && (
+            <SubmissionTestResults
+              log={sub.log}
+              currentTestCount={
+                sub.problem.testCases.filter((test) => !test.isSample).length ||
+                sub.problem.testCases.length
+              }
+            />
+          )}
           <pre className="mt-4 overflow-auto rounded-xl bg-[#0b1220] p-4 text-xs text-[var(--cream)]">
             {sub.source}
           </pre>

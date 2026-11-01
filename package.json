@@ -17,6 +17,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@prisma/client": "6.19.0",
+    "@upstash/qstash": "^2.12.1",
     "bcryptjs": "^3.0.3",
     "fflate": "^0.8.3",
     "katex": "^0.19.1",

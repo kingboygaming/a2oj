@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeEditor, defaultSource } from "./CodeEditor";
@@ -60,6 +60,58 @@ export function SubmitPanel({
     log: string;
   } | null>(null);
   const [error, setError] = useState("");
+
+  const pendingSubmissionId = result?.id;
+  const pendingSubmissionVerdict = result?.verdict;
+  useEffect(() => {
+    if (
+      !pendingSubmissionId ||
+      !pendingSubmissionVerdict ||
+      !["QUEUED", "RUNNING"].includes(pendingSubmissionVerdict)
+    ) return;
+
+    let active = true;
+    let inFlight = false;
+    const checkStatus = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/submissions/${pendingSubmissionId}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!active) return;
+        setResult((current) => current?.id === pendingSubmissionId
+          ? {
+              id: current.id,
+              verdict: data.verdict,
+              score: data.score,
+              timeMs: data.timeMs,
+              log: data.log ?? current.log,
+            }
+          : current);
+        if (!["QUEUED", "RUNNING"].includes(data.verdict)) {
+          if (data.verdict === "AC") playSound("ac");
+          else if (data.verdict === "WA") playSound("wa");
+          else if (data.verdict === "CE") playSound("ce");
+          else if (data.verdict === "TLE") playSound("tle");
+          router.refresh();
+        }
+      } catch {
+        // Retry on the next polling interval.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void checkStatus();
+    const timer = window.setInterval(checkStatus, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [pendingSubmissionId, pendingSubmissionVerdict, router]);
 
   const draftKey = getDraftKey(userId, problemId, language);
   const subscribe = useCallback(
@@ -482,9 +534,15 @@ export function SubmitPanel({
               {result.score} điểm · {result.timeMs ?? 0} ms
             </span>
           </div>
-          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-[var(--muted)]">
-            {result.log}
-          </pre>
+          {["QUEUED", "RUNNING"].includes(result.verdict) ? (
+            <p role="status" className="mt-2 text-xs text-[var(--muted)]">
+              {result.verdict === "QUEUED" ? "Đang chờ đến lượt chấm..." : "Đang chấm bài..."}
+            </p>
+          ) : (
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-[var(--muted)]">
+              {result.log}
+            </pre>
+          )}
           <Link href={`/submissions/${result.id}`} className="mt-2 inline-block text-xs text-emerald-300">
             Chi tiết submission
           </Link>

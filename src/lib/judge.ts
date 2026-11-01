@@ -729,7 +729,9 @@ async function gradeWithJudge0(
   const tokensParam = tokens.join(",");
   let submissions: Judge0SubmissionResult[] = [];
   const pollStart = Date.now();
-  const maxPollMs = Math.max(timeLimitMs + 8000, 16000);
+  // Keep polling long enough for the configured wall limit (including Python's
+  // time multiplier) plus queue/network overhead, without waiting indefinitely.
+  const maxPollMs = Math.max(wallTimeLimit * 1000 + 8000, 16000);
   let pollInterval = language === "PYTHON" ? 0 : 300;
   let firstPoll = true;
 

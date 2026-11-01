@@ -4,8 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { judgeSubmission } from "@/lib/judge";
 import { serializeJudgeResults } from "@/lib/submission-results";
+import { gradeStoredSubmission } from "@/lib/submission-grading";
+import {
+  enqueueSubmission,
+  isSubmissionQueueConfigured,
+} from "@/lib/submission-queue";
 
 export const maxDuration = 60; // Tăng timeout của Vercel Serverless Function lên tối đa
+const VERCEL_MAX_TESTS_PER_SUBMISSION = 20;
 
 const schema = z.object({
   problemId: z.string().min(1),
@@ -104,6 +110,77 @@ export async function POST(request: Request) {
     };
   }
 
+  if (process.env.VERCEL === "1" && isSubmissionQueueConfigured()) {
+    const queued = await prisma.submission.create({
+      data: {
+        userId: user.id,
+        problemId: problem.id,
+        contestId: parsed.data.contestId,
+        language: parsed.data.language,
+        source: parsed.data.source,
+        verdict: "QUEUED",
+      },
+      include: { problem: { select: { slug: true, title: true } } },
+    });
+
+    try {
+      const message = await enqueueSubmission(queued.id);
+      return NextResponse.json(
+        { ...queued, queueMessageId: message.messageId, log: "Bài nộp đã vào hàng đợi chấm." },
+        { status: 202 },
+      );
+    } catch (queueError) {
+      console.warn("QStash could not accept the submission; grading synchronously:", queueError);
+      await prisma.submission.update({
+        where: { id: queued.id },
+        data: { verdict: "RUNNING", judgeStartedAt: new Date() },
+      });
+
+      try {
+        const { result, totalTests } = await gradeStoredSubmission(queued.id);
+        const updated = await prisma.submission.update({
+          where: { id: queued.id },
+          data: {
+            verdict: result.verdict,
+            score: result.score,
+            timeMs: result.timeMs,
+            log: serializeJudgeResults(result, totalTests),
+            judgeStartedAt: null,
+          },
+          include: { problem: { select: { slug: true, title: true } } },
+        });
+        return NextResponse.json(
+          { ...updated, log: result.log, queueFallback: true },
+          { status: 201 },
+        );
+      } catch (gradingError) {
+        const message = gradingError instanceof Error ? gradingError.message : String(gradingError);
+        const result = {
+          verdict: "RTE" as const,
+          score: 0,
+          timeMs: 0,
+          log: `QStash không nhận được bài và máy chấm trực tiếp gặp lỗi: ${message}`.slice(0, 4000),
+          testResults: [],
+        };
+        const updated = await prisma.submission.update({
+          where: { id: queued.id },
+          data: {
+            verdict: result.verdict,
+            score: result.score,
+            timeMs: result.timeMs,
+            log: serializeJudgeResults(result, 0),
+            judgeStartedAt: null,
+          },
+          include: { problem: { select: { slug: true, title: true } } },
+        });
+        return NextResponse.json(
+          { ...updated, log: result.log, queueFallback: true },
+          { status: 201 },
+        );
+      }
+    }
+  }
+
   // Chấm test:
   // Nếu nộp trong contest:
   // - Lấy danh sách testcase theo thứ tự order
@@ -119,8 +196,12 @@ export async function POST(request: Request) {
   } else {
     const hiddenTests = problem.testCases.filter((t) => !t.isSample);
     const baseTests = hiddenTests.length > 0 ? hiddenTests : problem.testCases;
-    // Trên Vercel chấm 5 test song song bằng Judge0/Wandbox cực nhanh (1.5 - 3 giây)
-    gradingCandidates = process.env.VERCEL === "1" ? baseTests.slice(0, 5) : baseTests;
+    // Judge0 CE hiện cho phép tối đa 20 mục trong một batch.
+    // Giữ cùng giới hạn trên Vercel để request không vượt trần batch của dịch vụ chấm.
+    gradingCandidates =
+      process.env.VERCEL === "1"
+        ? baseTests.slice(0, VERCEL_MAX_TESTS_PER_SUBMISSION)
+        : baseTests;
   }
 
   // Đảm bảo testcase có điểm (> 0) để người qua pretest được ghi nhận điểm > 0

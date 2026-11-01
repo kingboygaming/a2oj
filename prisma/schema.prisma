@@ -161,7 +161,12 @@ model Submission {
   score     Int       @default(0)
   log       String    @default("")
   createdAt DateTime  @default(now())
+  judgeAttempts       Int       @default(0)
+  judgeNextAttemptAt  DateTime?
+  judgeStartedAt      DateTime?
   user      User      @relation(fields: [userId], references: [id])
   problem   Problem   @relation(fields: [problemId], references: [id])
   contest   Contest?  @relation(fields: [contestId], references: [id])
+
+  @@index([verdict, judgeNextAttemptAt, createdAt])
 }
