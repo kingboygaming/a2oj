@@ -57,6 +57,7 @@ model User {
   emailVerificationSentAt DateTime?
   nameColorMode String @default("RANK")
   nameColorAchievementId String?
+  achievementNotificationsInitialized Boolean @default(false)
   createdAt     DateTime               @default(now())
   news          News[]
   problems      Problem[]              @relation("Author")
@@ -64,6 +65,7 @@ model User {
   contests      Contest[]              @relation("ContestAuthor")
   wikiArticles  WikiArticle[]          @relation("WikiAuthor")
   registrations ContestRegistration[]
+  achievementUnlocks AchievementUnlock[]
 }
 
 model News {
@@ -110,6 +112,17 @@ model Achievement {
   createdAt       DateTime @default(now())
 
   @@index([rarity, secret])
+}
+
+model AchievementUnlock {
+  id            String   @id @default(cuid())
+  userId        String
+  achievementKey String
+  unlockedAt    DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementKey])
+  @@index([userId, unlockedAt])
 }
 
 model Problem {

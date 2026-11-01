@@ -4,7 +4,8 @@ import { UserMenu } from "./UserMenu";
 import { ThemeToggle } from "./ThemeToggle";
 import { SoundToggle } from "./SoundToggle";
 import { BackgroundPicker } from "./BackgroundPicker";
-import { getUserRankSummary } from "@/lib/ranks";
+import { getUserRankSummary, recordNewAchievementUnlocks } from "@/lib/ranks";
+import { AchievementUnlockToast } from "./AchievementUnlockToast";
 
 const links = [
   { href: "/problems", label: "Bài tập" },
@@ -18,9 +19,13 @@ const links = [
 export async function Header() {
   const user = await getCurrentUser();
   const rankSummary = user ? await getUserRankSummary(user.id) : undefined;
+  const newAchievements = user && rankSummary
+    ? await recordNewAchievementUnlocks(user.id, rankSummary.badges)
+    : [];
   const rank = rankSummary?.rank;
 
   return (
+    <>
     <header className="border-b border-white/10 bg-[var(--surface-strong)] text-[var(--cream)]">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2">
@@ -70,5 +75,7 @@ export async function Header() {
         </div>
       </div>
     </header>
+    <AchievementUnlockToast achievements={newAchievements} />
+    </>
   );
 }

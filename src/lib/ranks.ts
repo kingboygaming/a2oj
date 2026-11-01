@@ -25,6 +25,43 @@ export type RankBadge = {
   nameColor?: string | null;
 };
 
+export async function recordNewAchievementUnlocks(userId: string, badges: RankBadge[]) {
+  const earnedBadges = badges.filter((badge) => badge.earned);
+
+  return prisma.$transaction(async (transaction) => {
+    const user = await transaction.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { achievementNotificationsInitialized: true },
+    });
+    const firstVisit = !user.achievementNotificationsInitialized;
+    // Updating this row serializes concurrent page requests for the same user
+    // before checking and inserting one-time unlock records.
+    await transaction.user.update({
+      where: { id: userId },
+      data: { achievementNotificationsInitialized: true },
+    });
+    if (!earnedBadges.length) return [] as RankBadge[];
+    const existing = await transaction.achievementUnlock.findMany({
+      where: { userId, achievementKey: { in: earnedBadges.map((badge) => badge.key) } },
+      select: { achievementKey: true },
+    });
+    const existingKeys = new Set(existing.map((item) => item.achievementKey));
+    const newlyEarned: RankBadge[] = [];
+    for (const badge of earnedBadges) {
+      if (existingKeys.has(badge.key)) continue;
+      try {
+        await transaction.achievementUnlock.create({ data: { userId, achievementKey: badge.key } });
+        if (!firstVisit && (badge.rarity === "LEGENDARY" || badge.rarity === "SECRET")) {
+          newlyEarned.push(badge);
+        }
+      } catch (error) {
+        if (!(typeof error === "object" && error !== null && "code" in error && error.code === "P2002")) throw error;
+      }
+    }
+    return newlyEarned;
+  });
+}
+
 type AchievementProgress = {
   solvedCount: number;
   solvedSlugs: Set<string>;
