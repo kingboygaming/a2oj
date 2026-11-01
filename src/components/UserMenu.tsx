@@ -11,6 +11,7 @@ type UserMenuProps = {
     role: string;
     avatarMimeType: string | null;
   };
+  rank?: { name: string; badge: string };
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -19,7 +20,18 @@ const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Quản trị viên",
 };
 
-export function UserMenu({ user }: UserMenuProps) {
+const RANK_COLORS: Record<string, string> = {
+  Newbie: "text-slate-300",
+  Pupil: "text-emerald-300",
+  Specialist: "text-cyan-300",
+  Expert: "text-violet-300",
+  "Candidate Master": "text-amber-300",
+  Master: "text-orange-300",
+  Grandmaster: "text-rose-300",
+  Legend: "text-fuchsia-300",
+};
+
+export function UserMenu({ user, rank }: UserMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -92,8 +104,11 @@ export function UserMenu({ user }: UserMenuProps) {
             {initials}
           </span>
         )}
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{user.displayName}</span>
+          <span className="min-w-0">
+          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+            <span className="truncate">{user.displayName}</span>
+            {rank && <span title={`Rank ${rank.name}`} className={`shrink-0 text-[10px] font-semibold ${RANK_COLORS[rank.name] ?? "text-[var(--cream)]"}`}>{rank.badge} {rank.name}</span>}
+          </span>
           <span className="block text-left text-[10px] uppercase tracking-wide text-[var(--cream)]/65">
             {ROLE_LABELS[user.role] ?? user.role}
           </span>
@@ -121,6 +136,7 @@ export function UserMenu({ user }: UserMenuProps) {
             <p className="truncate text-sm font-semibold text-[var(--navy)]">
               {user.displayName}
             </p>
+            {rank && <p className={`mt-1 text-xs font-semibold ${rank.name === "Newbie" ? "text-slate-500" : "text-[var(--teal)]"}`}>{rank.badge} {rank.name}</p>}
             <p className="mt-0.5 truncate text-xs text-[var(--muted)]">@{user.username}</p>
             <span className="mt-2 inline-flex rounded-full bg-[var(--teal)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--teal)]">
               {ROLE_LABELS[user.role] ?? user.role}

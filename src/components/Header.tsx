@@ -4,6 +4,7 @@ import { UserMenu } from "./UserMenu";
 import { ThemeToggle } from "./ThemeToggle";
 import { SoundToggle } from "./SoundToggle";
 import { BackgroundPicker } from "./BackgroundPicker";
+import { getUserRankSummary } from "@/lib/ranks";
 
 const links = [
   { href: "/problems", label: "Bài tập" },
@@ -16,6 +17,7 @@ const links = [
 
 export async function Header() {
   const user = await getCurrentUser();
+  const rank = user ? (await getUserRankSummary(user.id)).rank : undefined;
 
   return (
     <header className="border-b border-white/10 bg-[var(--surface-strong)] text-[var(--cream)]">
@@ -45,7 +47,7 @@ export async function Header() {
           <SoundToggle />
           <ThemeToggle />
           {user ? (
-            <UserMenu user={user} />
+            <UserMenu user={user} rank={rank ? { name: rank.name, badge: rank.badge } : undefined} />
           ) : (
             <>
               <Link
