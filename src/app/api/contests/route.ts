@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { canManageContests, getCurrentUser } from "@/lib/auth";
+import { hashContestPassword } from "@/lib/contest-password";
 
 export async function GET() {
   const contests = await prisma.contest.findMany({
@@ -11,7 +12,7 @@ export async function GET() {
       _count: { select: { registrations: true, problems: true } },
     },
   });
-  return NextResponse.json(contests);
+  return NextResponse.json(contests.map(({ passwordHash: _passwordHash, ...contest }) => contest));
 }
 
 const schema = z.object({
@@ -21,6 +22,7 @@ const schema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
+  password: z.string().trim().max(128).optional(),
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
   problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC"])).optional(),
@@ -108,6 +110,10 @@ export async function POST(request: Request) {
     );
   }
 
+  const passwordHash = parsed.data.password
+    ? await hashContestPassword(parsed.data.password)
+    : null;
+
   const contest = await prisma.$transaction(async (transaction) => {
     const createdContest = await transaction.contest.create({
       data: {
@@ -117,6 +123,7 @@ export async function POST(request: Request) {
         startAt,
         endAt,
         testLimit: parsed.data.testLimit,
+        passwordHash,
         authorId: user.id,
       },
     });
@@ -169,5 +176,5 @@ export async function POST(request: Request) {
     return createdContest;
   });
 
-  return NextResponse.json({ ...contest, slug: parsed.data.slug }, { status: 201 });
+  return NextResponse.json({ id: contest.id, slug: parsed.data.slug }, { status: 201 });
 }

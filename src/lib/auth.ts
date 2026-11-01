@@ -5,6 +5,8 @@ import { prisma } from "./prisma";
 import type { Role } from "@prisma/client";
 
 const COOKIE = "oj_session";
+const CONTEST_ACCESS_COOKIE_PREFIX = "oj_contest_access_";
+const CONTEST_ACCESS_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 function secret() {
   const configuredSecret = process.env.SESSION_SECRET;
@@ -66,6 +68,72 @@ export async function setSessionCookie(userId: string, sessionVersion = 0) {
 export async function clearSessionCookie() {
   const jar = await cookies();
   jar.delete(COOKIE);
+}
+
+function contestAccessPayload(contestId: string, expiresAt: number, passwordHash: string) {
+  const passwordFingerprint = crypto.createHash("sha256").update(passwordHash).digest("hex");
+  return { payload: `${contestId}.${expiresAt}.${passwordFingerprint}`, passwordFingerprint };
+}
+
+export function signContestAccessToken(contestId: string, expiresAt: number, passwordHash: string) {
+  const { payload, passwordFingerprint } = contestAccessPayload(contestId, expiresAt, passwordHash);
+  const signature = crypto.createHmac("sha256", secret()).update(payload).digest("hex");
+  return `${expiresAt}.${passwordFingerprint}.${signature}`;
+}
+
+export function verifyContestAccessToken(
+  token: string | undefined,
+  contestId: string,
+  passwordHash: string,
+  now = Date.now(),
+) {
+  if (!token) return false;
+  const [expiresAtText, passwordFingerprint, signature, ...extra] = token.split(".");
+  const expiresAt = Number(expiresAtText);
+  if (extra.length || !Number.isSafeInteger(expiresAt) || expiresAt <= now) return false;
+
+  const { payload, passwordFingerprint: expectedFingerprint } = contestAccessPayload(
+    contestId,
+    expiresAt,
+    passwordHash,
+  );
+  const expectedSignature = crypto.createHmac("sha256", secret()).update(payload).digest("hex");
+  const fingerprintBuffer = Buffer.from(passwordFingerprint ?? "");
+  const expectedFingerprintBuffer = Buffer.from(expectedFingerprint);
+  const signatureBuffer = Buffer.from(signature ?? "");
+  const expectedSignatureBuffer = Buffer.from(expectedSignature);
+  return (
+    fingerprintBuffer.length === expectedFingerprintBuffer.length &&
+    signatureBuffer.length === expectedSignatureBuffer.length &&
+    crypto.timingSafeEqual(fingerprintBuffer, expectedFingerprintBuffer) &&
+    crypto.timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
+  );
+}
+
+export async function hasContestAccess(contestId: string, passwordHash: string | null) {
+  if (!passwordHash) return true;
+  const jar = await cookies();
+  return verifyContestAccessToken(
+    jar.get(`${CONTEST_ACCESS_COOKIE_PREFIX}${contestId}`)?.value,
+    contestId,
+    passwordHash,
+  );
+}
+
+export async function setContestAccessCookie(contestId: string, passwordHash: string) {
+  const jar = await cookies();
+  const expiresAt = Date.now() + CONTEST_ACCESS_TTL_SECONDS * 1000;
+  jar.set(
+    `${CONTEST_ACCESS_COOKIE_PREFIX}${contestId}`,
+    signContestAccessToken(contestId, expiresAt, passwordHash),
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: CONTEST_ACCESS_TTL_SECONDS,
+    },
+  );
 }
 
 export async function verifyPassword(password: string, hash: string) {

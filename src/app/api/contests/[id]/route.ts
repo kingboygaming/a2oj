@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { canManageContests, getCurrentUser } from "@/lib/auth";
+import { canManageContests, getCurrentUser, hasContestAccess } from "@/lib/auth";
+import { hashContestPassword } from "@/lib/contest-password";
 
 export async function GET(
   _request: Request,
@@ -35,7 +36,14 @@ export async function GET(
   if (!contest) {
     return NextResponse.json({ error: "Không tìm thấy contest." }, { status: 404 });
   }
-  return NextResponse.json(contest);
+  const user = await getCurrentUser();
+  const organizer = user?.role === "ADMIN" || user?.id === contest.authorId;
+  const unlocked = organizer || await hasContestAccess(contest.id, contest.passwordHash);
+  if (!organizer && (!unlocked || new Date() < contest.startAt)) {
+    return NextResponse.json({ error: "Contest chưa mở đề bài." }, { status: 403 });
+  }
+  const { passwordHash: _passwordHash, ...safeContest } = contest;
+  return NextResponse.json(safeContest);
 }
 
 const updateContestSchema = z.object({
@@ -45,6 +53,8 @@ const updateContestSchema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
+  password: z.string().trim().max(128).optional(),
+  removePassword: z.boolean().optional().default(false),
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
   problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC"])).optional(),
@@ -121,6 +131,15 @@ export async function PATCH(
   if (new Set(parsed.data.problemIds).size !== parsed.data.problemIds.length) {
     return NextResponse.json({ error: "Không được chọn trùng bài." }, { status: 400 });
   }
+
+  if (parsed.data.password && parsed.data.removePassword) {
+    return NextResponse.json({ error: "Không thể đặt và gỡ mật khẩu cùng lúc." }, { status: 400 });
+  }
+  const passwordHash = parsed.data.removePassword
+    ? null
+    : parsed.data.password
+      ? await hashContestPassword(parsed.data.password)
+      : existingContest.passwordHash;
 
   const newProblemSlugs = parsed.data.newProblems.map((problem) => problem.slug);
   if (new Set(newProblemSlugs).size !== newProblemSlugs.length) {
@@ -250,13 +269,14 @@ export async function PATCH(
         startAt,
         endAt,
         testLimit: parsed.data.testLimit,
+        passwordHash,
       },
     });
 
     return contest;
   });
 
-  return NextResponse.json(updatedContest);
+  return NextResponse.json({ id: updatedContest.id, slug: updatedContest.slug });
 }
 
 export async function POST(

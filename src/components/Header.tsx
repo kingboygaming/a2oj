@@ -10,6 +10,7 @@ const links = [
   { href: "/status", label: "Bài nộp" },
   { href: "/problems/new", label: "Đóng góp đề" },
   { href: "/contests", label: "Contest" },
+  { href: "/wiki", label: "Wiki" },
   { href: "/leaderboard", label: "Xếp hạng" },
 ];
 

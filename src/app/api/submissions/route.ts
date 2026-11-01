@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, hasContestAccess } from "@/lib/auth";
 import { judgeSubmission } from "@/lib/judge";
 import { serializeJudgeResults } from "@/lib/submission-results";
 import { gradeStoredSubmission } from "@/lib/submission-grading";
@@ -86,6 +86,12 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Bài này không thuộc contest đã chọn." },
         { status: 400 },
+      );
+    }
+    if (!(await hasContestAccess(contest.id, contest.passwordHash))) {
+      return NextResponse.json(
+        { error: "Bạn cần nhập mật khẩu contest trước khi nộp bài." },
+        { status: 403 },
       );
     }
     if (!contest.registrations.length) {

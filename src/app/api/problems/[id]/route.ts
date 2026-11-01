@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, hasContestAccess } from "@/lib/auth";
 
 export const maxDuration = 60;
 
@@ -16,6 +16,18 @@ export async function GET(
     include: {
       author: { select: { displayName: true, username: true } },
       testCases: { orderBy: { order: "asc" } },
+      contestLinks: {
+        select: {
+          contest: {
+            select: {
+              id: true,
+              authorId: true,
+              startAt: true,
+              passwordHash: true,
+            },
+          },
+        },
+      },
     },
   });
 
@@ -27,22 +39,33 @@ export async function GET(
   if (!problem.published && !staff && user?.id !== problem.authorId) {
     return NextResponse.json({ error: "Bài chưa được duyệt." }, { status: 403 });
   }
-  if (problem.contestOnly && !staff) {
-    const contestId = new URL(request.url).searchParams.get("contest");
-    const contestProblem = contestId
-      ? await prisma.contestProblem.findFirst({
-          where: {
-            problemId: problem.id,
-            contest: { OR: [{ id: contestId }, { slug: contestId }] },
-          },
-          select: { problemId: true },
-        })
-      : null;
-    if (!contestProblem) {
-      return NextResponse.json({ error: "Bài chỉ khả dụng trong contest." }, { status: 404 });
+  const contestId = new URL(request.url).searchParams.get("contest");
+  const contestContext = contestId
+    ? await prisma.contest.findFirst({
+        where: {
+          OR: [{ id: contestId }, { slug: contestId }],
+          problems: { some: { problemId: problem.id } },
+        },
+        select: { id: true, authorId: true, startAt: true, passwordHash: true },
+      })
+    : null;
+
+  if (contestId && !contestContext) {
+    return NextResponse.json({ error: "Bài không thuộc contest này." }, { status: 404 });
+  }
+  if (problem.contestOnly && !staff && !contestContext) {
+    return NextResponse.json({ error: "Bài chỉ khả dụng trong contest." }, { status: 404 });
+  }
+  const accessContests = contestContext
+    ? [contestContext]
+    : problem.contestLinks.map(({ contest }) => contest);
+  for (const linkedContest of accessContests) {
+    const organizer = user?.role === "ADMIN" || user?.id === linkedContest.authorId;
+    const unlocked = organizer || await hasContestAccess(linkedContest.id, linkedContest.passwordHash);
+    if (!organizer && (!unlocked || new Date() < linkedContest.startAt)) {
+      return NextResponse.json({ error: "Đề bài contest chưa được mở." }, { status: 403 });
     }
   }
-
   const canViewAllTests = staff || user?.id === problem.authorId;
   const testCases = problem.testCases.map((t) =>
     t.isSample || canViewAllTests
@@ -50,7 +73,8 @@ export async function GET(
       : { ...t, input: "", output: "", hidden: true },
   );
 
-  return NextResponse.json({ ...problem, testCases });
+  const { contestLinks: _contestLinks, ...safeProblem } = problem;
+  return NextResponse.json({ ...safeProblem, testCases });
 }
 
 const testCaseSchema = z.object({

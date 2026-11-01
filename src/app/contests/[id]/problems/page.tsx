@@ -4,6 +4,8 @@ import { ContestNavigation } from "@/components/ContestNavigation";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PublishContestProblemButton } from "@/components/PublishContestProblemButton";
+import { ContestPasswordForm } from "@/components/ContestPasswordForm";
+import { hasContestAccess } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,25 @@ export default async function ContestProblemsPage({
     },
   });
   if (!contest) notFound();
+
+  const isOrganizer = user?.role === "ADMIN" || user?.id === contest.authorId;
+  const passwordUnlocked = isOrganizer || await hasContestAccess(contest.id, contest.passwordHash);
+  const beforeStart = new Date() < contest.startAt;
+  if ((!passwordUnlocked || beforeStart) && !isOrganizer) {
+    return (
+      <div>
+        <p className="text-sm text-[var(--teal)]">Contest</p>
+        <h1 className="text-2xl font-semibold text-[var(--navy)]">{contest.title}</h1>
+        <ContestNavigation slug={contest.slug} active="problems" />
+        {contest.passwordHash && !passwordUnlocked && <ContestPasswordForm contestId={contest.id} />}
+        {beforeStart && (
+          <p className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 text-sm text-[var(--muted)]">
+            Đề bài sẽ mở lúc {contest.startAt.toLocaleString("vi-VN")}.
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const acceptedProblemIds = user
     ? new Set(

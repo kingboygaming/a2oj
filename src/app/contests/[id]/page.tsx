@@ -6,6 +6,8 @@ import { RegisterContestButton } from "@/components/RegisterContestButton";
 import { ContestNavigation } from "@/components/ContestNavigation";
 import { ContestCountdownBadge } from "@/components/ContestCountdownBadge";
 import { RejudgeButton } from "@/components/RejudgeButton";
+import { ContestPasswordForm } from "@/components/ContestPasswordForm";
+import { hasContestAccess } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,7 @@ export default async function ContestDetailPage({
     : new Set<string>();
 
   const isOrganizer = user && (user.role === "ADMIN" || user.id === contest.authorId);
+  const passwordUnlocked = isOrganizer || await hasContestAccess(contest.id, contest.passwordHash);
 
   return (
     <div>
@@ -60,6 +63,10 @@ export default async function ContestDetailPage({
       <p className="mt-2 text-xs text-[var(--muted)]">
         {contest.startAt.toLocaleString("vi-VN")} → {contest.endAt.toLocaleString("vi-VN")}
       </p>
+
+      {contest.passwordHash && !passwordUnlocked && (
+        <ContestPasswordForm contestId={contest.id} />
+      )}
 
       {isOrganizer && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 p-3">
@@ -99,9 +106,17 @@ export default async function ContestDetailPage({
       </div>
       <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
         <h2 className="font-semibold text-[var(--navy)]">Thông tin kỳ thi</h2>
-        <p className="mt-2 text-sm text-[var(--muted)]">
-          Mở mục <Link href={`/contests/${contest.slug}/problems`} className="text-[var(--teal)] hover:underline">Đề bài</Link> để xem các bài và bắt đầu nộp lời giải.
-        </p>
+        {new Date() < contest.startAt && !isOrganizer ? (
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Đề bài sẽ mở lúc {contest.startAt.toLocaleString("vi-VN")}.
+          </p>
+        ) : !passwordUnlocked ? (
+          <p className="mt-2 text-sm text-[var(--muted)]">Nhập mật khẩu contest để mở đề bài.</p>
+        ) : (
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Mở mục <Link href={`/contests/${contest.slug}/problems`} className="text-[var(--teal)] hover:underline">Đề bài</Link> để xem các bài và bắt đầu nộp lời giải.
+          </p>
+        )}
       </div>
     </div>
   );

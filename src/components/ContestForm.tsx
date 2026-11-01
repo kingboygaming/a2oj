@@ -33,6 +33,7 @@ export type InitialContestData = {
   startAt: string;
   endAt: string;
   testLimit: number;
+  hasPassword?: boolean;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
   problemJudgeTypes?: Record<string, "STANDARD" | "HEURISTIC">;
@@ -101,6 +102,8 @@ export function ContestForm({
     initialData?.endAt ? toLocalDatetimeString(initialData.endAt) : "",
   );
   const [testLimit, setTestLimit] = useState(initialData?.testLimit ?? 5);
+  const [password, setPassword] = useState("");
+  const [removePassword, setRemovePassword] = useState(false);
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
   const [problemCustomTitles, setProblemCustomTitles] = useState<Record<string, string>>(
     initialData?.problemCustomTitles ?? {},
@@ -258,6 +261,8 @@ export function ContestForm({
           startAt: new Date(startAt).toISOString(),
           endAt: new Date(endAt).toISOString(),
           testLimit: Number(testLimit),
+          password: password.trim() || undefined,
+          removePassword,
           problemIds,
           problemCustomTitles,
           problemJudgeTypes: finalJudgeTypes,
@@ -367,6 +372,39 @@ export function ContestForm({
               {testLimit === 0 ? "Chấm tất cả test" : `Chỉ chấm tối đa ${testLimit} test đầu tiên`}
             </span>
           </label>
+        </div>
+
+        <div className="space-y-2 border-t border-[var(--line)] pt-4">
+          <label className="block text-sm">
+            Mật khẩu contest <span className="text-xs text-[var(--muted)]">(không bắt buộc)</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              maxLength={128}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              disabled={removePassword}
+              placeholder={initialData?.hasPassword ? "Để trống để giữ mật khẩu hiện tại" : "Để trống nếu không đặt mật khẩu"}
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm disabled:opacity-50"
+            />
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              Thí sinh cần nhập mật khẩu để xem đề sau khi contest bắt đầu.
+            </span>
+          </label>
+          {initialData?.hasPassword && (
+            <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={removePassword}
+                onChange={(event) => {
+                  setRemovePassword(event.target.checked);
+                  if (event.target.checked) setPassword("");
+                }}
+                className="size-4 accent-[var(--teal)]"
+              />
+              Gỡ mật khẩu hiện tại
+            </label>
+          )}
         </div>
       </div>
 

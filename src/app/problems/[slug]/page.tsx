@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, hasContestAccess } from "@/lib/auth";
 import { Markdown } from "@/components/Markdown";
 import { SubmitPanel } from "@/components/SubmitPanel";
 import { PreviousPageButton } from "@/components/PreviousPageButton";
 import Link from "next/link";
 import { getProblemSubmissionPage } from "@/lib/problem-submissions";
 import { ProblemSubmissionsList } from "@/components/ProblemSubmissionsList";
+import { ContestPasswordForm } from "@/components/ContestPasswordForm";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,20 @@ export default async function ProblemDetailPage({
       // Chỉ tải test mẫu (sample) để hiển thị, không tải toàn bộ test ẩn nặng nề
       testCases: { where: { isSample: true }, orderBy: { order: "asc" } },
       author: { select: { displayName: true } },
+      contestLinks: {
+        select: {
+          contest: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              authorId: true,
+              startAt: true,
+              passwordHash: true,
+            },
+          },
+        },
+      },
     },
   });
   if (!problem) notFound();
@@ -42,6 +57,9 @@ export default async function ProblemDetailPage({
           id: true,
           slug: true,
           title: true,
+          authorId: true,
+          startAt: true,
+          passwordHash: true,
           problems: {
             where: { problemId: problem.id },
             select: {
@@ -58,6 +76,40 @@ export default async function ProblemDetailPage({
     : null;
   if ((contest && !contestContext) || (problem.contestOnly && !contestContext && !staff)) {
     notFound();
+  }
+
+  const accessContests = contestContext
+    ? [contestContext]
+    : problem.contestLinks.map(({ contest: linkedContest }) => linkedContest);
+  let blockedContest: (typeof accessContests)[number] | null = null;
+  for (const linkedContest of accessContests) {
+    const organizer = user?.role === "ADMIN" || user?.id === linkedContest.authorId;
+    const unlocked = organizer || await hasContestAccess(linkedContest.id, linkedContest.passwordHash);
+    if (!organizer && (!unlocked || new Date() < linkedContest.startAt)) {
+      blockedContest = linkedContest;
+      break;
+    }
+  }
+  if (blockedContest) {
+    return (
+      <div className="max-w-3xl">
+        <Link
+          href={`/contests/${blockedContest.slug}/problems`}
+          className="mb-4 inline-block text-sm font-medium text-[var(--teal)] hover:underline"
+        >
+          ← {blockedContest.title}
+        </Link>
+        <h1 className="text-2xl font-semibold text-[var(--navy)]">Đề bài đang được khóa</h1>
+        {blockedContest.passwordHash && (
+          <ContestPasswordForm contestId={blockedContest.id} />
+        )}
+        {new Date() < blockedContest.startAt && (
+          <p className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 text-sm text-[var(--muted)]">
+            Nội dung đề sẽ mở lúc {blockedContest.startAt.toLocaleString("vi-VN")}.
+          </p>
+        )}
+      </div>
+    );
   }
 
   const samples = problem.testCases.filter((t) => t.isSample);

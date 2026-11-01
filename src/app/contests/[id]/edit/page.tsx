@@ -94,6 +94,7 @@ export default async function EditContestPage({
           startAt: contest.startAt.toISOString(),
           endAt: contest.endAt.toISOString(),
           testLimit: contest.testLimit,
+          hasPassword: Boolean(contest.passwordHash),
           problemIds: contest.problems.map((p) => p.problemId),
           problemCustomTitles: Object.fromEntries(
             contest.problems

@@ -60,6 +60,7 @@ model User {
   problems      Problem[]              @relation("Author")
   submissions   Submission[]
   contests      Contest[]              @relation("ContestAuthor")
+  wikiArticles  WikiArticle[]          @relation("WikiAuthor")
   registrations ContestRegistration[]
 }
 
@@ -71,6 +72,24 @@ model News {
   createdAt DateTime @default(now())
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
+}
+
+model WikiArticle {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  category    String
+  summary     String   @default("")
+  content     String
+  sourceName  String?
+  sourceUrl   String?
+  published   Boolean  @default(false)
+  authorId    String
+  author      User     @relation("WikiAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, published])
 }
 
 model Problem {
@@ -115,6 +134,7 @@ model Contest {
   startAt       DateTime
   endAt         DateTime
   testLimit     Int                    @default(5)
+  passwordHash  String?
   authorId      String
   author        User                   @relation("ContestAuthor", fields: [authorId], references: [id])
   createdAt     DateTime               @default(now())
