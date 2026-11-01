@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { RegisterContestButton } from "@/components/RegisterContestButton";
 import { ContestNavigation } from "@/components/ContestNavigation";
 import { ContestCountdownBadge } from "@/components/ContestCountdownBadge";
+import { RejudgeButton } from "@/components/RejudgeButton";
 
 export const dynamic = "force-dynamic";
 
@@ -80,9 +81,10 @@ export default async function ContestDetailPage({
           </a>
           <span className="text-xs text-[var(--muted)]">
             {contest.testLimit > 0
-              ? `Chấm ${contest.testLimit} test đầu`
-              : "Chấm tất cả test"}
+              ? `Pretest: ${contest.testLimit} test đầu`
+              : "Pretest: tất cả test"}
           </span>
+          <RejudgeButton contestId={contest.id} />
         </div>
       )}
 
