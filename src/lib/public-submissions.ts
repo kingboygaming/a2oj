@@ -6,7 +6,7 @@ export async function getPublicSubmissionPage(
   requestedPage: number,
   userId?: string,
 ) {
-  const where = userId ? { userId } : undefined;
+  const where = userId ? { userId, contestId: null } : { contestId: null };
   const total = await prisma.submission.count({ where });
   const totalPages = Math.max(
     1,

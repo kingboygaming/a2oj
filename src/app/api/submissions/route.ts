@@ -21,7 +21,7 @@ export async function GET() {
   }
 
   const items = await prisma.submission.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, contestId: null },
     orderBy: { createdAt: "desc" },
     take: 50,
     include: {

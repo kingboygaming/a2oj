@@ -29,8 +29,9 @@ export default async function HomePage() {
     }),
     prisma.problem.count({ where: { published: true, contestOnly: false } }),
     prisma.contest.count(),
-    prisma.submission.count(),
+    prisma.submission.count({ where: { contestId: null } }),
     prisma.submission.findMany({
+      where: { contestId: null },
       orderBy: { createdAt: "desc" },
       take: 8,
       include: {
@@ -186,7 +187,7 @@ export default async function HomePage() {
 
           <DataCard
             title="Coder tích cực"
-            subtitle="Xếp theo tổng lượt nộp"
+            subtitle="Xếp theo số bài đã giải"
             icon="↗"
             href="/status"
             linkLabel="Xem bài nộp"
@@ -205,7 +206,7 @@ export default async function HomePage() {
                       </Link>
                     </span>
                     <span className="shrink-0 text-xs text-[var(--muted)]">
-                      {coder.submissions.toLocaleString("vi-VN")} bài
+                      {coder.submissions.toLocaleString("vi-VN")} bài đã giải
                     </span>
                   </li>
                 ))}
@@ -351,23 +352,29 @@ export default async function HomePage() {
 
 async function getActiveCoders() {
   const groups = await prisma.submission.groupBy({
-    by: ["userId"],
-    _count: { userId: true },
-    orderBy: { _count: { userId: "desc" } },
-    take: 8,
+    by: ["userId", "problemId"],
+    where: { verdict: "AC", contestId: null },
   });
   if (groups.length === 0) return [];
 
+  const solvedByUser = new Map<string, number>();
+  for (const group of groups) {
+    solvedByUser.set(group.userId, (solvedByUser.get(group.userId) ?? 0) + 1);
+  }
+  const top = [...solvedByUser.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
   const users = await prisma.user.findMany({
-    where: { id: { in: groups.map((group) => group.userId) } },
+    where: { id: { in: top.map(([userId]) => userId) } },
     select: { id: true, username: true, displayName: true },
   });
   const byId = new Map(users.map((item) => [item.id, item]));
 
-  return groups.flatMap((group) => {
-    const user = byId.get(group.userId);
+  return top.flatMap(([userId, submissions]) => {
+    const user = byId.get(userId);
     return user
-      ? [{ ...user, userId: user.id, submissions: group._count.userId }]
+      ? [{ ...user, userId: user.id, submissions }]
       : [];
   });
 }

@@ -26,7 +26,7 @@ export default async function ProfilePage() {
         avatarMimeType: true,
       },
     }),
-    prisma.submission.count({ where: { userId: user.id } }),
+    prisma.submission.count({ where: { userId: user.id, contestId: null } }),
     prisma.problem.findMany({
       where: {
         contestOnly: false,
@@ -40,7 +40,7 @@ export default async function ProfilePage() {
       select: { contestId: true, problemId: true },
     }),
     prisma.submission.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, contestId: null },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: {

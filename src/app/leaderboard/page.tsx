@@ -55,7 +55,7 @@ export default async function LeaderboardPage({
   const [standings, totalProblems, totalSubmissions] = await Promise.all([
     getGlobalAcmLeaderboard(),
     prisma.problem.count({ where: { published: true, contestOnly: false } }),
-    prisma.submission.count({ where: { verdict: "AC" } }),
+    prisma.submission.count({ where: { verdict: "AC", contestId: null } }),
   ]);
 
   // Filter by search query

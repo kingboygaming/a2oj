@@ -1,10 +1,11 @@
 import Link from "next/link";
 
-type ContestTab = "overview" | "problems" | "standings";
+type ContestTab = "overview" | "problems" | "submissions" | "standings";
 
 const TABS: { id: ContestTab; label: string; path: string }[] = [
   { id: "overview", label: "Tổng quan", path: "" },
   { id: "problems", label: "Đề bài", path: "/problems" },
+  { id: "submissions", label: "Bài nộp", path: "/submissions" },
   { id: "standings", label: "Bảng xếp hạng", path: "/leaderboard" },
 ];
 

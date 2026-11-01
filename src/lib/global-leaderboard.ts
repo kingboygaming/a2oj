@@ -5,7 +5,7 @@ const ACM_WRONG_ATTEMPT_PENALTY = 20;
 
 export async function getGlobalAcmLeaderboard() {
   const submissions = await prisma.submission.findMany({
-    where: { verdict: { notIn: ["QUEUED", "RUNNING"] } },
+    where: { contestId: null, verdict: { notIn: ["QUEUED", "RUNNING"] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       userId: true,
