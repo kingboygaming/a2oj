@@ -44,7 +44,12 @@ async function handle(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
-export const POST = verifySignatureAppRouter(handle, {
-  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY,
-  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY,
-});
+export async function POST(request: Request) {
+  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
+  if (!currentSigningKey || !nextSigningKey) {
+    return NextResponse.json({ error: "QStash signing keys are not configured." }, { status: 503 });
+  }
+
+  return verifySignatureAppRouter(handle, { currentSigningKey, nextSigningKey })(request);
+}

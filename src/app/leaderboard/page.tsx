@@ -340,7 +340,14 @@ function PodiumSection({
   standings,
   maxSolved,
 }: {
-  standings: { userId: string; username: string; displayName: string; solved: number; penalty: number }[];
+  standings: {
+    userId: string;
+    username: string;
+    displayName: string;
+    hasAvatar: boolean;
+    solved: number;
+    penalty: number;
+  }[];
   maxSolved: number;
 }) {
   // Reorder: 2nd, 1st, 3rd for podium visual effect
