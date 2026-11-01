@@ -48,6 +48,7 @@ export async function getCurrentUser() {
       username: true,
       displayName: true,
       role: true,
+      avatarMimeType: true,
     },
   });
 }

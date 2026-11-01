@@ -9,6 +9,7 @@ type UserMenuProps = {
     displayName: string;
     username: string;
     role: string;
+    avatarMimeType: string | null;
   };
 };
 
@@ -80,9 +81,17 @@ export function UserMenu({ user }: UserMenuProps) {
         }}
         className="flex max-w-52 items-center gap-2 rounded-full border border-white/15 py-1 pl-1 pr-3 text-left hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--amber)]"
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--amber)] font-semibold text-[var(--navy)]">
-          {initials}
-        </span>
+        {user.avatarMimeType ? (
+          <img
+            src={`/api/users/${encodeURIComponent(user.username)}/avatar`}
+            alt=""
+            className="size-8 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--amber)] font-semibold text-[var(--navy)]">
+            {initials}
+          </span>
+        )}
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium">{user.displayName}</span>
           <span className="block text-left text-[10px] uppercase tracking-wide text-[var(--cream)]/65">
