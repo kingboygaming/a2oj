@@ -225,6 +225,19 @@ function wrapSourceForFileIO(
     const bridge = `
 #include <stdio.h>
 #include <stdlib.h>
+#include <iostream>
+
+static FILE* __a2oj_freopen(const char* filename, const char* mode, FILE* stream) {
+    const bool is_stdin = stream == stdin;
+    FILE* reopened = ::freopen(filename, mode, stream);
+    // Keep cin attached to the newly reopened stdin even when user code called
+    // sync_with_stdio(false) before freopen.
+    if (reopened && is_stdin) {
+        (void)std::ios::sync_with_stdio(true);
+    }
+    return reopened;
+}
+
 #ifdef _WIN32
 #include <io.h>
 #define __a2oj_dup _dup
@@ -286,7 +299,8 @@ namespace __a2oj_file_bridge {
 }
 #endif
 `;
-    return bridge + "\n" + source;
+    const fileIoSource = source.replace(/(?:std::|::)?\bfreopen(?=\s*\()/g, "__a2oj_freopen");
+    return bridge + "\n" + fileIoSource;
   }
 
   if (language === "PYTHON") {
@@ -342,7 +356,10 @@ async function gradeWithCompiler(
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tinoj-"));
   let maxTime = 0;
   const logs: string[] = [];
-  const effectiveSource = source;
+  const effectiveSource =
+    language === "CPP"
+      ? wrapSourceForFileIO(language, source, inputFile, outputFile)
+      : source;
 
   try {
     if (language === "PYTHON") {
@@ -493,7 +510,7 @@ async function gradeWithCompiler(
         if (inputFile) {
           await fs.writeFile(path.join(testDir, inputFile), test.input, "utf8");
         }
-        const processInput = inputFile ? "" : test.input;
+        const processInput = test.input;
         const run = await runTimed(exePath, [], processInput, timeLimitMs + 500, testDir);
 
         let actualStdout = "";
@@ -698,16 +715,20 @@ async function gradeWithJudge0(
     throw new Error("Judge0 tokens mismatch");
   }
 
-  // Poll kết quả batch với độ trễ tăng dần (bắt đầu nhanh từ 300ms để trả kết quả tức thì)
+  // Poll Python immediately: interpreter startup is usually quick, so avoid
+  // adding an unconditional 300 ms delay before the first result check.
   const tokensParam = tokens.join(",");
   let submissions: Judge0SubmissionResult[] = [];
   const pollStart = Date.now();
   const maxPollMs = Math.max(timeLimitMs + 8000, 16000);
-  let pollInterval = 300;
+  let pollInterval = language === "PYTHON" ? 0 : 300;
+  let firstPoll = true;
 
   while (Date.now() - pollStart < maxPollMs) {
-    await new Promise((r) => setTimeout(r, pollInterval));
-    pollInterval = Math.min(pollInterval + 150, 700);
+    if (!firstPoll || language !== "PYTHON") {
+      await new Promise((r) => setTimeout(r, pollInterval));
+    }
+    firstPoll = false;
 
     const getRes = await fetch(
       `${baseUrl}/submissions/batch?tokens=${tokensParam}&base64_encoded=false`,
@@ -724,6 +745,10 @@ async function gradeWithJudge0(
         break;
       }
     }
+
+    const pollStep = language === "PYTHON" ? 100 : 150;
+    const maxPollInterval = language === "PYTHON" ? 600 : 700;
+    pollInterval = Math.min(pollInterval + pollStep, maxPollInterval);
   }
 
   if (submissions.length !== tests.length) {
