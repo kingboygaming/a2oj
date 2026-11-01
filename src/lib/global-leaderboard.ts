@@ -11,7 +11,7 @@ export async function getGlobalAcmLeaderboard() {
       userId: true,
       problemId: true,
       verdict: true,
-      user: { select: { username: true, displayName: true } },
+      user: { select: { username: true, displayName: true, avatarMimeType: true } },
     },
   });
 
@@ -19,6 +19,7 @@ export async function getGlobalAcmLeaderboard() {
     userId: string;
     username: string;
     displayName: string;
+    hasAvatar: boolean;
     solved: number;
     penalty: number;
   };
@@ -32,6 +33,7 @@ export async function getGlobalAcmLeaderboard() {
       userId: submission.userId,
       username: submission.user.username,
       displayName: submission.user.displayName,
+      hasAvatar: Boolean(submission.user.avatarMimeType),
       solved: 0,
       penalty: 0,
     };

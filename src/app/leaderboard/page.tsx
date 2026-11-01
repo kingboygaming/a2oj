@@ -204,11 +204,19 @@ export default async function LeaderboardPage({
                       {/* User */}
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2.5">
-                          <span
-                            className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ring-white/10 ${color}`}
-                          >
-                            {getInitials(standing.displayName)}
-                          </span>
+                          {standing.hasAvatar ? (
+                            <img
+                              src={`/api/users/${encodeURIComponent(standing.username)}/avatar`}
+                              alt=""
+                              className="size-8 shrink-0 rounded-full object-cover ring-1 ring-inset ring-white/10"
+                            />
+                          ) : (
+                            <span
+                              className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ring-white/10 ${color}`}
+                            >
+                              {getInitials(standing.displayName)}
+                            </span>
+                          )}
                           <div className="min-w-0">
                             <Link
                               href={`/users/${encodeURIComponent(standing.username)}`}
@@ -363,11 +371,17 @@ function PodiumSection({
             <div key={s.userId} className="flex flex-col items-center gap-2">
               {/* Avatar + name */}
               <div className="flex flex-col items-center gap-1">
-                <span
-                  className={`inline-flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ring-2 ring-inset ring-white/10 ${color}`}
-                >
-                  {getInitials(s.displayName)}
-                </span>
+                {s.hasAvatar ? (
+                  <img
+                    src={`/api/users/${encodeURIComponent(s.username)}/avatar`}
+                    alt=""
+                    className="size-10 shrink-0 rounded-full object-cover ring-2 ring-inset ring-white/10"
+                  />
+                ) : (
+                  <span className={`inline-flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ring-2 ring-inset ring-white/10 ${color}`}>
+                    {getInitials(s.displayName)}
+                  </span>
+                )}
                 <Link
                   href={`/users/${encodeURIComponent(s.username)}`}
                   className="max-w-[96px] truncate text-center text-xs font-medium text-[var(--navy)] hover:text-[var(--teal)] hover:underline"

@@ -46,7 +46,7 @@ export default async function LeaderboardPage({
   const subs = await prisma.submission.findMany({
     where: { contestId: contest.id },
     orderBy: { createdAt: "asc" },
-    include: { user: { select: { id: true, displayName: true, username: true } } },
+    include: { user: { select: { id: true, displayName: true, username: true, avatarMimeType: true } } },
   });
 
   type Cell = { accepted: boolean; attempts: number };
@@ -55,6 +55,7 @@ export default async function LeaderboardPage({
     {
       name: string;
       username: string;
+      hasAvatar: boolean;
       cells: Record<string, Cell>;
       solved: number;
       penalty: number;
@@ -67,6 +68,7 @@ export default async function LeaderboardPage({
       {
         name: sub.user.displayName,
         username: sub.user.username,
+        hasAvatar: Boolean(sub.user.avatarMimeType),
         cells: {},
         solved: 0,
         penalty: 0,
@@ -151,11 +153,17 @@ export default async function LeaderboardPage({
                   {/* Avatar + name */}
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2.5">
-                      <span
-                        className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ring-white/10 ${color}`}
-                      >
-                        {getInitials(row.name)}
-                      </span>
+                      {row.hasAvatar ? (
+                        <img
+                          src={`/api/users/${encodeURIComponent(row.username)}/avatar`}
+                          alt=""
+                          className="size-8 shrink-0 rounded-full object-cover ring-1 ring-inset ring-white/10"
+                        />
+                      ) : (
+                        <span className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ring-white/10 ${color}`}>
+                          {getInitials(row.name)}
+                        </span>
+                      )}
                       <div className="min-w-0">
                         <Link
                           href={`/users/${encodeURIComponent(row.username)}`}
