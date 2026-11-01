@@ -20,6 +20,6 @@ export function RankSummary({ summary, showColorPreference = false }: { summary:
     <p className="mt-2 text-xs text-[var(--muted)]">{summary.nextRank ? `${(summary.nextRank.min - summary.points).toLocaleString("vi-VN")} điểm nữa để lên ${summary.nextRank.name}` : "Bạn đã đạt rank cao nhất!"}</p>
     <div className="mt-5"><h3 className="text-sm font-semibold">Huy hiệu ({earned.length}/{summary.badges.length})</h3><div className="mt-2 flex flex-wrap gap-2">{summary.badges.map((badge) => <span key={badge.key} title={badge.description} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs ${badge.earned ? "border-amber-300 bg-amber-50 text-amber-900" : "border-[var(--line)] text-[var(--muted)] opacity-55"}`}><span>{badge.icon}</span>{badge.title}<span className={`rounded-full px-1.5 py-0.5 text-[9px] uppercase ${rarityStyles[badge.rarity] ?? "bg-slate-100 text-slate-700"}`}>{badge.rarity}</span></span>)}</div></div>
     {showColorPreference && <NameColorPreference mode={summary.nameColorMode} achievementId={summary.nameColorAchievementId} achievements={colorAchievements} />}
-    <p className="mt-4 text-[11px] text-[var(--muted)]">AC lần đầu: Dễ +3, Trung bình +8, Khó +15. Top 3 contest đã kết thúc: +100, +70, +50 điểm.</p>
+    <p className="mt-4 text-[11px] text-[var(--muted)]">AC lần đầu ở phần luyện tập: Dễ +3, Trung bình +8, Khó +15. Contest bật tính rank thưởng top 3: +100, +70, +50 điểm.</p>
   </section>;
 }

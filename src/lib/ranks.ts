@@ -66,7 +66,7 @@ export async function getRankColorClasses(userIds: string[]) {
   const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, nameColorMode: true, nameColorAchievementId: true } });
   const progress = new Map<string, AchievementProgress>(ids.map((id) => [id, { solvedCount: 0, solvedSlugs: new Set(), contestCount: 0, podiumCount: 0, winCount: 0, points: 0, heuristicScores: new Map() }]));
   const accepted = await prisma.submission.findMany({
-    where: { userId: { in: ids }, verdict: "AC" },
+    where: { userId: { in: ids }, verdict: "AC", contestId: null },
     select: { userId: true, problemId: true, problem: { select: { slug: true, difficulty: true } } },
   });
   const solved = new Set<string>();
@@ -144,13 +144,15 @@ export async function getUserRankSummary(userId: string) {
   const [user, accepted] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true, nameColorMode: true, nameColorAchievementId: true } }),
     prisma.submission.findMany({
-      where: { userId, verdict: "AC" },
+      where: { userId, verdict: "AC", contestId: null },
       orderBy: { createdAt: "asc" },
-      select: { problemId: true, contestId: true, problem: { select: { slug: true, difficulty: true } } },
+      select: { problemId: true, problem: { select: { slug: true, difficulty: true } } },
     }),
   ]);
   const firstSolveByProblem = new Map<string, (typeof accepted)[number]>();
-  for (const submission of accepted) if (!firstSolveByProblem.has(submission.problemId)) firstSolveByProblem.set(submission.problemId, submission);
+  for (const submission of accepted) {
+    if (!firstSolveByProblem.has(submission.problemId)) firstSolveByProblem.set(submission.problemId, submission);
+  }
   const solvedSlugs = new Set([...firstSolveByProblem.values()].map((submission) => submission.problem.slug));
   const solvedCount = firstSolveByProblem.size;
   let problemPoints = 0;
