@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
+const PAGE_SIZE = 10;
 
 const DIFFICULTIES = ["EASY", "MEDIUM", "HARD"] as const;
 const DIFFICULTY_LABELS: Record<(typeof DIFFICULTIES)[number], string> = {
@@ -21,9 +22,9 @@ const DIFF: Record<string, string> = {
 export default async function ProblemListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; difficulty?: string; solved?: string }>;
+  searchParams: Promise<{ q?: string; difficulty?: string; solved?: string; page?: string }>;
 }) {
-  const { q, difficulty: difficultyParam, solved: solvedParam } = await searchParams;
+  const { q, difficulty: difficultyParam, solved: solvedParam, page: pageParam } = await searchParams;
   const user = await getCurrentUser();
   const staff = user?.role === "TEACHER" || user?.role === "ADMIN";
   const difficulty = DIFFICULTIES.find((value) => value === difficultyParam);
@@ -35,8 +36,7 @@ export default async function ProblemListPage({
     ? { userId: user.id, verdict: "AC" as const, contestId: null }
     : undefined;
 
-  const problems = await prisma.problem.findMany({
-    where: {
+  const where = {
       AND: [
         q
           ? { OR: [{ title: { contains: q } }, { slug: { contains: q } }] }
@@ -55,8 +55,17 @@ export default async function ProblemListPage({
             ? { OR: [{ published: true }, { authorId: user.id }] }
             : { published: true },
       ],
-    },
+    };
+  const totalProblems = await prisma.problem.count({ where });
+  const totalPages = Math.max(1, Math.ceil(totalProblems / PAGE_SIZE));
+  const requestedPage = Math.max(1, Number.parseInt(pageParam ?? "1", 10) || 1);
+  const currentPage = Math.min(requestedPage, totalPages);
+
+  const problems = await prisma.problem.findMany({
+    where,
     orderBy: { createdAt: "desc" },
+    skip: (currentPage - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
     include: {
       _count: { select: { submissions: { where: { contestId: null } } } },
       submissions: userAcSubmission
@@ -65,14 +74,23 @@ export default async function ProblemListPage({
     },
   });
 
+  function pageHref(page: number) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (difficulty) params.set("difficulty", difficulty);
+    if (solvedFilter) params.set("solved", solvedFilter);
+    params.set("page", String(page));
+    return `/problems?${params.toString()}`;
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--navy)]">Danh sách bài tập</h1>
           <p className="text-sm text-[var(--muted)]">
-            {problems.length} đề
-            {user && ` · ${problems.filter((problem) => problem.submissions.length > 0).length} bài đã giải`}
+            {totalProblems} đề
+            {user && ` · ${problems.filter((problem) => problem.submissions.length > 0).length} bài đã giải trên trang này`}
           </p>
         </div>
         <form className="flex flex-wrap gap-2">
@@ -133,8 +151,9 @@ export default async function ProblemListPage({
           />
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
-          <table className="w-full min-w-[700px] text-left text-sm">
+        <>
+          <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+            <table className="w-full min-w-[700px] text-left text-sm">
             <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
               <tr>
                 <th className="px-3 py-2 font-medium">Mã</th>
@@ -200,8 +219,34 @@ export default async function ProblemListPage({
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+          {totalPages > 1 && (
+            <nav aria-label="Phân trang bài tập" className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {currentPage > 1 ? (
+                <Link href={pageHref(currentPage - 1)} className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--teal)] hover:bg-[var(--paper)]">
+                  ← Trang trước
+                </Link>
+              ) : (
+                <span className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--muted)] opacity-50">
+                  ← Trang trước
+                </span>
+              )}
+              <span className="px-2 text-sm text-[var(--muted)]" aria-live="polite">
+                Trang {currentPage}/{totalPages}
+              </span>
+              {currentPage < totalPages ? (
+                <Link href={pageHref(currentPage + 1)} className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--teal)] hover:bg-[var(--paper)]">
+                  Trang sau →
+                </Link>
+              ) : (
+                <span className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--muted)] opacity-50">
+                  Trang sau →
+                </span>
+              )}
+            </nav>
+          )}
+        </>
       )}
     </div>
   );
