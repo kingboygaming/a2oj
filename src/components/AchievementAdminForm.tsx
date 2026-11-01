@@ -11,7 +11,7 @@ export function AchievementAdminForm() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
   const [trigger, setTrigger] = useState("SOLVED_PROBLEMS");
-  const [secret, setSecret] = useState(false);
+  const [rarity, setRarity] = useState("COMMON");
   const [colorEnabled, setColorEnabled] = useState(false);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -19,7 +19,7 @@ export function AchievementAdminForm() {
     const form = new FormData(event.currentTarget);
     const payload = {
       slug: String(form.get("slug")), title: String(form.get("title")), description: String(form.get("description")), icon: String(form.get("icon")),
-      rarity: secret ? "SECRET" : String(form.get("rarity")), secret, triggerType: trigger, threshold: Number(form.get("threshold")),
+      rarity: String(form.get("rarity")), secret: form.get("rarity") === "SECRET", triggerType: trigger, threshold: Number(form.get("threshold")),
       problemSlug: String(form.get("problemSlug") || "") || null, nameColorEnabled: colorEnabled,
       nameColor: colorEnabled ? String(form.get("nameColor")) : null,
     };
@@ -38,13 +38,14 @@ export function AchievementAdminForm() {
       <Field label="Tên thành tựu"><input name="title" required maxLength={100} className={inputClass} /></Field>
       <Field label="Slug (a-z, 0-9, dấu gạch ngang)"><input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" className={inputClass} /></Field>
       <Field label="Biểu tượng"><input name="icon" required defaultValue="🏅" maxLength={12} className={inputClass} /></Field>
-      <Field label="Độ hiếm"><select name="rarity" disabled={secret} className={inputClass}>{ACHIEVEMENT_RARITIES.filter((item) => item !== "SECRET").map((item) => <option key={item} value={item}>{rarityNames[item]}</option>)}</select></Field>
+      <Field label="Độ hiếm"><select name="rarity" value={rarity} onChange={(event) => setRarity(event.target.value)} className={inputClass}>{ACHIEVEMENT_RARITIES.map((item) => <option key={item} value={item}>{rarityNames[item]}</option>)}</select></Field>
       <Field label="Điều kiện mở khóa"><select value={trigger} onChange={(event) => setTrigger(event.target.value)} className={inputClass}>{ACHIEVEMENT_TRIGGERS.map((item) => <option key={item} value={item}>{triggerNames[item]}</option>)}</select></Field>
-      <Field label="Mốc cần đạt"><input name="threshold" type="number" min={1} max={1000000} required defaultValue={1} className={inputClass} /></Field>
-      {(trigger === "PROBLEM_AC" || trigger === "HEURISTIC_SCORE") && <Field label="Slug bài tập (để trống = mọi bài heuristic)"><input name="problemSlug" required={trigger === "PROBLEM_AC"} className={inputClass} /></Field>}
+      <Field label={trigger === "HEURISTIC_SCORE" ? "Mốc phần trăm (%)" : "Mốc cần đạt"}><input name="threshold" type="number" min={1} max={trigger === "HEURISTIC_SCORE" ? 100 : 1000000} required defaultValue={trigger === "HEURISTIC_SCORE" ? 90 : 1} className={inputClass} /></Field>
+      {trigger === "HEURISTIC_SCORE" && <p className="self-end pb-2 text-xs text-[var(--muted)]">Tỷ lệ điểm đạt được trên tổng điểm của bài, từ 1% đến 100%.</p>}
+      {(trigger === "PROBLEM_AC" || trigger === "HEURISTIC_SCORE") && <Field label={trigger === "PROBLEM_AC" ? "Slug bài tập" : "Slug bài heuristic (để trống = mọi bài heuristic)"}><input name="problemSlug" required={trigger === "PROBLEM_AC"} className={inputClass} /></Field>}
       <Field label="Mô tả"><textarea name="description" required maxLength={300} rows={2} className={inputClass} /></Field>
     </div>
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={secret} onChange={(event) => setSecret(event.target.checked)} />Thành tựu bí mật: ẩn cho đến khi vô tình mở khóa</label>
+    {rarity === "SECRET" && <p className="text-sm text-fuchsia-800">Thành tựu Secret sẽ được ẩn cho đến khi người dùng đạt điều kiện mở khóa.</p>}
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={colorEnabled} onChange={(event) => setColorEnabled(event.target.checked)} />Cho phép dùng màu thành tựu cho tên</label>
     {colorEnabled && <Field label="Màu tên"><select name="nameColor" className={inputClass}>{Object.keys(ACHIEVEMENT_COLOR_CLASSES).map((color) => <option key={color} value={color}>{color}</option>)}</select></Field>}
     {message && <p role={error ? "alert" : "status"} className={`text-sm ${error ? "text-rose-700" : "text-emerald-700"}`}>{message}</p>}

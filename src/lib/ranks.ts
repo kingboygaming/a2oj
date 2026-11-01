@@ -60,6 +60,17 @@ export function achievementIsEarned(achievement: Pick<Achievement, "triggerType"
   }
 }
 
+async function getHeuristicTotalPoints(problemIds: string[]) {
+  const ids = [...new Set(problemIds)];
+  if (!ids.length) return new Map<string, number>();
+  const totals = await prisma.testCase.groupBy({
+    by: ["problemId"],
+    where: { problemId: { in: ids } },
+    _sum: { points: true },
+  });
+  return new Map(totals.map((item) => [item.problemId, item._sum.points ?? 0]));
+}
+
 export async function getRankColorClasses(userIds: string[]) {
   const ids = [...new Set(userIds)];
   if (!ids.length) return {} as Record<string, string>;
@@ -121,12 +132,14 @@ export async function getRankColorClasses(userIds: string[]) {
   if (selectedAchievements.some((achievement) => achievement.triggerType === "HEURISTIC_SCORE")) {
     const heuristicScores = await prisma.submission.findMany({
       where: { userId: { in: ids }, verdict: { notIn: ["QUEUED", "RUNNING"] }, problem: { judgeType: "HEURISTIC" } },
-      orderBy: { score: "desc" },
-      select: { userId: true, score: true, problem: { select: { slug: true } } },
+      select: { userId: true, problemId: true, score: true, problem: { select: { slug: true } } },
     });
+    const totalPoints = await getHeuristicTotalPoints(heuristicScores.map((submission) => submission.problemId));
     for (const sub of heuristicScores) {
       const p = progress.get(sub.userId)!;
-      p.heuristicScores.set(sub.problem.slug, Math.max(p.heuristicScores.get(sub.problem.slug) ?? 0, sub.score));
+      const total = totalPoints.get(sub.problemId) ?? 0;
+      const percentage = total > 0 ? (sub.score / total) * 100 : 0;
+      p.heuristicScores.set(sub.problem.slug, Math.max(p.heuristicScores.get(sub.problem.slug) ?? 0, percentage));
     }
   }
 
@@ -215,10 +228,15 @@ export async function getUserRankSummary(userId: string) {
 
   const heuristicAll = await prisma.submission.findMany({
     where: { userId, verdict: { notIn: ["QUEUED", "RUNNING"] }, problem: { judgeType: "HEURISTIC" } },
-    orderBy: { score: "desc" }, select: { score: true, problem: { select: { slug: true } } },
+    select: { problemId: true, score: true, problem: { select: { slug: true } } },
   });
+  const heuristicTotalPoints = await getHeuristicTotalPoints(heuristicAll.map((submission) => submission.problemId));
   const heuristicScores = new Map<string, number>();
-  for (const sub of heuristicAll) heuristicScores.set(sub.problem.slug, Math.max(heuristicScores.get(sub.problem.slug) ?? 0, sub.score));
+  for (const sub of heuristicAll) {
+    const total = heuristicTotalPoints.get(sub.problemId) ?? 0;
+    const percentage = total > 0 ? (sub.score / total) * 100 : 0;
+    heuristicScores.set(sub.problem.slug, Math.max(heuristicScores.get(sub.problem.slug) ?? 0, percentage));
+  }
   const progress: AchievementProgress = { solvedCount, solvedSlugs, contestCount: completedContests.length, podiumCount, winCount: wins, points, heuristicScores };
   const customAchievements = await prisma.achievement.findMany({ orderBy: { createdAt: "desc" } });
   const customBadges = customAchievements.flatMap((achievement) => {

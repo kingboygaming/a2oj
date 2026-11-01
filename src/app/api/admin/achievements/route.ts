@@ -16,6 +16,10 @@ const schema = z.object({
   problemSlug: z.string().trim().max(100).optional().nullable(),
   nameColorEnabled: z.boolean(),
   nameColor: z.string().nullable().optional(),
+}).superRefine((data, context) => {
+  if (data.triggerType === "HEURISTIC_SCORE" && data.threshold > 100) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["threshold"], message: "Ngưỡng heuristic phải từ 1 đến 100%." });
+  }
 });
 
 export async function POST(request: Request) {
