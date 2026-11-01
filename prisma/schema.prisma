@@ -104,6 +104,9 @@ model Problem {
   contestOnly   Boolean          @default(false)
   judgeType     String           @default("STANDARD")
   heuristicTolerancePercent Int      @default(5)
+  achievementBadgeTitle String?
+  achievementBadgeDescription String?
+  achievementScoreThreshold Int?
   ioMode        String           @default("STDIO")
   inputFile     String?
   outputFile    String?
@@ -113,6 +116,13 @@ model Problem {
   testCases     TestCase[]
   submissions   Submission[]
   contestLinks  ContestProblem[]
+  tags          Tag[]            @relation("ProblemTags")
+}
+
+model Tag {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  problems Problem[] @relation("ProblemTags")
 }
 
 model TestCase {
@@ -134,6 +144,7 @@ model Contest {
   startAt       DateTime
   endAt         DateTime
   testLimit     Int                    @default(5)
+  rankPointsEnabled Boolean             @default(false)
   passwordHash  String?
   authorId      String
   author        User                   @relation("ContestAuthor", fields: [authorId], references: [id])

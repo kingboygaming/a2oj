@@ -19,7 +19,7 @@ export default async function EditContributedProblemPage({
   const { slug } = await params;
   const problem = await prisma.problem.findUnique({
     where: { slug },
-    include: { testCases: { orderBy: { order: "asc" } } },
+    include: { testCases: { orderBy: { order: "asc" } }, tags: true },
   });
 
   if (!problem) notFound();
@@ -55,10 +55,14 @@ export default async function EditContributedProblemPage({
           title: problem.title,
           statement: problem.statement,
           difficulty: problem.difficulty,
+          tags: problem.tags,
           timeLimitMs: problem.timeLimitMs,
           memoryLimitMb: problem.memoryLimitMb,
           judgeType: problem.judgeType,
           heuristicTolerancePercent: problem.heuristicTolerancePercent,
+          achievementBadgeTitle: problem.achievementBadgeTitle,
+          achievementBadgeDescription: problem.achievementBadgeDescription,
+          achievementScoreThreshold: problem.achievementScoreThreshold,
           ioMode: problem.ioMode,
           inputFile: problem.inputFile,
           outputFile: problem.outputFile,

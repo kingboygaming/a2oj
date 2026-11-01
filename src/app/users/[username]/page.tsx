@@ -2,6 +2,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getUserRankSummary } from "@/lib/ranks";
+import { RankSummary } from "@/components/RankSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,7 @@ export default async function PublicProfilePage({
   const user = await prisma.user.findUnique({
     where: { username },
     select: {
+      id: true,
       username: true,
       displayName: true,
       role: true,
@@ -30,6 +33,7 @@ export default async function PublicProfilePage({
     },
   });
   if (!user) notFound();
+  const rankSummary = await getUserRankSummary(user.id);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -76,6 +80,7 @@ export default async function PublicProfilePage({
           Tham gia từ {user.createdAt.toLocaleDateString("vi-VN")}
         </p>
       </section>
+      <div className="mt-5"><RankSummary summary={rankSummary} /></div>
     </div>
   );
 }

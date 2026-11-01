@@ -25,6 +25,10 @@ type ProblemDraft = {
   outputFile?: string | null;
   judgeType?: string | null;
   heuristicTolerancePercent?: number;
+  achievementBadgeTitle?: string | null;
+  achievementBadgeDescription?: string | null;
+  achievementScoreThreshold?: number | null;
+  tags?: { name: string }[];
   testCases: Case[];
 };
 
@@ -42,6 +46,7 @@ export function ContributeForm({
     problem?.statement ?? "Cho $n$. Tính ...\n\n## Input\n\n## Output\n",
   );
   const [difficulty, setDifficulty] = useState(problem?.difficulty ?? "EASY");
+  const [tagsInput, setTagsInput] = useState(problem?.tags?.map((tag) => tag.name).join(", ") ?? "");
   const [timeLimitMs, setTimeLimitMs] = useState(problem?.timeLimitMs ?? 1000);
   const [memoryLimitMb, setMemoryLimitMb] = useState(problem?.memoryLimitMb ?? 256);
   const [ioMode, setIoMode] = useState<"STDIO" | "FILE">(
@@ -54,6 +59,9 @@ export function ContributeForm({
   const [heuristicTolerancePercent, setHeuristicTolerancePercent] = useState(
     problem?.heuristicTolerancePercent ?? 5,
   );
+  const [achievementBadgeTitle, setAchievementBadgeTitle] = useState(problem?.achievementBadgeTitle ?? "");
+  const [achievementBadgeDescription, setAchievementBadgeDescription] = useState(problem?.achievementBadgeDescription ?? "");
+  const [achievementScoreThreshold, setAchievementScoreThreshold] = useState(problem?.achievementScoreThreshold ?? 90);
   const [outputFile, setOutputFile] = useState(problem?.outputFile ?? "");
   const [cases, setCases] = useState<Case[]>(
     problem?.testCases ?? [
@@ -110,10 +118,14 @@ export function ContributeForm({
             title,
             statement,
             difficulty,
+            tags: [...new Set(tagsInput.split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean))],
             timeLimitMs,
             memoryLimitMb,
             judgeType,
             heuristicTolerancePercent,
+            achievementBadgeTitle: judgeType === "HEURISTIC" ? achievementBadgeTitle.trim() || null : null,
+            achievementBadgeDescription: judgeType === "HEURISTIC" ? achievementBadgeDescription.trim() || null : null,
+            achievementScoreThreshold: judgeType === "HEURISTIC" && achievementBadgeTitle.trim() ? achievementScoreThreshold : null,
             ioMode,
             inputFile:
               ioMode === "FILE"
@@ -181,6 +193,20 @@ export function ContributeForm({
           />
         </label>
       </div>
+      <label className="block text-sm">
+        Tags
+        <input
+          className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          placeholder="dp, binary search, data structure"
+          list="problem-tag-suggestions"
+        />
+        <datalist id="problem-tag-suggestions">
+          {["dp", "data structure", "binary search", "greedy", "sort", "two pointer", "math", "implementation", "graph", "string", "backtracking", "bitmask", "tree", "interactive", "có hướng dẫn", "ts10"].map((tag) => <option key={tag} value={tag} />)}
+        </datalist>
+        <span className="mt-1 block text-xs text-[var(--muted)]">Nhập tối đa 10 tag, phân cách bằng dấu phẩy. Có thể tạo tag mới.</span>
+      </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">
           Độ khó
@@ -263,6 +289,7 @@ export function ContributeForm({
           </label>
         </div>
         {judgeType === "HEURISTIC" && (
+          <>
           <label className="block max-w-xs text-sm">
             Sai số cho phép để đạt đủ điểm (%)
             <input
@@ -278,6 +305,13 @@ export function ContributeForm({
               Kết quả lệch tối đa mức này vẫn được đủ điểm; vượt mức sẽ được tính điểm theo độ gần. Mặc định 5%.
             </span>
           </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm">Tên huy hiệu theo điểm heuristic<input maxLength={80} value={achievementBadgeTitle} onChange={(e) => setAchievementBadgeTitle(e.target.value)} placeholder="Ví dụ: Bậc thầy tối ưu" className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2" /></label>
+            <label className="text-sm">Điểm tối thiểu để nhận huy hiệu<input type="number" min={1} max={10000} value={achievementScoreThreshold} onChange={(e) => setAchievementScoreThreshold(Number(e.target.value))} disabled={!achievementBadgeTitle.trim()} className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 disabled:opacity-50" /></label>
+            <label className="text-sm sm:col-span-2">Mô tả huy hiệu<input maxLength={180} value={achievementBadgeDescription} onChange={(e) => setAchievementBadgeDescription(e.target.value)} placeholder="Đạt điểm cao ở bài heuristic này" disabled={!achievementBadgeTitle.trim()} className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 disabled:opacity-50" /></label>
+          </div>
+          <p className="text-xs text-[var(--muted)]">Bỏ trống tên nếu bài này không có huy hiệu riêng. Ai đạt điểm tối thiểu trong một lần nộp đã chấm xong sẽ nhận huy hiệu.</p>
+          </>
         )}
       </div>
 

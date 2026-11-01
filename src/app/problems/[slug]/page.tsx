@@ -26,6 +26,7 @@ export default async function ProblemDetailPage({
     include: {
       // Chỉ tải test mẫu (sample) để hiển thị, không tải toàn bộ test ẩn nặng nề
       testCases: { where: { isSample: true }, orderBy: { order: "asc" } },
+      tags: { orderBy: { name: "asc" } },
       author: { select: { displayName: true } },
       contestLinks: {
         select: {
@@ -198,6 +199,8 @@ export default async function ProblemDetailPage({
             <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
               {problemDisplayName}
             </h1>
+            {problem.tags.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{problem.tags.map((tag) => <Link key={tag.id} href={`/problems?tag=${encodeURIComponent(tag.name)}`} className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs text-sky-100 hover:bg-white/20">{tag.name}</Link>)}</div>}
+            {problem.achievementBadgeTitle && <p className="mt-3 inline-flex rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">🏅 Huy hiệu riêng: {problem.achievementBadgeTitle} · đạt từ {problem.achievementScoreThreshold ?? 90} điểm</p>}
             <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
               <span className="rounded-md border border-white/10 px-2.5 py-1.5">
                 ⏱ {problem.timeLimitMs} ms

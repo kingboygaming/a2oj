@@ -53,6 +53,7 @@ const updateContestSchema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
+  rankPointsEnabled: z.boolean().optional().default(false),
   password: z.string().trim().max(128).optional(),
   removePassword: z.boolean().optional().default(false),
   problemIds: z.array(z.string().min(1)),
@@ -269,6 +270,7 @@ export async function PATCH(
         startAt,
         endAt,
         testLimit: parsed.data.testLimit,
+        rankPointsEnabled: parsed.data.rankPointsEnabled,
         passwordHash,
       },
     });

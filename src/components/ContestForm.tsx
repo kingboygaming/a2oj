@@ -33,6 +33,7 @@ export type InitialContestData = {
   startAt: string;
   endAt: string;
   testLimit: number;
+  rankPointsEnabled?: boolean;
   hasPassword?: boolean;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
@@ -102,6 +103,7 @@ export function ContestForm({
     initialData?.endAt ? toLocalDatetimeString(initialData.endAt) : "",
   );
   const [testLimit, setTestLimit] = useState(initialData?.testLimit ?? 5);
+  const [rankPointsEnabled, setRankPointsEnabled] = useState(initialData?.rankPointsEnabled ?? false);
   const [password, setPassword] = useState("");
   const [removePassword, setRemovePassword] = useState(false);
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
@@ -261,6 +263,7 @@ export function ContestForm({
           startAt: new Date(startAt).toISOString(),
           endAt: new Date(endAt).toISOString(),
           testLimit: Number(testLimit),
+          rankPointsEnabled,
           password: password.trim() || undefined,
           removePassword,
           problemIds,
@@ -373,6 +376,11 @@ export function ContestForm({
             </span>
           </label>
         </div>
+
+        <label className="flex items-start gap-2 rounded-lg border border-[var(--line)] bg-[var(--background)] p-3 text-sm">
+          <input type="checkbox" checked={rankPointsEnabled} onChange={(event) => setRankPointsEnabled(event.target.checked)} className="mt-0.5 size-4 accent-[var(--teal)]" />
+          <span><strong>Tính điểm rank cho contest này</strong><span className="mt-0.5 block text-xs text-[var(--muted)]">Khi contest kết thúc, top 3 nhận lần lượt 100, 70 và 50 điểm. Contest luyện tập có thể để tắt.</span></span>
+        </label>
 
         <div className="space-y-2 border-t border-[var(--line)] pt-4">
           <label className="block text-sm">

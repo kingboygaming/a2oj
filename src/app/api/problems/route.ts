@@ -59,9 +59,13 @@ const createSchema = z.object({
   ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
   judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
   heuristicTolerancePercent: z.number().int().min(0).max(100).optional().default(5),
+  achievementBadgeTitle: z.string().trim().max(80).nullable().optional(),
+  achievementBadgeDescription: z.string().trim().max(180).nullable().optional(),
+  achievementScoreThreshold: z.number().int().min(1).max(10000).nullable().optional(),
   inputFile: z.string().trim().max(100).nullable().optional(),
   outputFile: z.string().trim().max(100).nullable().optional(),
   testCases: z.array(testSchema).min(1),
+  tags: z.array(z.string().trim().toLowerCase().min(2).max(32)).max(10).optional().default([]).transform((tags) => [...new Set(tags)]),
 });
 
 export async function POST(request: Request) {
@@ -92,10 +96,14 @@ export async function POST(request: Request) {
       ioMode: parsed.data.ioMode ?? "STDIO",
       judgeType: parsed.data.judgeType ?? "STANDARD",
       heuristicTolerancePercent: parsed.data.heuristicTolerancePercent ?? 5,
+      achievementBadgeTitle: parsed.data.judgeType === "HEURISTIC" ? parsed.data.achievementBadgeTitle || null : null,
+      achievementBadgeDescription: parsed.data.judgeType === "HEURISTIC" && parsed.data.achievementBadgeTitle ? parsed.data.achievementBadgeDescription || null : null,
+      achievementScoreThreshold: parsed.data.judgeType === "HEURISTIC" && parsed.data.achievementBadgeTitle ? parsed.data.achievementScoreThreshold ?? 90 : null,
       inputFile: parsed.data.ioMode === "FILE" ? (parsed.data.inputFile || `${parsed.data.slug.toUpperCase()}.INP`) : null,
       outputFile: parsed.data.ioMode === "FILE" ? (parsed.data.outputFile || `${parsed.data.slug.toUpperCase()}.OUT`) : null,
       published: canPublish(user.role),
       authorId: user.id,
+      tags: { connectOrCreate: parsed.data.tags.map((name) => ({ where: { name }, create: { name } })) },
       testCases: {
         create: parsed.data.testCases.map((t, i) => ({
           input: t.input,

@@ -4,6 +4,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import Image from "next/image";
+import { getUserRankSummary } from "@/lib/ranks";
+import { RankSummary } from "@/components/RankSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +63,7 @@ export default async function ProfilePage() {
   const contestSolvedCount = new Set(
     contestAcSubmissions.map((submission) => `${submission.contestId}:${submission.problemId}`),
   ).size;
+  const rankSummary = await getUserRankSummary(user.id);
 
   return (
     <div className="space-y-6">
@@ -111,6 +114,8 @@ export default async function ProfilePage() {
           <Stat label="Lần nộp" value={submissionCount} />
         </div>
       </section>
+
+      <RankSummary summary={rankSummary} />
 
       {myContributedProblems.length > 0 && (
         <section className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">

@@ -22,12 +22,14 @@ const DIFF: Record<string, string> = {
 export default async function ProblemListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; difficulty?: string; solved?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; difficulty?: string; solved?: string; page?: string; tag?: string }>;
 }) {
-  const { q, difficulty: difficultyParam, solved: solvedParam, page: pageParam } = await searchParams;
+  const { q, difficulty: difficultyParam, solved: solvedParam, page: pageParam, tag: tagParam } = await searchParams;
   const user = await getCurrentUser();
   const staff = user?.role === "TEACHER" || user?.role === "ADMIN";
   const difficulty = DIFFICULTIES.find((value) => value === difficultyParam);
+  const tags = await prisma.tag.findMany({ orderBy: { name: "asc" }, select: { name: true } });
+  const tag = tags.some((item) => item.name === tagParam) ? tagParam : undefined;
   const solvedFilter =
     user && (solvedParam === "solved" || solvedParam === "unsolved")
       ? solvedParam
@@ -42,6 +44,7 @@ export default async function ProblemListPage({
           ? { OR: [{ title: { contains: q } }, { slug: { contains: q } }] }
           : {},
         difficulty ? { difficulty } : {},
+        tag ? { tags: { some: { name: tag } } } : {},
         solvedFilter === "solved" && userAcSubmission
           ? { submissions: { some: userAcSubmission } }
           : {},
@@ -68,6 +71,7 @@ export default async function ProblemListPage({
     take: PAGE_SIZE,
     include: {
       _count: { select: { submissions: { where: { contestId: null } } } },
+      tags: { orderBy: { name: "asc" } },
       submissions: userAcSubmission
         ? { where: userAcSubmission, select: { id: true }, take: 1 }
         : false,
@@ -78,6 +82,7 @@ export default async function ProblemListPage({
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (difficulty) params.set("difficulty", difficulty);
+    if (tag) params.set("tag", tag);
     if (solvedFilter) params.set("solved", solvedFilter);
     params.set("page", String(page));
     return `/problems?${params.toString()}`;
@@ -113,6 +118,15 @@ export default async function ProblemListPage({
               </option>
             ))}
           </select>
+          <select
+            name="tag"
+            defaultValue={tag ?? ""}
+            aria-label="Lọc theo tag"
+            className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm"
+          >
+            <option value="">Mọi tag</option>
+            {tags.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+          </select>
           {user && (
             <select
               name="solved"
@@ -132,14 +146,14 @@ export default async function ProblemListPage({
       {problems.length === 0 ? (
         <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)]">
           <EmptyState
-            type={q || difficulty || solvedFilter ? "no-results" : "no-problems"}
+            type={q || difficulty || tag || solvedFilter ? "no-results" : "no-problems"}
             title={
-              q || difficulty || solvedFilter
+              q || difficulty || tag || solvedFilter
                 ? "Không tìm thấy bài tập phù hợp"
                 : "Chưa có bài tập nào"
             }
             description={
-              q || difficulty || solvedFilter
+              q || difficulty || tag || solvedFilter
                 ? "Thử thay đổi từ khóa hoặc đặt lại bộ lọc để tìm kiếm rộng hơn."
                 : "Hãy là người đầu tiên tạo bài tập và chia sẻ với cộng đồng!"
             }
@@ -175,6 +189,11 @@ export default async function ProblemListPage({
                     >
                       {p.title}
                     </Link>
+                    {p.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {p.tags.map((item) => <Link key={item.id} href={`/problems?tag=${encodeURIComponent(item.name)}`} className="rounded-full bg-[var(--teal)]/10 px-2 py-0.5 text-[11px] text-[var(--teal)] hover:bg-[var(--teal)]/20">{item.name}</Link>)}
+                      </div>
+                    )}
                     {p.ioMode === "FILE" && (
                       <span className="ml-2 inline-flex items-center rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
                         📁 {p.inputFile || `${p.slug.toUpperCase()}.INP`}
