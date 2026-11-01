@@ -5,6 +5,7 @@ import { VerdictBadge } from "@/components/VerdictBadge";
 import { GlobalAcmLeaderboard } from "@/components/GlobalAcmLeaderboard";
 import { HomeRefreshButton } from "@/components/HomeRefreshButton";
 import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
+import { Markdown } from "@/components/Markdown";
 
 export const dynamic = "force-dynamic";
 
@@ -85,27 +86,37 @@ export default async function HomePage() {
           {news.length > 0 ? (
             <div className="px-4 sm:px-7">
               {news.map((item) => (
-                <article
-                  key={item.id}
-                  className="grid gap-1 border-b border-[var(--line)] py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_165px_110px] sm:items-center sm:gap-3"
-                >
-                  <h2 className="min-w-0 text-sm font-medium leading-5 text-[var(--navy)]">
-                    {item.pinned && (
-                      <span className="mr-2 inline-flex rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
-                        GHIM
+                <article key={item.id} className="border-b border-[var(--line)] last:border-b-0">
+                  <details className="group">
+                    <summary className="grid cursor-pointer list-none gap-1 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--teal)] sm:grid-cols-[minmax(0,1fr)_165px_110px_20px] sm:items-center sm:gap-3">
+                      <h2 className="min-w-0 text-sm font-medium leading-5 text-[var(--navy)]">
+                        {item.pinned && (
+                          <span className="mr-2 inline-flex rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                            GHIM
+                          </span>
+                        )}
+                        {item.title}
+                      </h2>
+                      <time
+                        dateTime={item.createdAt.toISOString()}
+                        className="text-xs tabular-nums text-[var(--muted)]"
+                      >
+                        {item.createdAt.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}
+                      </time>
+                      <span className="truncate text-xs text-[var(--muted)]">
+                        Bởi {item.author.displayName}
                       </span>
-                    )}
-                    {item.title}
-                  </h2>
-                  <time
-                    dateTime={item.createdAt.toISOString()}
-                    className="text-xs tabular-nums text-[var(--muted)]"
-                  >
-                    {item.createdAt.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}
-                  </time>
-                  <span className="truncate text-xs text-[var(--muted)]">
-                    Bởi {item.author.displayName}
-                  </span>
+                      <span
+                        aria-hidden="true"
+                        className="hidden text-center text-[var(--muted)] transition-transform group-open:rotate-180 sm:block"
+                      >
+                        ▾
+                      </span>
+                    </summary>
+                    <div className="border-t border-[var(--line)] py-3 text-sm text-[var(--muted)]">
+                      <Markdown source={item.body} />
+                    </div>
+                  </details>
                 </article>
               ))}
             </div>
