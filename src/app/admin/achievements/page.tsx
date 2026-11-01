@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 const rarityNames: Record<string, string> = { COMMON: "Common", UNCOMMON: "Uncommon", RARE: "Rare", EPIC: "Epic", LEGENDARY: "Legendary", SECRET: "Secret" };
-const triggerNames: Record<string, string> = { SOLVED_PROBLEMS: "Giải bài", CONTESTS: "Tham gia contest", CONTEST_PODIUMS: "Top 3 contest", CONTEST_WINS: "Vô địch contest", RANK_POINTS: "Điểm rank", PROBLEM_AC: "AC bài cụ thể", HEURISTIC_SCORE: "Điểm heuristic" };
+const triggerNames: Record<string, string> = { SOLVED_PROBLEMS: "Giải bài", CONTESTS: "Tham gia contest", CONTEST_PODIUMS: "Top 3 contest", CONTEST_WINS: "Vô địch contest", RANK_POINTS: "Điểm rank", PROBLEM_AC: "AC bài cụ thể", HEURISTIC_SCORE: "Điểm heuristic (%)", WRONG_ANSWERS: "Số lượt WA", CE_STREAK: "CE liên tiếp" };
 
 export default async function AdminAchievementsPage() {
   const user = await getCurrentUser();

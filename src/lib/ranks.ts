@@ -31,6 +31,8 @@ type AchievementProgress = {
   contestCount: number;
   podiumCount: number;
   winCount: number;
+  waCount: number;
+  ceStreak: number;
   points: number;
   heuristicScores: Map<string, number>;
 };
@@ -49,6 +51,8 @@ export function achievementIsEarned(achievement: Pick<Achievement, "triggerType"
     case "CONTEST_PODIUMS": return progress.podiumCount >= achievement.threshold;
     case "CONTEST_WINS": return progress.winCount >= achievement.threshold;
     case "RANK_POINTS": return progress.points >= achievement.threshold;
+    case "WRONG_ANSWERS": return progress.waCount >= achievement.threshold;
+    case "CE_STREAK": return progress.ceStreak >= achievement.threshold;
     case "PROBLEM_AC": return Boolean(achievement.problemSlug && progress.solvedSlugs.has(achievement.problemSlug));
     case "HEURISTIC_SCORE": {
       const score = achievement.problemSlug
@@ -71,11 +75,26 @@ async function getHeuristicTotalPoints(problemIds: string[]) {
   return new Map(totals.map((item) => [item.problemId, item._sum.points ?? 0]));
 }
 
+async function getLongestCeStreak(userId: string) {
+  const attempts = await prisma.submission.findMany({
+    where: { userId, verdict: { notIn: ["QUEUED", "RUNNING"] } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { verdict: true },
+  });
+  let current = 0;
+  let longest = 0;
+  for (const attempt of attempts) {
+    current = attempt.verdict === "CE" ? current + 1 : 0;
+    longest = Math.max(longest, current);
+  }
+  return longest;
+}
+
 export async function getRankColorClasses(userIds: string[]) {
   const ids = [...new Set(userIds)];
   if (!ids.length) return {} as Record<string, string>;
   const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, nameColorMode: true, nameColorAchievementId: true } });
-  const progress = new Map<string, AchievementProgress>(ids.map((id) => [id, { solvedCount: 0, solvedSlugs: new Set(), contestCount: 0, podiumCount: 0, winCount: 0, points: 0, heuristicScores: new Map() }]));
+  const progress = new Map<string, AchievementProgress>(ids.map((id) => [id, { solvedCount: 0, solvedSlugs: new Set(), contestCount: 0, podiumCount: 0, winCount: 0, waCount: 0, ceStreak: 0, points: 0, heuristicScores: new Map() }]));
   const accepted = await prisma.submission.findMany({
     where: { userId: { in: ids }, verdict: "AC", contestId: null },
     select: { userId: true, problemId: true, problem: { select: { slug: true, difficulty: true } } },
@@ -129,6 +148,35 @@ export async function getRankColorClasses(userIds: string[]) {
   const selectedAchievementIds = users.flatMap((user) => user.nameColorMode === "ACHIEVEMENT" && user.nameColorAchievementId ? [user.nameColorAchievementId] : []);
   const selectedAchievements = selectedAchievementIds.length ? await prisma.achievement.findMany({ where: { id: { in: selectedAchievementIds }, nameColorEnabled: true } }) : [];
   const achievementsById = new Map(selectedAchievements.map((achievement) => [achievement.id, achievement]));
+  if (selectedAchievements.some((achievement) => achievement.triggerType === "WRONG_ANSWERS")) {
+    const waCounts = await prisma.submission.groupBy({
+      by: ["userId"],
+      where: { userId: { in: ids }, verdict: "WA" },
+      _count: { _all: true },
+    });
+    for (const item of waCounts) {
+      const p = progress.get(item.userId);
+      if (p) p.waCount = item._count._all;
+    }
+  }
+  if (selectedAchievements.some((achievement) => achievement.triggerType === "CE_STREAK")) {
+    const attempts = await prisma.submission.findMany({
+      where: { userId: { in: ids }, verdict: { notIn: ["QUEUED", "RUNNING"] } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { userId: true, verdict: true },
+    });
+    const streaks = new Map<string, { current: number; max: number }>();
+    for (const attempt of attempts) {
+      const streak = streaks.get(attempt.userId) ?? { current: 0, max: 0 };
+      streak.current = attempt.verdict === "CE" ? streak.current + 1 : 0;
+      streak.max = Math.max(streak.max, streak.current);
+      streaks.set(attempt.userId, streak);
+    }
+    for (const [id, streak] of streaks) {
+      const p = progress.get(id);
+      if (p) p.ceStreak = streak.max;
+    }
+  }
   if (selectedAchievements.some((achievement) => achievement.triggerType === "HEURISTIC_SCORE")) {
     const heuristicScores = await prisma.submission.findMany({
       where: { userId: { in: ids }, verdict: { notIn: ["QUEUED", "RUNNING"] }, problem: { judgeType: "HEURISTIC" } },
@@ -237,8 +285,14 @@ export async function getUserRankSummary(userId: string) {
     const percentage = total > 0 ? (sub.score / total) * 100 : 0;
     heuristicScores.set(sub.problem.slug, Math.max(heuristicScores.get(sub.problem.slug) ?? 0, percentage));
   }
-  const progress: AchievementProgress = { solvedCount, solvedSlugs, contestCount: completedContests.length, podiumCount, winCount: wins, points, heuristicScores };
   const customAchievements = await prisma.achievement.findMany({ orderBy: { createdAt: "desc" } });
+  const waCount = customAchievements.some((achievement) => achievement.triggerType === "WRONG_ANSWERS")
+    ? await prisma.submission.count({ where: { userId, verdict: "WA" } })
+    : 0;
+  const ceStreak = customAchievements.some((achievement) => achievement.triggerType === "CE_STREAK")
+    ? await getLongestCeStreak(userId)
+    : 0;
+  const progress: AchievementProgress = { solvedCount, solvedSlugs, contestCount: completedContests.length, podiumCount, winCount: wins, waCount, ceStreak, points, heuristicScores };
   const customBadges = customAchievements.flatMap((achievement) => {
     const earned = achievementIsEarned(achievement, progress);
     if (achievement.secret && !earned) return [];
