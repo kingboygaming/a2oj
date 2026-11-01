@@ -7,6 +7,13 @@ import path from "path";
 import type { Language, TestCase, Verdict } from "@prisma/client";
 
 const execFileAsync = promisify(execFile);
+const PYTHON_TIME_LIMIT_MULTIPLIER = 2;
+
+function effectiveTimeLimitMs(language: Language, timeLimitMs: number) {
+  return language === "PYTHON"
+    ? timeLimitMs * PYTHON_TIME_LIMIT_MULTIPLIER
+    : timeLimitMs;
+}
 
 export type JudgeResult = {
   verdict: Verdict;
@@ -360,6 +367,7 @@ async function gradeWithCompiler(
     language === "CPP"
       ? wrapSourceForFileIO(language, source, inputFile, outputFile)
       : source;
+  const executionTimeLimitMs = effectiveTimeLimitMs(language, timeLimitMs);
 
   try {
     if (language === "PYTHON") {
@@ -379,7 +387,7 @@ async function gradeWithCompiler(
             await fs.writeFile(path.join(testDir, inputFile), test.input, "utf8");
           }
           const processInput = inputFile ? "" : test.input;
-          const run = await runTimed(py, [srcPath], processInput, timeLimitMs + 500, testDir);
+          const run = await runTimed(py, [srcPath], processInput, executionTimeLimitMs + 500, testDir);
 
           let actualStdout = "";
           let outputFileFound = true;
@@ -678,9 +686,10 @@ async function gradeWithJudge0(
       ? Number(process.env.JUDGE0_CPP_ID || 105)
       : Number(process.env.JUDGE0_PYTHON_ID || 100);
 
-  // Giới hạn thời gian tính bằng giây dạng số thực (vd: 1.0, 1.5, 2.0)
-  const cpuTimeLimit = Math.max(0.5, Math.min(15, Number((timeLimitMs / 1000).toFixed(2))));
-  const wallTimeLimit = Math.max(1.5, Math.min(30, Number(((timeLimitMs * 2 + 1000) / 1000).toFixed(2))));
+  // Python được nhân đôi giới hạn thời gian vì CPython chậm hơn C++ đáng kể.
+  const executionTimeLimitMs = effectiveTimeLimitMs(language, timeLimitMs);
+  const cpuTimeLimit = Math.max(0.5, Math.min(15, Number((executionTimeLimitMs / 1000).toFixed(2))));
+  const wallTimeLimit = Math.max(1.5, Math.min(30, Number(((executionTimeLimitMs * 2 + 1000) / 1000).toFixed(2))));
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
