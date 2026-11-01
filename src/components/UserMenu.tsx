@@ -14,12 +14,6 @@ type UserMenuProps = {
   rank?: { name: string; badge: string };
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  STUDENT: "Học sinh",
-  TEACHER: "Giáo viên",
-  ADMIN: "Quản trị viên",
-};
-
 const RANK_COLORS: Record<string, string> = {
   Newbie: "text-slate-300",
   Pupil: "text-emerald-300",
@@ -79,6 +73,7 @@ export function UserMenu({ user, rank }: UserMenuProps) {
   }
 
   const initials = user.displayName.trim().charAt(0).toUpperCase() || "?";
+  const displayedRank = user.role === "ADMIN" ? { name: "Admin", badge: "🛡️" } : rank;
 
   return (
     <div ref={menuRef} className="relative">
@@ -107,10 +102,7 @@ export function UserMenu({ user, rank }: UserMenuProps) {
           <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
             <span className="truncate">{user.displayName}</span>
-            {rank && <span title={`Rank ${rank.name}`} className={`shrink-0 text-[10px] font-semibold ${RANK_COLORS[rank.name] ?? "text-[var(--cream)]"}`}>{rank.badge} {rank.name}</span>}
-          </span>
-          <span className="block text-left text-[10px] uppercase tracking-wide text-[var(--cream)]/65">
-            {ROLE_LABELS[user.role] ?? user.role}
+            {displayedRank && <span title={`Rank ${displayedRank.name}`} className={`shrink-0 text-[10px] font-semibold ${RANK_COLORS[displayedRank.name] ?? (user.role === "ADMIN" ? "text-amber-300" : "text-[var(--cream)]")}`}>{displayedRank.badge} {displayedRank.name}</span>}
           </span>
         </span>
         <svg
@@ -136,11 +128,8 @@ export function UserMenu({ user, rank }: UserMenuProps) {
             <p className="truncate text-sm font-semibold text-[var(--navy)]">
               {user.displayName}
             </p>
-            {rank && <p className={`mt-1 text-xs font-semibold ${rank.name === "Newbie" ? "text-slate-500" : "text-[var(--teal)]"}`}>{rank.badge} {rank.name}</p>}
+            {displayedRank && <p className={`mt-1 text-xs font-semibold ${displayedRank.name === "Newbie" ? "text-slate-500" : displayedRank.name === "Admin" ? "text-amber-700" : "text-[var(--teal)]"}`}>{displayedRank.badge} {displayedRank.name}</p>}
             <p className="mt-0.5 truncate text-xs text-[var(--muted)]">@{user.username}</p>
-            <span className="mt-2 inline-flex rounded-full bg-[var(--teal)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--teal)]">
-              {ROLE_LABELS[user.role] ?? user.role}
-            </span>
           </div>
           <nav className="p-1.5">
             <Link
