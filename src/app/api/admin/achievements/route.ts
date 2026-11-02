@@ -12,11 +12,14 @@ const schema = z.object({
   rarity: z.enum(ACHIEVEMENT_RARITIES),
   secret: z.boolean(),
   triggerType: z.enum(ACHIEVEMENT_TRIGGERS),
-  threshold: z.number().int().min(1).max(1000000),
+  threshold: z.number().int().min(-1000000).max(1000000),
   problemSlug: z.string().trim().max(100).optional().nullable(),
   nameColorEnabled: z.boolean(),
   nameColor: z.string().nullable().optional(),
 }).superRefine((data, context) => {
+  if (data.triggerType !== "RANK_POINTS" && data.threshold < 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["threshold"], message: "Ngưỡng phải ít nhất là 1." });
+  }
   if (data.triggerType === "HEURISTIC_SCORE" && data.threshold > 100) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["threshold"], message: "Ngưỡng heuristic phải từ 1 đến 100%." });
   }
