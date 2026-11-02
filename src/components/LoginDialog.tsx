@@ -6,6 +6,7 @@ import { LoginForm } from "./LoginForm";
 
 export function LoginDialog() {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const [isClosing, setIsClosing] = useState(false);
 
   function closeDialog() {
@@ -30,13 +31,21 @@ export function LoginDialog() {
           closeDialog();
         }}
         onClose={() => setIsClosing(false)}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) closeDialog();
-        }}
         className="login-dialog fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none overflow-y-auto bg-transparent p-4 backdrop:bg-slate-950/70"
       >
-        <div className="flex min-h-full items-center justify-center">
+        <div
+          onClick={(event) => {
+            if (
+              event.target instanceof Node &&
+              !panelRef.current?.contains(event.target)
+            ) {
+              closeDialog();
+            }
+          }}
+          className="flex min-h-full items-center justify-center"
+        >
           <section
+            ref={panelRef}
             onAnimationEnd={(event) => {
               if (isClosing && event.animationName === "login-dialog-out") {
                 dialogRef.current?.close();
