@@ -19,6 +19,7 @@ export type ProblemDraft = {
   timeLimitMs: number;
   memoryLimitMb: number;
   judgeType?: "STANDARD" | "HEURISTIC";
+  scoringMode?: "ICPC" | "VNOI";
   ioMode?: "STDIO" | "FILE";
   inputFile?: string;
   outputFile?: string;
@@ -34,6 +35,7 @@ export type InitialContestData = {
   endAt: string;
   testLimit: number;
   rankPointsEnabled?: boolean;
+  scoringMode?: "ICPC" | "VNOI";
   hasPassword?: boolean;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
@@ -52,6 +54,7 @@ function createProblemDraft(): ProblemDraft {
     timeLimitMs: 1000,
     memoryLimitMb: 256,
     judgeType: "STANDARD",
+    scoringMode: "ICPC",
     ioMode: "STDIO",
     inputFile: "",
     outputFile: "",
@@ -104,6 +107,9 @@ export function ContestForm({
   );
   const [testLimit, setTestLimit] = useState(initialData?.testLimit ?? 5);
   const [rankPointsEnabled, setRankPointsEnabled] = useState(initialData?.rankPointsEnabled ?? false);
+  const [scoringMode, setScoringMode] = useState<"ICPC" | "VNOI">(
+    initialData?.scoringMode === "VNOI" ? "VNOI" : "ICPC",
+  );
   const [password, setPassword] = useState("");
   const [removePassword, setRemovePassword] = useState(false);
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
@@ -247,6 +253,7 @@ export function ContestForm({
         return {
           ...prob,
           judgeType: jType,
+          scoringMode,
           ioMode: mode,
           inputFile: mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
           outputFile: mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
@@ -264,6 +271,7 @@ export function ContestForm({
           endAt: new Date(endAt).toISOString(),
           testLimit: Number(testLimit),
           rankPointsEnabled,
+          scoringMode,
           password: password.trim() || undefined,
           removePassword,
           problemIds,
@@ -376,6 +384,40 @@ export function ContestForm({
             </span>
           </label>
         </div>
+
+        <fieldset className="rounded-lg border border-[var(--line)] p-3">
+          <legend className="px-1 text-sm font-medium">Kiểu tính điểm contest</legend>
+          <div className="flex flex-wrap gap-5">
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="contestScoringMode"
+                value="ICPC"
+                checked={scoringMode === "ICPC"}
+                onChange={() => setScoringMode("ICPC")}
+                className="mt-1 accent-[var(--teal)]"
+              />
+              <span>
+                <strong>ICPC</strong>
+                <span className="block text-xs text-[var(--muted)]">Xếp theo số bài AC, sau đó penalty.</span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="contestScoringMode"
+                value="VNOI"
+                checked={scoringMode === "VNOI"}
+                onChange={() => setScoringMode("VNOI")}
+                className="mt-1 accent-[var(--teal)]"
+              />
+              <span>
+                <strong>VNOI</strong>
+                <span className="block text-xs text-[var(--muted)]">Xếp theo tổng điểm cao nhất; hòa thì ai đạt điểm đó sớm hơn xếp trên.</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
 
         <label className="flex items-start gap-2 rounded-lg border border-[var(--line)] bg-[var(--background)] p-3 text-sm">
           <input type="checkbox" checked={rankPointsEnabled} onChange={(event) => setRankPointsEnabled(event.target.checked)} className="mt-0.5 size-4 accent-[var(--teal)]" />

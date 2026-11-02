@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { RANK_NAME_COLORS, ACHIEVEMENT_COLOR_CLASSES } from "@/lib/rank-colors";
 import type { Achievement } from "@prisma/client";
+import { calculateContestStandings, getContestPlace } from "@/lib/contest-standings";
+import { getContestScoringProblems } from "@/lib/scoring";
 
 export const RANKS = [
   { name: "Newbie", min: 0, color: RANK_NAME_COLORS.Newbie, badge: "⚪" },
@@ -166,32 +168,51 @@ export async function getRankColorClasses(userIds: string[]) {
 
   const contests = await prisma.contest.findMany({
     where: { endAt: { lte: new Date() }, submissions: { some: { userId: { in: ids } } } },
-    select: { startAt: true, rankPointsEnabled: true, submissions: { orderBy: { createdAt: "asc" }, select: { userId: true, problemId: true, verdict: true, createdAt: true } } },
+    select: {
+      startAt: true,
+      scoringMode: true,
+      testLimit: true,
+      rankPointsEnabled: true,
+      problems: {
+        select: {
+          problemId: true,
+          points: true,
+          problem: {
+            select: {
+              testCases: {
+                orderBy: { order: "asc" },
+                select: { points: true },
+              },
+            },
+          },
+        },
+      },
+      submissions: {
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, userId: true, problemId: true, verdict: true, score: true, createdAt: true },
+      },
+    },
   });
   for (const contest of contests) {
-    type Cell = { accepted: boolean; attempts: number };
-    type Row = { solved: number; penalty: number; cells: Map<string, Cell> };
-    const standings = new Map<string, Row>();
-    for (const sub of contest.submissions) {
-      const row = standings.get(sub.userId) ?? { solved: 0, penalty: 0, cells: new Map() };
-      const cell = row.cells.get(sub.problemId) ?? { accepted: false, attempts: 0 };
-      if (!cell.accepted) {
-        cell.attempts += 1;
-        if (sub.verdict === "AC") {
-          cell.accepted = true;
-          row.solved += 1;
-          row.penalty += Math.max(0, Math.floor((sub.createdAt.getTime() - contest.startAt.getTime()) / 60000)) + (cell.attempts - 1) * 20;
-        }
-      }
-      row.cells.set(sub.problemId, cell);
-      standings.set(sub.userId, row);
-    }
-    for (const [id, own] of standings) {
-      const p = progress.get(id);
+    const scoringMode = contest.scoringMode === "VNOI" ? "VNOI" : "ICPC";
+    const standings = calculateContestStandings(
+      {
+        startAt: contest.startAt,
+        scoringMode,
+        problems: getContestScoringProblems(contest.problems, contest.testLimit),
+      },
+      contest.submissions,
+    );
+    for (const own of standings) {
+      const p = progress.get(own.userId);
       if (!p) continue;
       p.contestCount += 1;
-      if (!contest.rankPointsEnabled || own.solved === 0) continue;
-      const place = 1 + [...standings.values()].filter((row) => row.solved > own.solved || (row.solved === own.solved && row.penalty < own.penalty)).length;
+      if (
+        !contest.rankPointsEnabled ||
+        (scoringMode === "VNOI" ? own.totalScore === 0 : own.solved === 0)
+      ) continue;
+      const place = getContestPlace(standings, own.userId, scoringMode);
+      if (place === null) continue;
       const reward = place === 1 ? 100 : place === 2 ? 70 : place === 3 ? 50 : 0;
       if (reward) p.points += reward;
       if (place <= 3) p.podiumCount += 1;
@@ -288,30 +309,48 @@ export async function getUserRankSummary(userId: string) {
 
   const completedContests = await prisma.contest.findMany({
     where: { endAt: { lte: new Date() }, submissions: { some: { userId } } },
-    include: { submissions: { orderBy: { createdAt: "asc" }, select: { userId: true, problemId: true, verdict: true, createdAt: true } } },
+    include: {
+      problems: {
+        select: {
+          problemId: true,
+          points: true,
+          problem: {
+            select: {
+              testCases: {
+                orderBy: { order: "asc" },
+                select: { points: true },
+              },
+            },
+          },
+        },
+      },
+      submissions: {
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true, userId: true, problemId: true, verdict: true, score: true, createdAt: true },
+      },
+    },
   });
   let contestPoints = 0;
   let podiumCount = 0;
   let wins = 0;
   for (const contest of completedContests) {
     if (!contest.rankPointsEnabled) continue;
-    type Row = { solved: number; penalty: number; cells: Map<string, { accepted: boolean; attempts: number }> };
-    const standings = new Map<string, Row>();
-    for (const sub of contest.submissions) {
-      const row = standings.get(sub.userId) ?? { solved: 0, penalty: 0, cells: new Map() };
-      const cell = row.cells.get(sub.problemId) ?? { accepted: false, attempts: 0 };
-      if (!cell.accepted) {
-        cell.attempts += 1;
-        if (sub.verdict === "AC") {
-          cell.accepted = true; row.solved += 1;
-          row.penalty += Math.max(0, Math.floor((sub.createdAt.getTime() - contest.startAt.getTime()) / 60000)) + (cell.attempts - 1) * 20;
-        }
-      }
-      row.cells.set(sub.problemId, cell); standings.set(sub.userId, row);
-    }
-    const own = standings.get(userId);
-    if (!own || own.solved === 0) continue;
-    const place = 1 + [...standings.values()].filter((row) => row.solved > own.solved || (row.solved === own.solved && row.penalty < own.penalty)).length;
+    const scoringMode = contest.scoringMode === "VNOI" ? "VNOI" : "ICPC";
+    const standings = calculateContestStandings(
+      {
+        startAt: contest.startAt,
+        scoringMode,
+        problems: getContestScoringProblems(contest.problems, contest.testLimit),
+      },
+      contest.submissions,
+    );
+    const own = standings.find((row) => row.userId === userId);
+    if (
+      !own ||
+      (scoringMode === "VNOI" ? own.totalScore === 0 : own.solved === 0)
+    ) continue;
+    const place = getContestPlace(standings, userId, scoringMode);
+    if (place === null) continue;
     if (place === 1) { contestPoints += 100; wins += 1; podiumCount += 1; }
     else if (place === 2) { contestPoints += 70; podiumCount += 1; }
     else if (place === 3) { contestPoints += 50; podiumCount += 1; }

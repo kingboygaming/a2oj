@@ -29,6 +29,8 @@ export default async function ProblemSubmissionsPage({
       published: true,
       contestOnly: true,
       authorId: true,
+      scoringMode: true,
+      judgeType: true,
     },
   });
   if (!problem) notFound();
@@ -39,7 +41,14 @@ export default async function ProblemSubmissionsPage({
           OR: [{ id: contestParam }, { slug: contestParam }],
           problems: { some: { problemId: problem.id } },
         },
-        select: { id: true },
+        select: {
+          id: true,
+          scoringMode: true,
+          problems: {
+            where: { problemId: problem.id },
+            select: { judgeType: true },
+          },
+        },
       })
     : null;
   if (contestParam && !contestContext) notFound();
@@ -86,6 +95,11 @@ export default async function ProblemSubmissionsPage({
         currentPage={page}
         totalPages={totalPages}
         contestSlug={contestParam}
+        showScores={
+          contestContext?.scoringMode === "VNOI" ||
+          (contestContext?.problems[0]?.judgeType ?? problem.judgeType) === "HEURISTIC" ||
+          (!contestContext && problem.scoringMode === "VNOI")
+        }
       />
     </div>
   );

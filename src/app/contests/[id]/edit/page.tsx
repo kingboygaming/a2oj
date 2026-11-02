@@ -95,6 +95,7 @@ export default async function EditContestPage({
           endAt: contest.endAt.toISOString(),
           testLimit: contest.testLimit,
           rankPointsEnabled: contest.rankPointsEnabled,
+          scoringMode: contest.scoringMode === "VNOI" ? "VNOI" : "ICPC",
           hasPassword: Boolean(contest.passwordHash),
           problemIds: contest.problems.map((p) => p.problemId),
           problemCustomTitles: Object.fromEntries(

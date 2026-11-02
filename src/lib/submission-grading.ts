@@ -17,7 +17,7 @@ export async function gradeStoredSubmission(submissionId: string): Promise<{
     ? await Promise.all([
         prisma.contest.findUnique({
           where: { id: submission.contestId },
-          select: { testLimit: true },
+          select: { testLimit: true, scoringMode: true },
         }),
         prisma.contestProblem.findUnique({
           where: {

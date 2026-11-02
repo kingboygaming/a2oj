@@ -24,6 +24,7 @@ type ProblemDraft = {
   inputFile?: string | null;
   outputFile?: string | null;
   judgeType?: string | null;
+  scoringMode?: string | null;
   heuristicTolerancePercent?: number;
   achievementBadgeTitle?: string | null;
   achievementBadgeDescription?: string | null;
@@ -54,6 +55,9 @@ export function ContributeForm({
   );
   const [judgeType, setJudgeType] = useState<"STANDARD" | "HEURISTIC">(
     problem?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD",
+  );
+  const [scoringMode, setScoringMode] = useState<"ICPC" | "VNOI">(
+    problem?.scoringMode === "VNOI" ? "VNOI" : "ICPC",
   );
   const [inputFile, setInputFile] = useState(problem?.inputFile ?? "");
   const [heuristicTolerancePercent, setHeuristicTolerancePercent] = useState(
@@ -122,6 +126,7 @@ export function ContributeForm({
             timeLimitMs,
             memoryLimitMb,
             judgeType,
+            scoringMode,
             heuristicTolerancePercent,
             achievementBadgeTitle: judgeType === "HEURISTIC" ? achievementBadgeTitle.trim() || null : null,
             achievementBadgeDescription: judgeType === "HEURISTIC" ? achievementBadgeDescription.trim() || null : null,
@@ -243,6 +248,45 @@ export function ContributeForm({
       </div>
 
       {/* Phương thức chấm bài (Judge Type) */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--navy)]">Kiểu tính điểm</p>
+          <p className="text-xs text-[var(--muted)]">
+            ICPC yêu cầu AC toàn bộ test; VNOI tính điểm từng test và cho phép điểm một phần.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-6">
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="scoringMode"
+              value="ICPC"
+              checked={scoringMode === "ICPC"}
+              onChange={() => setScoringMode("ICPC")}
+              className="mt-1 accent-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">ICPC</strong>
+              <span className="block text-xs text-[var(--muted)]">Đúng toàn bộ test mới được tính AC.</span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="scoringMode"
+              value="VNOI"
+              checked={scoringMode === "VNOI"}
+              onChange={() => setScoringMode("VNOI")}
+              className="mt-1 accent-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">VNOI</strong>
+              <span className="block text-xs text-[var(--muted)]">Cộng điểm các test đúng theo trọng số đã đặt.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
       <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 space-y-3">
         <div>
           <label className="text-sm font-semibold text-[var(--navy)]">

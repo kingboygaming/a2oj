@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ContestNavigation } from "@/components/ContestNavigation";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { prisma } from "@/lib/prisma";
+import { getContestScoringProblems, getVnoiProblemScore } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 const PAGE_SIZE = 50;
@@ -17,7 +18,28 @@ export default async function ContestSubmissionsPage({
   const [{ id }, { page: pageParam }] = await Promise.all([params, searchParams]);
   const contest = await prisma.contest.findFirst({
     where: { OR: [{ slug: id }, { id }] },
-    include: { problems: { select: { problemId: true, letter: true, customTitle: true, problem: { select: { slug: true, title: true } } } } },
+    include: {
+      problems: {
+        select: {
+          problemId: true,
+          letter: true,
+          customTitle: true,
+          judgeType: true,
+          points: true,
+          problem: {
+            select: {
+              slug: true,
+              title: true,
+              judgeType: true,
+              testCases: {
+                orderBy: { order: "asc" },
+                select: { points: true },
+              },
+            },
+          },
+        },
+      },
+    },
   });
   if (!contest) notFound();
 
@@ -34,10 +56,18 @@ export default async function ContestSubmissionsPage({
     take: PAGE_SIZE,
     include: {
       user: { select: { username: true, displayName: true } },
-      problem: { select: { slug: true, title: true } },
+      problem: {
+        select: { slug: true, title: true, judgeType: true },
+      },
     },
   });
   const contestProblems = new Map(contest.problems.map((item) => [item.problemId, item]));
+  const scoreConfigs = new Map(
+    getContestScoringProblems(contest.problems, contest.testLimit).map((item) => [
+      item.problemId,
+      item,
+    ]),
+  );
 
   return (
     <div>
@@ -64,6 +94,13 @@ export default async function ContestSubmissionsPage({
               <tr><td colSpan={7} className="px-3 py-8 text-center text-[var(--muted)]">Chưa có bài nộp trong contest.</td></tr>
             ) : submissions.map((submission) => {
               const contestProblem = contestProblems.get(submission.problemId);
+              const scoreConfig = scoreConfigs.get(submission.problemId);
+              const displayScore =
+                contest.scoringMode === "VNOI" && scoreConfig
+                  ? `${getVnoiProblemScore(submission.score, scoreConfig.maxTestPoints, scoreConfig.points)}/${scoreConfig.points}`
+                  : (contestProblem?.judgeType ?? submission.problem.judgeType) === "HEURISTIC"
+                    ? submission.score
+                    : "—";
               return (
                 <tr key={submission.id} className="border-t border-[var(--line)]">
                   <td className="whitespace-nowrap px-3 py-2 text-xs text-[var(--muted)]">{submission.createdAt.toLocaleString("vi-VN")}</td>
@@ -71,7 +108,7 @@ export default async function ContestSubmissionsPage({
                   <td className="px-3 py-2"><Link href={`/problems/${submission.problem.slug}`} className="font-medium text-[var(--teal)] hover:underline">{contestProblem?.letter}. {contestProblem?.customTitle || submission.problem.title}</Link></td>
                   <td className="whitespace-nowrap px-3 py-2">{submission.language === "CPP" ? "C++17" : "Python 3"}</td>
                   <td className="px-3 py-2"><Link href={`/submissions/${submission.id}`}><VerdictBadge verdict={submission.verdict} /></Link></td>
-                  <td className="px-3 py-2 text-right tabular-nums">{submission.score}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{displayScore}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{submission.timeMs === null ? "—" : `${submission.timeMs} ms`}</td>
                 </tr>
               );

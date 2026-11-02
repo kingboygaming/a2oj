@@ -64,6 +64,7 @@ export default async function EditProblemPage({
           timeLimitMs: problem.timeLimitMs,
           memoryLimitMb: problem.memoryLimitMb,
           judgeType: problem.judgeType,
+          scoringMode: problem.scoringMode,
           heuristicTolerancePercent: problem.heuristicTolerancePercent,
           achievementBadgeTitle: problem.achievementBadgeTitle,
           achievementBadgeDescription: problem.achievementBadgeDescription,

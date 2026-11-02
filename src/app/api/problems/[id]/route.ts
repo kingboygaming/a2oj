@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, hasContestAccess } from "@/lib/auth";
+import { SCORING_MODES } from "@/lib/scoring";
 
 export const maxDuration = 60;
 
@@ -93,6 +94,7 @@ const updateSchema = z.object({
   memoryLimitMb: z.number().int().positive(),
   ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
   judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
+  scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
   heuristicTolerancePercent: z.number().int().min(0).max(100).optional().default(5),
   achievementBadgeTitle: z.string().trim().max(80).nullable().optional(),
   achievementBadgeDescription: z.string().trim().max(180).nullable().optional(),
@@ -167,6 +169,7 @@ export async function PATCH(
           memoryLimitMb: parsed.data.memoryLimitMb,
           ioMode: parsed.data.ioMode ?? "STDIO",
           judgeType: parsed.data.judgeType ?? "STANDARD",
+          scoringMode: parsed.data.scoringMode,
           heuristicTolerancePercent: parsed.data.heuristicTolerancePercent ?? 5,
           achievementBadgeTitle: parsed.data.judgeType === "HEURISTIC" ? parsed.data.achievementBadgeTitle || null : null,
           achievementBadgeDescription: parsed.data.judgeType === "HEURISTIC" && parsed.data.achievementBadgeTitle ? parsed.data.achievementBadgeDescription || null : null,

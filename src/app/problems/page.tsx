@@ -204,6 +204,9 @@ export default async function ProblemListPage({
                         🎯 Heuristic
                       </span>
                     )}
+                    <span className="ml-2 inline-flex items-center rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-400">
+                      {p.scoringMode === "VNOI" ? "VNOI" : "ICPC"}
+                    </span>
                     {!p.published && (
                       <>
                         <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>

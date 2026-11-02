@@ -136,6 +136,7 @@ model Problem {
   published     Boolean          @default(true)
   contestOnly   Boolean          @default(false)
   judgeType     String           @default("STANDARD")
+  scoringMode   String           @default("ICPC")
   heuristicTolerancePercent Int      @default(5)
   achievementBadgeTitle String?
   achievementBadgeDescription String?
@@ -177,6 +178,7 @@ model Contest {
   startAt       DateTime
   endAt         DateTime
   testLimit     Int                    @default(5)
+  scoringMode   String                 @default("ICPC")
   rankPointsEnabled Boolean             @default(false)
   passwordHash  String?
   authorId      String

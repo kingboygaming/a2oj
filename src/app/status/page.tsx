@@ -109,7 +109,10 @@ export default async function PublicStatusPage({
                       <VerdictBadge verdict={submission.verdict} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {submission.score}
+                      {submission.problem.scoringMode === "VNOI" ||
+                      submission.problem.judgeType === "HEURISTIC"
+                        ? submission.score
+                        : "—"}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {submission.timeMs === null ? "—" : `${submission.timeMs} ms`}

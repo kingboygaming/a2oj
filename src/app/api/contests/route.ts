@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { canManageContests, getCurrentUser } from "@/lib/auth";
 import { hashContestPassword } from "@/lib/contest-password";
+import { SCORING_MODES } from "@/lib/scoring";
 
 export async function GET() {
   const contests = await prisma.contest.findMany({
@@ -22,6 +23,7 @@ const schema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
+  scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
   rankPointsEnabled: z.boolean().optional().default(false),
   password: z.string().trim().max(128).optional(),
   problemIds: z.array(z.string().min(1)),
@@ -39,6 +41,7 @@ const schema = z.object({
       timeLimitMs: z.number().int().positive(),
       memoryLimitMb: z.number().int().positive(),
       judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
+      scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
       ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
       inputFile: z.string().trim().max(100).nullable().optional(),
       outputFile: z.string().trim().max(100).nullable().optional(),
@@ -124,6 +127,7 @@ export async function POST(request: Request) {
         startAt,
         endAt,
         testLimit: parsed.data.testLimit,
+        scoringMode: parsed.data.scoringMode,
         rankPointsEnabled: parsed.data.rankPointsEnabled,
         passwordHash,
         authorId: user.id,

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { SubmissionTestResults } from "@/components/SubmissionTestResults";
 import { SubmissionStatusRefresh } from "@/components/SubmissionStatusRefresh";
 import { getRankColorClasses } from "@/lib/ranks";
+import { getTotalTestPoints, getVnoiProblemScore } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +26,15 @@ export default async function SubmissionPage({
           title: true,
           published: true,
           authorId: true,
-          testCases: { select: { isSample: true } },
+          scoringMode: true,
+          judgeType: true,
+          testCases: {
+            orderBy: { order: "asc" },
+            select: { isSample: true, points: true },
+          },
         },
       },
+      contest: { select: { scoringMode: true, testLimit: true } },
       user: { select: { id: true, displayName: true } },
     },
   });
@@ -35,6 +42,29 @@ export default async function SubmissionPage({
   const rankColors = await getRankColorClasses([sub.user.id]);
   const staff = user?.role === "TEACHER" || user?.role === "ADMIN";
   const canViewPrivateDetails = staff || user?.id === sub.userId;
+  const showScore =
+    (sub.contest?.scoringMode ?? sub.problem.scoringMode) === "VNOI" ||
+    sub.problem.judgeType === "HEURISTIC";
+  const contestProblem =
+    sub.contest?.scoringMode === "VNOI" && sub.contestId
+      ? await prisma.contestProblem.findUnique({
+          where: {
+            contestId_problemId: {
+              contestId: sub.contestId,
+              problemId: sub.problemId,
+            },
+          },
+          select: { points: true },
+        })
+      : null;
+  const scoreText =
+    sub.contest?.scoringMode === "VNOI" && contestProblem
+      ? `${getVnoiProblemScore(
+          sub.score,
+          getTotalTestPoints(sub.problem.testCases, sub.contest.testLimit),
+          contestProblem.points,
+        )}/${contestProblem.points} điểm`
+      : `${sub.score} điểm`;
   if (!sub.problem.published && !staff && user?.id !== sub.userId && user?.id !== sub.problem.authorId) {
     notFound();
   }
@@ -50,7 +80,7 @@ export default async function SubmissionPage({
       <div className="mt-3 flex flex-wrap gap-3 text-sm">
         <VerdictBadge verdict={sub.verdict} />
         <span>{sub.language === "CPP" ? "C++17" : "Python 3"}</span>
-        <span>{sub.score} điểm</span>
+        {showScore && <span>{scoreText}</span>}
         <span>{sub.timeMs ?? 0} ms</span>
         <span className={rankColors[sub.user.id] ?? "text-slate-600 dark:text-slate-300"}>{sub.user.displayName}</span>
       </div>

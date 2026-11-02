@@ -81,7 +81,11 @@ export default async function ContestsPage() {
               </div>
               <div>
                 <span className="block font-medium text-[var(--muted)]">Cách tính điểm</span>
-                <span className="text-slate-700">OI (Điểm cao nhất)</span>
+                <span className="text-slate-700">
+                  {c.scoringMode === "VNOI"
+                    ? "VNOI (Tổng điểm cao nhất)"
+                    : "ICPC (AC + penalty)"}
+                </span>
               </div>
               <div>
                 <span className="block font-medium text-[var(--muted)]">Người tạo</span>

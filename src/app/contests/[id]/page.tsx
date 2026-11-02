@@ -63,6 +63,9 @@ export default async function ContestDetailPage({
       <p className="mt-2 text-xs text-[var(--muted)]">
         {contest.startAt.toLocaleString("vi-VN")} → {contest.endAt.toLocaleString("vi-VN")}
       </p>
+      <p className="mt-2 inline-flex rounded-md border border-[var(--line)] bg-[var(--paper)] px-2.5 py-1 text-xs text-[var(--muted)]">
+        Chế độ chấm: {contest.scoringMode === "VNOI" ? "VNOI · điểm từng test" : "ICPC · AC và penalty"}
+      </p>
 
       {contest.passwordHash && !passwordUnlocked && (
         <ContestPasswordForm contestId={contest.id} />

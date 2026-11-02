@@ -27,8 +27,10 @@ export default async function AdminSubmissionsPage({ searchParams }: { searchPar
       language: true,
       createdAt: true,
       user: { select: { username: true, displayName: true } },
-      problem: { select: { slug: true, title: true } },
-      contest: { select: { title: true } },
+      problem: {
+        select: { slug: true, title: true, scoringMode: true, judgeType: true },
+      },
+      contest: { select: { title: true, scoringMode: true } },
     },
   });
 
@@ -52,7 +54,7 @@ export default async function AdminSubmissionsPage({ searchParams }: { searchPar
             <td className="px-3 py-2"><Link href={`/submissions/${submission.id}`} className="font-medium text-[var(--teal)] hover:underline">{submission.problem.slug} · {submission.problem.title}</Link>{submission.contest && <p className="text-xs text-[var(--muted)]">Contest: {submission.contest.title}</p>}</td>
             <td className="whitespace-nowrap px-3 py-2">{submission.language === "CPP" ? "C++17" : "Python 3"}</td>
             <td className="px-3 py-2"><VerdictBadge verdict={submission.verdict} /></td>
-            <td className="px-3 py-2 text-right tabular-nums">{submission.score}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{(submission.contest?.scoringMode ?? submission.problem.scoringMode) === "VNOI" || submission.problem.judgeType === "HEURISTIC" ? submission.score : "—"}</td>
             <td className="px-3 py-2"><AdminDeleteButton endpoint={`/api/admin/submissions/${submission.id}`} confirmation={`Xóa bài nộp ${submission.problem.slug} của @${submission.user.username}? Thao tác này không thể hoàn tác.`} /></td>
           </tr>)}</tbody>
         </table>

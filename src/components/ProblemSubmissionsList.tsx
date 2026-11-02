@@ -11,6 +11,7 @@ export function ProblemSubmissionsList({
   totalPages,
   contestSlug,
   showPagination = true,
+  showScores = true,
   rankColors = {},
 }: {
   submissions: SubmissionPage["items"];
@@ -19,6 +20,7 @@ export function ProblemSubmissionsList({
   totalPages: number;
   contestSlug?: string;
   showPagination?: boolean;
+  showScores?: boolean;
   rankColors?: Record<string, string>;
 }) {
   if (submissions.length === 0) {
@@ -39,7 +41,7 @@ export function ProblemSubmissionsList({
               <th className="px-3 py-2 font-medium">Thí sinh</th>
               <th className="px-3 py-2 font-medium">Ngôn ngữ</th>
               <th className="px-3 py-2 font-medium">Kết quả</th>
-              <th className="px-3 py-2 text-right font-medium">Điểm</th>
+              {showScores && <th className="px-3 py-2 text-right font-medium">Điểm</th>}
               <th className="px-3 py-2 text-right font-medium">Thời gian chạy</th>
               <th className="px-3 py-2 text-right font-medium">Chi tiết</th>
             </tr>
@@ -59,9 +61,11 @@ export function ProblemSubmissionsList({
                 <td className="px-3 py-2">
                   <VerdictBadge verdict={submission.verdict} />
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {submission.score}
-                </td>
+                {showScores && (
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {submission.score}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-right tabular-nums">
                   {submission.timeMs === null ? "—" : `${submission.timeMs} ms`}
                 </td>

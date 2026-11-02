@@ -38,7 +38,7 @@ export default async function HomePage() {
       take: 8,
       include: {
         user: { select: { id: true, displayName: true, username: true } },
-        problem: { select: { slug: true } },
+        problem: { select: { slug: true, scoringMode: true, judgeType: true } },
       },
     }),
     getGlobalAcmLeaderboard(),
@@ -345,7 +345,10 @@ export default async function HomePage() {
                       <VerdictBadge verdict={submission.verdict} />
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-xs tabular-nums text-[var(--navy)]">
-                      {submission.score}
+                      {submission.problem.scoringMode === "VNOI" ||
+                      submission.problem.judgeType === "HEURISTIC"
+                        ? submission.score
+                        : "—"}
                     </td>
                   </tr>
                 ))}

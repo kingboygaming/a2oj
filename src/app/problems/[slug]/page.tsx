@@ -61,6 +61,7 @@ export default async function ProblemDetailPage({
           title: true,
           authorId: true,
           startAt: true,
+          scoringMode: true,
           passwordHash: true,
           problems: {
             where: { problemId: problem.id },
@@ -122,6 +123,7 @@ export default async function ProblemDetailPage({
   const currentContestProblem = contestContext?.problems?.[0];
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
   const effectiveJudgeType = currentContestProblem?.judgeType || problem.judgeType || "STANDARD";
+  const effectiveScoringMode = contestContext?.scoringMode ?? problem.scoringMode;
   const effectiveIoMode = currentContestProblem?.ioMode || problem.ioMode || "STDIO";
   const effectiveInputFile =
     effectiveIoMode === "FILE"
@@ -229,6 +231,9 @@ export default async function ProblemDetailPage({
                   🎯 Chấm xấp xỉ (Heuristic)
                 </span>
               )}
+              <span className="rounded-md border border-white/10 px-2.5 py-1.5">
+                Chấm {effectiveScoringMode === "VNOI" ? "VNOI · điểm từng test" : "ICPC · AC toàn bộ test"}
+              </span>
             </div>
           </div>
           <div className="p-5 sm:p-7">
@@ -333,6 +338,7 @@ export default async function ProblemDetailPage({
           currentPage={page}
           totalPages={totalPages}
           showPagination={false}
+          showScores={effectiveScoringMode === "VNOI" || effectiveJudgeType === "HEURISTIC"}
         />
       </section>
     </div>
