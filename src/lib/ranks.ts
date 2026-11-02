@@ -92,7 +92,9 @@ export function achievementIsEarned(achievement: Pick<Achievement, "triggerType"
     case "CONTESTS": return progress.contestCount >= achievement.threshold;
     case "CONTEST_PODIUMS": return progress.podiumCount >= achievement.threshold;
     case "CONTEST_WINS": return progress.winCount >= achievement.threshold;
-    case "RANK_POINTS": return progress.points >= achievement.threshold;
+    case "RANK_POINTS": return achievement.threshold < 0
+      ? progress.points <= achievement.threshold
+      : progress.points >= achievement.threshold;
     case "WRONG_ANSWERS": return progress.waCount >= achievement.threshold;
     case "CE_STREAK": return progress.ceStreak >= achievement.threshold;
     case "PROBLEM_AC": return Boolean(achievement.problemSlug && progress.solvedSlugs.has(achievement.problemSlug));
