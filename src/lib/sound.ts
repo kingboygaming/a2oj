@@ -1,6 +1,6 @@
 // Quản lý âm thanh kết quả nộp bài: Web Audio API mặc định + Custom File Upload (.mp3, .wav, .ogg)
 
-export type SoundType = "ac" | "wa" | "ce" | "tle" | "achievement" | "achievement-major";
+export type SoundType = "ac" | "wa" | "ce" | "tle" | "achievement";
 
 const MUTE_KEY = "a2oj:sound:muted";
 const AC_SOUND_KEY = "a2oj:sound:custom_ac";
@@ -63,6 +63,11 @@ export function playSound(type: SoundType): void {
   if (isSoundMuted()) return;
   const volume = getSoundVolume();
 
+  if (type === "achievement") {
+    playAudioElement("/sounds/achievement.mp3", volume);
+    return;
+  }
+
   // Kiểm tra nếu có custom audio file
   if (type === "ac") {
     const custom = getCustomSound("ac");
@@ -86,10 +91,6 @@ export function playSound(type: SoundType): void {
 
     if (type === "ac") {
       playChord(ctx, [523.25, 659.25, 783.99], 0.18, volume); // C5, E5, G5
-    } else if (type === "achievement") {
-      playChord(ctx, [659.25, 830.61, 987.77], 0.24, volume);
-    } else if (type === "achievement-major") {
-      playAchievementFanfare(ctx, volume);
     } else if (type === "wa" || type === "ce") {
       playTone(ctx, 311.13, 0.35, "sawtooth", 0.12 * volume); // Eb4
     } else {
@@ -98,49 +99,6 @@ export function playSound(type: SoundType): void {
   } catch {
     /* Silent fail if AudioContext is blocked by browser autoplay */
   }
-}
-
-function playAchievementFanfare(ctx: AudioContext, volume: number) {
-  const notes = [523.25, 659.25, 783.99, 1046.5];
-  const spacing = 0.12;
-
-  notes.forEach((frequency, index) => {
-    const startTime = ctx.currentTime + index * spacing;
-    const duration = index === notes.length - 1 ? 0.52 : 0.22;
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(frequency, startTime);
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.0001, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.11 * volume, startTime + 0.025);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-    oscillator.start(startTime);
-    oscillator.stop(startTime + duration);
-  });
-
-  playScheduledTone(ctx, 261.63, ctx.currentTime + 0.36, 0.48, 0.045 * volume);
-}
-
-function playScheduledTone(
-  ctx: AudioContext,
-  frequency: number,
-  startTime: number,
-  duration: number,
-  gain: number,
-) {
-  const oscillator = ctx.createOscillator();
-  const gainNode = ctx.createGain();
-  oscillator.type = "triangle";
-  oscillator.frequency.setValueAtTime(frequency, startTime);
-  oscillator.connect(gainNode);
-  gainNode.connect(ctx.destination);
-  gainNode.gain.setValueAtTime(0.0001, startTime);
-  gainNode.gain.exponentialRampToValueAtTime(gain, startTime + 0.04);
-  gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-  oscillator.start(startTime);
-  oscillator.stop(startTime + duration);
 }
 
 function playAudioElement(src: string, volume: number) {

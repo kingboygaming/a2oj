@@ -36,8 +36,7 @@ export function AchievementUnlockToast({ achievements }: { achievements: RankBad
     if (!active) return;
     if (!sounded.current.has(active.key)) {
       sounded.current.add(active.key);
-      const isMajor = ["EPIC", "LEGENDARY", "SECRET"].includes(active.rarity);
-      playSound(isMajor ? "achievement-major" : "achievement");
+      playSound("achievement");
     }
     const exitTimeout = window.setTimeout(() => setExitingKey(active.key), 5000);
     const dismissTimeout = window.setTimeout(() => {
