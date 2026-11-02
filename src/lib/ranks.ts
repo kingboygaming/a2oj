@@ -51,9 +51,7 @@ export async function recordNewAchievementUnlocks(userId: string, badges: RankBa
       if (existingKeys.has(badge.key)) continue;
       try {
         await transaction.achievementUnlock.create({ data: { userId, achievementKey: badge.key } });
-        if (!firstVisit && (badge.rarity === "LEGENDARY" || badge.rarity === "SECRET")) {
-          newlyEarned.push(badge);
-        }
+        if (!firstVisit) newlyEarned.push(badge);
       } catch (error) {
         if (!(typeof error === "object" && error !== null && "code" in error && error.code === "P2002")) throw error;
       }
