@@ -4,9 +4,14 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   BG_PRESETS,
   getBgConfigSnapshot,
+  getHeaderTransparency,
   getServerBgConfigSnapshot,
+  getThemeMode,
   saveBgConfig,
+  setThemeMode,
   subscribeToBgConfig,
+  THEME_MODES,
+  type ThemeMode,
   type BgConfig,
 } from "@/lib/background-theme";
 
@@ -33,6 +38,8 @@ export function BackgroundPicker() {
     (currentConfig.type === "image"
       ? Math.round((currentConfig.imageOpacity ?? 0.15) * 100)
       : 15);
+  const headerTransparency = getHeaderTransparency(currentConfig);
+  const themeMode = getThemeMode(currentConfig);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +73,27 @@ export function BackgroundPicker() {
   function handleSelectPreset(presetName: string) {
     const found = BG_PRESETS.find((p) => p.name === presetName);
     if (found) {
-      applyAndSave({ ...found.config, preset: found.name });
+      applyAndSave({
+        ...found.config,
+        headerTransparency,
+        themeMode,
+        preset: found.name,
+      });
+    }
+  }
+
+  function handleHeaderTransparencyChange(transparency: number) {
+    applyAndSave({ ...currentConfig, headerTransparency: transparency });
+  }
+
+  function handleThemeModeChange(mode: ThemeMode) {
+    try {
+      setThemeMode(mode);
+      setSaveError("");
+    } catch (cause) {
+      setSaveError(
+        cause instanceof Error ? cause.message : "Không thể lưu giao diện.",
+      );
     }
   }
 
@@ -74,6 +101,7 @@ export function BackgroundPicker() {
     e.preventDefault();
     if (!customUrl.trim()) return;
     applyAndSave({
+      ...currentConfig,
       type: "image",
       imageUrl: customUrl.trim(),
       imageOpacity: customOpacity / 100,
@@ -122,6 +150,7 @@ export function BackgroundPicker() {
           ctx.drawImage(img, 0, 0, width, height);
           const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
           applyAndSave({
+            ...currentConfig,
             type: "image",
             imageUrl: compressedDataUrl,
             imageOpacity: customOpacity / 100,
@@ -177,6 +206,29 @@ export function BackgroundPicker() {
             </button>
           </div>
 
+          <fieldset className="mb-4">
+            <legend className="mb-2 text-xs font-medium text-[var(--navy)]">
+              Chế độ màu
+            </legend>
+            <div className="grid grid-cols-3 gap-1 rounded-lg border border-[var(--line)] bg-[var(--background)] p-1">
+              {THEME_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={themeMode === mode}
+                  onClick={() => handleThemeModeChange(mode)}
+                  className={`rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                    themeMode === mode
+                      ? "bg-[var(--teal)] text-white shadow-[0_0_12px_color-mix(in_srgb,var(--teal)_45%,transparent)]"
+                      : "text-[var(--muted)] hover:text-[var(--navy)]"
+                  }`}
+                >
+                  {mode === "lgbt" ? "🌈 LGBT" : mode === "light" ? "☀ Light" : "☾ Dark"}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
           {/* Presets grid */}
           <div className="grid grid-cols-2 gap-2">
             {BG_PRESETS.map((preset) => {
@@ -199,6 +251,34 @@ export function BackgroundPicker() {
                 </button>
               );
             })}
+          </div>
+
+          <div className="mt-4 border-t border-[var(--line)] pt-3">
+            <div className="flex items-center justify-between text-xs">
+              <label htmlFor="header-transparency" className="font-medium text-[var(--navy)]">
+                Độ trong suốt thanh điều hướng
+              </label>
+              <output htmlFor="header-transparency" className="font-mono text-[var(--teal)]">
+                {headerTransparency}%
+              </output>
+            </div>
+            <input
+              id="header-transparency"
+              type="range"
+              min="0"
+              max="40"
+              step="1"
+              value={headerTransparency}
+              onChange={(event) =>
+                handleHeaderTransparencyChange(Number(event.target.value))
+              }
+              className="mt-2 w-full accent-[var(--teal)]"
+              aria-label="Độ trong suốt thanh điều hướng"
+            />
+            <div className="flex justify-between text-[10px] text-[var(--muted)]">
+              <span>Kín</span>
+              <span>Kính mờ</span>
+            </div>
           </div>
 
           {/* Custom image upload & URL */}

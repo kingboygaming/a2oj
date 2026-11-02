@@ -1,52 +1,61 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
+import {
+  getBgConfigSnapshot,
+  getServerBgConfigSnapshot,
+  getThemeMode,
+  setThemeMode,
+  subscribeToBgConfig,
+  type ThemeMode,
+} from "@/lib/background-theme";
 
-const THEME_CHANGE_EVENT = "tinoj-theme-change";
+const NEXT_THEME: Record<ThemeMode, ThemeMode> = {
+  light: "dark",
+  dark: "lgbt",
+  lgbt: "light",
+};
 
-function subscribeToThemeChanges(callback: () => void) {
-  window.addEventListener(THEME_CHANGE_EVENT, callback);
-  return () => window.removeEventListener(THEME_CHANGE_EVENT, callback);
-}
-
-function getThemeSnapshot() {
-  return document.documentElement.dataset.theme !== "light";
-}
-
-function getServerThemeSnapshot() {
-  return true;
-}
+const THEME_LABEL: Record<ThemeMode, string> = {
+  light: "Light",
+  dark: "Dark",
+  lgbt: "LGBT",
+};
 
 export function ThemeToggle() {
-  const isDark = useSyncExternalStore(
-    subscribeToThemeChanges,
-    getThemeSnapshot,
-    getServerThemeSnapshot,
+  const config = useSyncExternalStore(
+    subscribeToBgConfig,
+    getBgConfigSnapshot,
+    getServerBgConfigSnapshot,
   );
+  const themeMode = getThemeMode(config);
+  const [saveError, setSaveError] = useState("");
 
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem("tinoj-theme");
-    const dark = savedTheme !== "light";
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
-  }, []);
-
-  function toggleTheme() {
-    const dark = !isDark;
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    window.localStorage.setItem("tinoj-theme", dark ? "dark" : "light");
-    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+  function cycleTheme() {
+    try {
+      setThemeMode(NEXT_THEME[themeMode]);
+      setSaveError("");
+    } catch (cause) {
+      setSaveError(
+        cause instanceof Error ? cause.message : "Không thể lưu giao diện.",
+      );
+    }
   }
 
   return (
     <button
       type="button"
-      onClick={toggleTheme}
-      aria-label={`Chuyển sang giao diện ${isDark ? "sáng" : "tối"}`}
-      title={`Chuyển sang giao diện ${isDark ? "sáng" : "tối"}`}
+      onClick={cycleTheme}
+      aria-label={`Giao diện ${THEME_LABEL[themeMode]}. Chuyển sang ${THEME_LABEL[NEXT_THEME[themeMode]]}`}
+      title={
+        saveError ||
+        `Giao diện ${THEME_LABEL[themeMode]} · chuyển sang ${THEME_LABEL[NEXT_THEME[themeMode]]}`
+      }
       className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-white/15 text-[var(--cream)] transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--teal)]"
     >
-      {isDark ? (
+      {themeMode === "lgbt" ? (
+        <span aria-hidden="true" className="text-base leading-none">🌈</span>
+      ) : themeMode === "dark" ? (
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-4">
           <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.7" />
           <path

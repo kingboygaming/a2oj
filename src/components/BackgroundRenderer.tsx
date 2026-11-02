@@ -3,7 +3,9 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   getBgConfigSnapshot,
+  getHeaderTransparency,
   getServerBgConfigSnapshot,
+  getThemeMode,
   subscribeToBgConfig,
 } from "@/lib/background-theme";
 
@@ -63,12 +65,18 @@ export function BackgroundRenderer() {
   );
 
   useEffect(() => {
+    document.documentElement.dataset.theme = getThemeMode(config);
     document.body.style.background =
       config.type === "gradient" || config.type === "solid"
         ? config.gradient ?? config.color ?? ""
         : "";
+    document.documentElement.style.setProperty(
+      "--header-bg-opacity",
+      `${100 - getHeaderTransparency(config)}%`,
+    );
     return () => {
       document.body.style.background = "";
+      document.documentElement.style.removeProperty("--header-bg-opacity");
     };
   }, [config]);
 

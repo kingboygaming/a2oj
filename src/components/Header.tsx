@@ -27,7 +27,7 @@ export async function Header() {
 
   return (
     <>
-    <header className="border-b border-white/10 bg-[var(--surface-strong)] text-[var(--cream)]">
+    <header className="site-header border-b border-white/10 text-[var(--cream)]">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2">
           <Link href="/" prefetch={true} className="flex shrink-0 items-baseline gap-1.5">

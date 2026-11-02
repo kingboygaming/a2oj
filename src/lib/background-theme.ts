@@ -1,13 +1,17 @@
 export type BgType = "default" | "solid" | "gradient" | "image" | "matrix" | "grid";
+export const THEME_MODES = ["light", "dark", "lgbt"] as const;
+export type ThemeMode = (typeof THEME_MODES)[number];
 
 export interface BgConfig {
   type: BgType;
+  themeMode?: ThemeMode;
   // solid / gradient
   color?: string;   // e.g. "#0f172a"
   gradient?: string; // e.g. "linear-gradient(135deg, #0f172a 0%, #1e0a3c 100%)"
   // image
   imageUrl?: string;
   imageOpacity?: number; // 0-1
+  headerTransparency?: number; // 0-40
   // preset name
   preset?: string;
 }
@@ -22,10 +26,30 @@ export const BG_PRESETS: { name: string; label: string; config: BgConfig }[] = [
   { name: "grid", label: "⬜ Space Grid", config: { type: "grid" } },
 ];
 
+export function getHeaderTransparency(config: BgConfig) {
+  const transparency = config.headerTransparency;
+  if (typeof transparency !== "number" || !Number.isFinite(transparency)) {
+    return 12;
+  }
+  return Math.min(40, Math.max(0, Math.round(transparency)));
+}
+
 const LS_KEY = "a2oj:bg";
+const LEGACY_THEME_KEY = "tinoj-theme";
 const BG_CHANGE_EVENT = "a2oj-bg-change";
 const DEFAULT_BG_CONFIG: BgConfig = { type: "default" };
 let cachedBgConfig: BgConfig | undefined;
+
+function getLegacyThemeMode(): ThemeMode {
+  if (typeof window === "undefined") return "dark";
+  try {
+    return window.localStorage.getItem(LEGACY_THEME_KEY) === "light"
+      ? "light"
+      : "dark";
+  } catch {
+    return "dark";
+  }
+}
 
 function parseBgConfig(raw: string | null): BgConfig {
   if (!raw) return DEFAULT_BG_CONFIG;
@@ -39,7 +63,13 @@ function parseBgConfig(raw: string | null): BgConfig {
         String(config.type),
       )
     ) {
-      return config as BgConfig;
+      const saved = config as BgConfig;
+      return {
+        ...saved,
+        themeMode: THEME_MODES.includes(saved.themeMode as ThemeMode)
+          ? saved.themeMode
+          : getLegacyThemeMode(),
+      };
     }
   } catch {
     return DEFAULT_BG_CONFIG;
@@ -62,17 +92,25 @@ export function saveBgConfig(config: BgConfig): void {
     throw new Error("Không thể lưu giao diện ở môi trường hiện tại.");
   }
   try {
-    window.localStorage.setItem(LS_KEY, JSON.stringify(config));
+    window.localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({ ...config, themeMode: getThemeMode(config) }),
+    );
+    window.localStorage.setItem(LEGACY_THEME_KEY, getThemeMode(config));
   } catch {
     throw new Error("Không thể lưu giao diện vào trình duyệt. Hãy thử ảnh nhỏ hơn hoặc xóa bớt dữ liệu trang web.");
   }
-  cachedBgConfig = config;
+  cachedBgConfig = { ...config, themeMode: getThemeMode(config) };
   window.dispatchEvent(new Event(BG_CHANGE_EVENT));
 }
 
 export function subscribeToBgConfig(callback: () => void) {
   function onStorageChange(event: StorageEvent) {
-    if (event.key !== LS_KEY && event.key !== null) return;
+    if (
+      event.key !== LS_KEY &&
+      event.key !== LEGACY_THEME_KEY &&
+      event.key !== null
+    ) return;
     loadBgConfig();
     window.dispatchEvent(new Event(BG_CHANGE_EVENT));
   }
@@ -87,6 +125,16 @@ export function subscribeToBgConfig(callback: () => void) {
 
 export function getBgConfigSnapshot() {
   return cachedBgConfig ?? loadBgConfig();
+}
+
+export function getThemeMode(config: BgConfig): ThemeMode {
+  return THEME_MODES.includes(config.themeMode as ThemeMode)
+    ? config.themeMode!
+    : getLegacyThemeMode();
+}
+
+export function setThemeMode(themeMode: ThemeMode) {
+  saveBgConfig({ ...getBgConfigSnapshot(), themeMode });
 }
 
 export function getServerBgConfigSnapshot() {

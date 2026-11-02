@@ -16,6 +16,7 @@
   --teal: #38bdf8;
   --background: #0f172a;
   --foreground: var(--ink);
+  --led-color: #38bdf8;
 }
 
 :root[data-theme="light"] {
@@ -33,6 +34,25 @@
   --teal: #0284c7;
   --background: #f1f5f9;
   --foreground: var(--ink);
+  --led-color: #0284c7;
+}
+
+:root[data-theme="lgbt"] {
+  color-scheme: dark;
+  --navy: #fff7ff;
+  --navy-2: #f5e8ff;
+  --surface-strong: #21152f;
+  --surface-strong-hover: #392047;
+  --cream: #fff7ff;
+  --paper: #21182d;
+  --ink: #fff7ff;
+  --muted: #d3bfdc;
+  --line: #694d76;
+  --amber: #ffd166;
+  --teal: #f472b6;
+  --background: #120d1b;
+  --foreground: var(--ink);
+  --led-color: #f472b6;
 }
 
 @theme inline {
@@ -47,6 +67,17 @@ body {
   color: var(--ink);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   transition: background-color 280ms ease, color 280ms ease;
+}
+
+.site-header {
+  background-color: color-mix(
+    in srgb,
+    var(--surface-strong) var(--header-bg-opacity, 88%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  transition: background-color 240ms ease, backdrop-filter 240ms ease;
 }
 
 .route-transition {
@@ -114,12 +145,29 @@ main article[class*="rounded"][class*="border"],
 main aside[class*="rounded"][class*="border"],
 main form[class*="rounded"][class*="border"],
 main details[class*="rounded"][class*="border"],
-main a[class*="rounded"][class*="border"] {
+main a[class*="rounded"][class*="border"],
+main div[class*="rounded"][class*="border"] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--led-color) 16%, transparent),
+    0 0 14px color-mix(in srgb, var(--led-color) 8%, transparent);
   transition:
     border-color 320ms ease,
     box-shadow 320ms ease,
     transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
   animation: card-enter 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+:root[data-theme="lgbt"] main section[class*="rounded"][class*="border"],
+:root[data-theme="lgbt"] main article[class*="rounded"][class*="border"],
+:root[data-theme="lgbt"] main aside[class*="rounded"][class*="border"],
+:root[data-theme="lgbt"] main form[class*="rounded"][class*="border"],
+:root[data-theme="lgbt"] main details[class*="rounded"][class*="border"],
+:root[data-theme="lgbt"] main a[class*="rounded"][class*="border"],
+:root[data-theme="lgbt"] main div[class*="rounded"][class*="border"] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #f472b6 25%, transparent),
+    0 0 16px color-mix(in srgb, #f472b6 12%, transparent),
+    0 0 24px color-mix(in srgb, #38bdf8 8%, transparent);
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
@@ -135,6 +183,19 @@ main a[class*="rounded"][class*="border"] {
       0 0 0 1px color-mix(in srgb, var(--teal) 35%, transparent),
       0 14px 32px rgb(2 8 23 / 28%),
       0 0 24px color-mix(in srgb, var(--teal) 18%, transparent);
+  }
+
+  :root[data-theme="lgbt"] main section[class*="rounded"][class*="border"]:hover,
+  :root[data-theme="lgbt"] main article[class*="rounded"][class*="border"]:hover,
+  :root[data-theme="lgbt"] main aside[class*="rounded"][class*="border"]:hover,
+  :root[data-theme="lgbt"] main form[class*="rounded"][class*="border"]:hover,
+  :root[data-theme="lgbt"] main details[class*="rounded"][class*="border"]:hover,
+  :root[data-theme="lgbt"] main a[class*="rounded"][class*="border"]:hover {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, #f472b6 55%, transparent),
+      0 14px 32px rgb(2 8 23 / 28%),
+      0 0 24px color-mix(in srgb, #f472b6 25%, transparent),
+      0 0 34px color-mix(in srgb, #38bdf8 18%, transparent);
   }
 
   main section[class*="rounded"][class*="border"]:focus-within,
@@ -252,14 +313,14 @@ main button:active {
   background: color-mix(in srgb, var(--teal) 35%, transparent);
 }
 
-:root[data-theme="dark"] .bg-white {
+:root:is([data-theme="dark"], [data-theme="lgbt"]) .bg-white {
   background-color: var(--paper);
   color: var(--ink);
 }
 
-:root[data-theme="dark"] input,
-:root[data-theme="dark"] textarea,
-:root[data-theme="dark"] select {
+:root:is([data-theme="dark"], [data-theme="lgbt"]) input,
+:root:is([data-theme="dark"], [data-theme="lgbt"]) textarea,
+:root:is([data-theme="dark"], [data-theme="lgbt"]) select {
   color-scheme: dark;
 }
 
