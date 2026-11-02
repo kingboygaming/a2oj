@@ -6,6 +6,7 @@ import { SoundToggle } from "./SoundToggle";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { getUserRankSummary, recordNewAchievementUnlocks } from "@/lib/ranks";
 import { AchievementUnlockToast } from "./AchievementUnlockToast";
+import { LoginDialog } from "./LoginDialog";
 
 const links = [
   { href: "/problems", label: "Bài tập" },
@@ -56,13 +57,7 @@ export async function Header() {
             <UserMenu user={user} rank={rank ? { name: rank.name, badge: rank.badge } : undefined} nameColorClass={rankSummary?.nameColor} />
           ) : (
             <>
-              <Link
-                href="/login"
-                prefetch={true}
-                className="rounded-md px-2 py-1.5 text-[var(--cream)]/90 hover:bg-white/10"
-              >
-                Đăng nhập
-              </Link>
+              <LoginDialog />
               <Link
                 href="/register"
                 prefetch={true}
