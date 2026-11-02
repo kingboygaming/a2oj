@@ -23,15 +23,72 @@ export const BG_PRESETS: { name: string; label: string; config: BgConfig }[] = [
 ];
 
 const LS_KEY = "a2oj:bg";
+const BG_CHANGE_EVENT = "a2oj-bg-change";
+const DEFAULT_BG_CONFIG: BgConfig = { type: "default" };
+let cachedBgConfig: BgConfig | undefined;
+
+function parseBgConfig(raw: string | null): BgConfig {
+  if (!raw) return DEFAULT_BG_CONFIG;
+  try {
+    const config: unknown = JSON.parse(raw);
+    if (
+      typeof config === "object" &&
+      config !== null &&
+      "type" in config &&
+      ["default", "solid", "gradient", "image", "matrix", "grid"].includes(
+        String(config.type),
+      )
+    ) {
+      return config as BgConfig;
+    }
+  } catch {
+    return DEFAULT_BG_CONFIG;
+  }
+  return DEFAULT_BG_CONFIG;
+}
 
 export function loadBgConfig(): BgConfig {
+  if (typeof window === "undefined") return DEFAULT_BG_CONFIG;
   try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(LS_KEY) : null;
-    if (!raw) return { type: "default" };
-    return JSON.parse(raw) as BgConfig;
-  } catch { return { type: "default" }; }
+    cachedBgConfig = parseBgConfig(window.localStorage.getItem(LS_KEY));
+  } catch {
+    cachedBgConfig = DEFAULT_BG_CONFIG;
+  }
+  return cachedBgConfig;
 }
 
 export function saveBgConfig(config: BgConfig): void {
-  try { window.localStorage.setItem(LS_KEY, JSON.stringify(config)); } catch {}
+  if (typeof window === "undefined") {
+    throw new Error("Không thể lưu giao diện ở môi trường hiện tại.");
+  }
+  try {
+    window.localStorage.setItem(LS_KEY, JSON.stringify(config));
+  } catch {
+    throw new Error("Không thể lưu giao diện vào trình duyệt. Hãy thử ảnh nhỏ hơn hoặc xóa bớt dữ liệu trang web.");
+  }
+  cachedBgConfig = config;
+  window.dispatchEvent(new Event(BG_CHANGE_EVENT));
+}
+
+export function subscribeToBgConfig(callback: () => void) {
+  function onStorageChange(event: StorageEvent) {
+    if (event.key !== LS_KEY && event.key !== null) return;
+    loadBgConfig();
+    window.dispatchEvent(new Event(BG_CHANGE_EVENT));
+  }
+
+  window.addEventListener(BG_CHANGE_EVENT, callback);
+  window.addEventListener("storage", onStorageChange);
+  return () => {
+    window.removeEventListener(BG_CHANGE_EVENT, callback);
+    window.removeEventListener("storage", onStorageChange);
+  };
+}
+
+export function getBgConfigSnapshot() {
+  return cachedBgConfig ?? loadBgConfig();
+}
+
+export function getServerBgConfigSnapshot() {
+  return DEFAULT_BG_CONFIG;
 }

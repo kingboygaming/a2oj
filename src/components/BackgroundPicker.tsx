@@ -1,35 +1,41 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   BG_PRESETS,
-  loadBgConfig,
+  getBgConfigSnapshot,
+  getServerBgConfigSnapshot,
   saveBgConfig,
+  subscribeToBgConfig,
   type BgConfig,
 } from "@/lib/background-theme";
 
-const BG_CHANGE_EVENT = "a2oj-bg-change";
-
 export function BackgroundPicker() {
   const [open, setOpen] = useState(false);
-  const [currentConfig, setCurrentConfig] = useState<BgConfig>({ type: "default" });
-  const [customUrl, setCustomUrl] = useState("");
-  const [customOpacity, setCustomOpacity] = useState(15);
+  const currentConfig = useSyncExternalStore(
+    subscribeToBgConfig,
+    getBgConfigSnapshot,
+    getServerBgConfigSnapshot,
+  );
+  const [customUrlDraft, setCustomUrlDraft] = useState<string | null>(null);
+  const [customOpacityDraft, setCustomOpacityDraft] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const customUrl =
+    customUrlDraft ??
+    (currentConfig.type === "image" &&
+    currentConfig.imageUrl &&
+    !currentConfig.imageUrl.startsWith("data:")
+      ? currentConfig.imageUrl
+      : "");
+  const customOpacity =
+    customOpacityDraft ??
+    (currentConfig.type === "image"
+      ? Math.round((currentConfig.imageOpacity ?? 0.15) * 100)
+      : 15);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const cfg = loadBgConfig();
-    setCurrentConfig(cfg);
-    if (cfg.type === "image" && cfg.imageUrl) {
-      if (!cfg.imageUrl.startsWith("data:")) {
-        setCustomUrl(cfg.imageUrl);
-      }
-      setCustomOpacity(Math.round((cfg.imageOpacity ?? 0.15) * 100));
-    }
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,9 +49,18 @@ export function BackgroundPicker() {
   }, [open]);
 
   function applyAndSave(config: BgConfig) {
-    setCurrentConfig(config);
-    saveBgConfig(config);
-    window.dispatchEvent(new CustomEvent(BG_CHANGE_EVENT, { detail: config }));
+    try {
+      saveBgConfig(config);
+      setSaveError("");
+      if (config.type !== "image") {
+        setCustomUrlDraft(null);
+        setCustomOpacityDraft(null);
+      }
+    } catch (cause) {
+      setSaveError(
+        cause instanceof Error ? cause.message : "Không thể lưu giao diện.",
+      );
+    }
   }
 
   function handleSelectPreset(presetName: string) {
@@ -235,7 +250,7 @@ export function BackgroundPicker() {
                 type="url"
                 placeholder="Hoặc dán URL link ảnh..."
                 value={customUrl}
-                onChange={(e) => setCustomUrl(e.target.value)}
+                onChange={(e) => setCustomUrlDraft(e.target.value)}
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--navy)] outline-none focus:border-[var(--teal)]"
               />
               <button
@@ -256,7 +271,7 @@ export function BackgroundPicker() {
                 value={customOpacity}
                 onChange={(e) => {
                   const val = Number(e.target.value);
-                  setCustomOpacity(val);
+                  setCustomOpacityDraft(val);
                   if (currentConfig.type === "image") {
                     applyAndSave({
                       ...currentConfig,
@@ -267,6 +282,11 @@ export function BackgroundPicker() {
                 className="w-28 accent-[var(--teal)]"
               />
             </div>
+            {saveError && (
+              <p role="alert" className="mt-2 text-xs text-red-500">
+                {saveError}
+              </p>
+            )}
           </div>
         </div>
       )}
