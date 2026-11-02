@@ -209,8 +209,8 @@ main div[class*="rounded"][class*="border"] {
   position: relative;
   isolation: isolate;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--led-color) 16%, transparent),
-    0 0 14px color-mix(in srgb, var(--led-color) 8%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--led-color) 20%, transparent),
+    0 0 18px color-mix(in srgb, var(--led-color) 12%, transparent);
   transition:
     border-color 320ms ease,
     box-shadow 320ms ease,
@@ -231,7 +231,7 @@ main div[class*="rounded"][class*="border"]::before {
   z-index: -1;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
+  padding: 1.5px;
   background: linear-gradient(
     115deg,
     #ff3b5c 0%,
@@ -243,7 +243,7 @@ main div[class*="rounded"][class*="border"]::before {
     #bd55e8 100%
   );
   background-size: 250% 250%;
-  opacity: 0.58;
+  opacity: 0.72;
   pointer-events: none;
   content: "";
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -270,9 +270,9 @@ main div[class*="rounded"][class*="border"]::before {
 :root[data-theme="lgbt"] main a[class*="rounded"][class*="border"],
 :root[data-theme="lgbt"] main div[class*="rounded"][class*="border"] {
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--led-color) 24%, transparent),
-    0 0 16px color-mix(in srgb, var(--led-color) 12%, transparent),
-    0 0 24px color-mix(in srgb, #38bdf8 8%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--led-color) 30%, transparent),
+    0 0 18px color-mix(in srgb, var(--led-color) 16%, transparent),
+    0 0 26px color-mix(in srgb, #38bdf8 10%, transparent);
 }
 
 :root[data-theme="lgbt"] main section[class*="rounded"][class*="border"]::before,
@@ -282,7 +282,7 @@ main div[class*="rounded"][class*="border"]::before {
 :root[data-theme="lgbt"] main details[class*="rounded"][class*="border"]::before,
 :root[data-theme="lgbt"] main a[class*="rounded"][class*="border"]::before,
 :root[data-theme="lgbt"] main div[class*="rounded"][class*="border"]::before {
-  opacity: 0.8;
+  opacity: 0.96;
 }
 
 @keyframes led-rgb-cycle {
