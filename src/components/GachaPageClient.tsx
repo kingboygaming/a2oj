@@ -115,6 +115,7 @@ export function GachaPageClient({
       }
       setError(false);
       setFeaturedCardId(cardId);
+      setMessage(cardId ? "Đã đặt thẻ trưng bày trên hồ sơ." : "Đã bỏ thẻ trưng bày.");
     } catch {
       setError(true);
       setMessage("Không thể kết nối máy chủ.");

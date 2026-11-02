@@ -26,6 +26,9 @@ export default async function ProfilePage() {
         bio: true,
         school: true,
         avatarMimeType: true,
+        featuredGachaCard: {
+          select: { id: true, name: true, rarity: true, description: true },
+        },
       },
     }),
     prisma.submission.count({ where: { userId: user.id, contestId: null } }),
@@ -114,6 +117,53 @@ export default async function ProfilePage() {
           <Stat label="Bài contest đã AC" value={contestSolvedCount} />
           <Stat label="Lần nộp" value={submissionCount} />
         </div>
+        <Link
+          href={`/users/${encodeURIComponent(user.username)}`}
+          className="mt-4 inline-flex text-sm font-medium text-[var(--teal)] hover:underline"
+        >
+          Xem hồ sơ công khai
+        </Link>
+      </section>
+
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[var(--navy)]">Thẻ trưng bày</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Thẻ này hiển thị trên hồ sơ công khai của bạn.
+            </p>
+          </div>
+          <Link href="/gacha" className="text-sm font-medium text-[var(--teal)] hover:underline">
+            Quản lý bộ sưu tập
+          </Link>
+        </div>
+        {profile.featuredGachaCard ? (
+          <div className="mt-4 flex items-center gap-4">
+            <Image
+              src={`/api/gacha/cards/${profile.featuredGachaCard.id}/image`}
+              alt={profile.featuredGachaCard.name}
+              width={112}
+              height={144}
+              unoptimized
+              className="h-36 w-28 rounded-lg border border-[var(--line)] object-cover"
+            />
+            <div>
+              <p className="font-semibold text-[var(--navy)]">{profile.featuredGachaCard.name}</p>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[var(--teal)]">
+                {profile.featuredGachaCard.rarity}
+              </p>
+              {profile.featuredGachaCard.description && (
+                <p className="mt-2 text-sm text-[var(--muted)]">
+                  {profile.featuredGachaCard.description}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-[var(--muted)]">
+            Chưa chọn thẻ nào. Hãy vào gacha, mở bộ sưu tập và chọn “Trưng bày trên hồ sơ”.
+          </p>
+        )}
       </section>
 
       <RankSummary summary={rankSummary} showColorPreference />

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -20,5 +21,8 @@ export async function POST(request: Request) {
     where: { id: user.id },
     data: { featuredGachaCardId: parsed.data.cardId },
   });
+  revalidatePath("/profile");
+  revalidatePath("/gacha");
+  revalidatePath(`/users/${encodeURIComponent(user.username)}`);
   return NextResponse.json({ success: true });
 }

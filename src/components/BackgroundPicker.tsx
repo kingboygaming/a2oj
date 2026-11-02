@@ -89,6 +89,7 @@ export function BackgroundPicker() {
         ...found.config,
         headerTransparency,
         themeMode,
+        ledEnabled: currentConfig.ledEnabled !== false,
         preset: found.name,
       });
     }

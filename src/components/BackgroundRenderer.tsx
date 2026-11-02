@@ -4,6 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   getBgConfigSnapshot,
   getHeaderTransparency,
+  getLedEnabled,
   getServerBgConfigSnapshot,
   getThemeMode,
   subscribeToBgConfig,
@@ -66,6 +67,7 @@ export function BackgroundRenderer() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = getThemeMode(config);
+    document.documentElement.dataset.led = getLedEnabled(config) ? "on" : "off";
     document.body.style.background =
       config.type === "gradient" || config.type === "solid"
         ? config.gradient ?? config.color ?? ""
@@ -77,6 +79,7 @@ export function BackgroundRenderer() {
     return () => {
       document.body.style.background = "";
       document.documentElement.style.removeProperty("--header-bg-opacity");
+      delete document.documentElement.dataset.led;
     };
   }, [config]);
 

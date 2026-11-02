@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { UserMenu } from "./UserMenu";
 import { ThemeToggle } from "./ThemeToggle";
+import { LedToggle } from "./LedToggle";
 import { SoundToggle } from "./SoundToggle";
 import { BackgroundPicker } from "./BackgroundPicker";
 import { getUserRankSummary, recordNewAchievementUnlocks } from "@/lib/ranks";
@@ -53,6 +54,7 @@ export async function Header() {
         <div className="flex items-center gap-2 text-sm">
           <BackgroundPicker />
           <SoundToggle />
+          <LedToggle />
           <ThemeToggle />
           {user ? (
             <UserMenu user={user} rank={rank ? { name: rank.name, badge: rank.badge } : undefined} nameColorClass={rankSummary?.nameColor} />

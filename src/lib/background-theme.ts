@@ -5,6 +5,7 @@ export type ThemeMode = (typeof THEME_MODES)[number];
 export interface BgConfig {
   type: BgType;
   themeMode?: ThemeMode;
+  ledEnabled?: boolean;
   // solid / gradient
   color?: string;   // e.g. "#0f172a"
   gradient?: string; // e.g. "linear-gradient(135deg, #0f172a 0%, #1e0a3c 100%)"
@@ -37,7 +38,7 @@ export function getHeaderTransparency(config: BgConfig) {
 const LS_KEY = "a2oj:bg";
 const LEGACY_THEME_KEY = "tinoj-theme";
 const BG_CHANGE_EVENT = "a2oj-bg-change";
-const DEFAULT_BG_CONFIG: BgConfig = { type: "default" };
+const DEFAULT_BG_CONFIG: BgConfig = { type: "default", ledEnabled: true };
 let cachedBgConfig: BgConfig | undefined;
 
 function getLegacyThemeMode(): ThemeMode {
@@ -66,6 +67,7 @@ function parseBgConfig(raw: string | null): BgConfig {
       const saved = config as BgConfig;
       return {
         ...saved,
+        ledEnabled: saved.ledEnabled !== false,
         themeMode: THEME_MODES.includes(saved.themeMode as ThemeMode)
           ? saved.themeMode
           : getLegacyThemeMode(),
@@ -94,13 +96,21 @@ export function saveBgConfig(config: BgConfig): void {
   try {
     window.localStorage.setItem(
       LS_KEY,
-      JSON.stringify({ ...config, themeMode: getThemeMode(config) }),
+      JSON.stringify({
+        ...config,
+        ledEnabled: config.ledEnabled !== false,
+        themeMode: getThemeMode(config),
+      }),
     );
     window.localStorage.setItem(LEGACY_THEME_KEY, getThemeMode(config));
   } catch {
     throw new Error("Không thể lưu giao diện vào trình duyệt. Hãy thử ảnh nhỏ hơn hoặc xóa bớt dữ liệu trang web.");
   }
-  cachedBgConfig = { ...config, themeMode: getThemeMode(config) };
+  cachedBgConfig = {
+    ...config,
+    ledEnabled: config.ledEnabled !== false,
+    themeMode: getThemeMode(config),
+  };
   window.dispatchEvent(new Event(BG_CHANGE_EVENT));
 }
 
@@ -133,8 +143,16 @@ export function getThemeMode(config: BgConfig): ThemeMode {
     : getLegacyThemeMode();
 }
 
+export function getLedEnabled(config: BgConfig) {
+  return config.ledEnabled !== false;
+}
+
 export function setThemeMode(themeMode: ThemeMode) {
   saveBgConfig({ ...getBgConfigSnapshot(), themeMode });
+}
+
+export function setLedEnabled(ledEnabled: boolean) {
+  saveBgConfig({ ...getBgConfigSnapshot(), ledEnabled });
 }
 
 export function getServerBgConfigSnapshot() {
