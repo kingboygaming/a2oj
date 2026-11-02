@@ -1,14 +1,15 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { LoginForm } from "./LoginForm";
 
 export function LoginDialog() {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [isClosing, setIsClosing] = useState(false);
 
   function closeDialog() {
-    dialogRef.current?.close();
+    if (dialogRef.current?.open) setIsClosing(true);
   }
 
   return (
@@ -23,13 +24,26 @@ export function LoginDialog() {
       <dialog
         ref={dialogRef}
         aria-labelledby="login-dialog-title"
+        data-closing={isClosing}
+        onCancel={(event) => {
+          event.preventDefault();
+          closeDialog();
+        }}
+        onClose={() => setIsClosing(false)}
         onClick={(event) => {
           if (event.target === event.currentTarget) closeDialog();
         }}
-        className="fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none overflow-y-auto bg-transparent p-4 backdrop:bg-slate-950/70"
+        className="login-dialog fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none overflow-y-auto bg-transparent p-4 backdrop:bg-slate-950/70"
       >
         <div className="flex min-h-full items-center justify-center">
-          <section className="relative w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--paper)] p-6 text-[var(--ink)] shadow-2xl">
+          <section
+            onAnimationEnd={(event) => {
+              if (isClosing && event.animationName === "login-dialog-out") {
+                dialogRef.current?.close();
+              }
+            }}
+            className="login-dialog-panel relative w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--paper)] p-6 text-[var(--ink)] shadow-2xl"
+          >
             <button
               type="button"
               onClick={closeDialog}
