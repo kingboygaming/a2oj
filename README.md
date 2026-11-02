@@ -8,7 +8,7 @@ Online Judge quy mô lớp / khối chuyên Tin: Next.js App Router, Tailwind, M
 cd D:\a2clttoj
 npm install
 npm run db:generate
-npx prisma db push
+npm run db:sync:sqlite
 npx tsx prisma/seed.ts
 npm run dev
 ```
@@ -20,10 +20,11 @@ Tài khoản mẫu:
 - Giáo viên: `gv` / `teacher123`
 - Học sinh: `hs` / `hs123`
 
-Giao diện mặc định dùng nền tối; nút hình mặt trời/mặt trăng trên thanh điều hướng đổi giữa nền tối và sáng, lựa chọn được lưu trên trình duyệt.
+Giao diện hỗ trợ Light, Dark và LGBT; lựa chọn được lưu trên trình duyệt trong menu hình nền và hiệu ứng. Nút theme trên thanh điều hướng chuyển lần lượt giữa ba chế độ.
 
 Mặc định dùng **SQLite** (`prisma/dev.db`) để chạy ngay trên ổ D, không cần PostgreSQL.
 Prisma Client được generate tự động sau `npm install`; có thể generate lại bằng `npm run db:generate`.
+Các migration trong `prisma/migrations` dành cho PostgreSQL production. Khi cập nhật schema SQLite local, chạy `npm run db:sync:sqlite` thay vì `prisma migrate` để tránh xung đột provider.
 
 ## Deploy lên Vercel
 

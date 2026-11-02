@@ -17,6 +17,7 @@ import {
 
 export function BackgroundPicker() {
   const [open, setOpen] = useState(false);
+  const [menuAlignment, setMenuAlignment] = useState<"left" | "right">("right");
   const currentConfig = useSyncExternalStore(
     subscribeToBgConfig,
     getBgConfigSnapshot,
@@ -43,6 +44,17 @@ export function BackgroundPicker() {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  function toggleMenu() {
+    if (!open) {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      if (trigger) {
+        setMenuAlignment(trigger.left < window.innerWidth / 2 ? "left" : "right");
+      }
+    }
+    setOpen((previous) => !previous);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -170,8 +182,9 @@ export function BackgroundPicker() {
   return (
     <div className="relative" ref={dropdownRef}>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={toggleMenu}
         aria-label="Tùy chỉnh giao diện nền"
         title="Đổi hình nền & hiệu ứng"
         className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-white/15 text-[var(--cream)] transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--teal)]"
@@ -193,7 +206,9 @@ export function BackgroundPicker() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 shadow-2xl">
+        <div
+          className={`absolute ${menuAlignment === "left" ? "left-0" : "right-0"} top-full z-50 mt-2 max-h-[calc(100dvh-7rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 shadow-2xl`}
+        >
           <div className="mb-3 flex items-center justify-between border-b border-[var(--line)] pb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--teal)]">
               Hình nền & Hiệu ứng

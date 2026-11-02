@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 
+@property --led-color {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #38bdf8;
+}
+
 :root {
   color-scheme: dark;
   --navy: #f8fafc;
@@ -39,20 +45,20 @@
 
 :root[data-theme="lgbt"] {
   color-scheme: dark;
-  --navy: #fff7ff;
-  --navy-2: #f5e8ff;
-  --surface-strong: #21152f;
-  --surface-strong-hover: #392047;
-  --cream: #fff7ff;
-  --paper: #21182d;
-  --ink: #fff7ff;
-  --muted: #d3bfdc;
-  --line: #694d76;
+  --navy: #f4f2ff;
+  --navy-2: #e2def3;
+  --surface-strong: #101117;
+  --surface-strong-hover: #20212b;
+  --cream: #f4f2ff;
+  --paper: #171820;
+  --ink: #f4f2ff;
+  --muted: #a7a5b8;
+  --line: #30313d;
   --amber: #ffd166;
-  --teal: #f472b6;
-  --background: #120d1b;
+  --teal: #c084fc;
+  --background: #0c0d12;
   --foreground: var(--ink);
-  --led-color: #f472b6;
+  --led-color: #ff4d9d;
 }
 
 @theme inline {
@@ -69,7 +75,16 @@ body {
   transition: background-color 280ms ease, color 280ms ease;
 }
 
+:root[data-theme="lgbt"] body {
+  background-image:
+    radial-gradient(ellipse at 50% -20%, rgb(101 42 129 / 17%), transparent 58%),
+    linear-gradient(180deg, #0c0d12 0%, #111119 55%, #0c0d12 100%);
+}
+
 .site-header {
+  position: relative;
+  z-index: 110;
+  isolation: isolate;
   background-color: color-mix(
     in srgb,
     var(--surface-strong) var(--header-bg-opacity, 88%),
@@ -78,6 +93,50 @@ body {
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   transition: background-color 240ms ease, backdrop-filter 240ms ease;
+}
+
+.site-header::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    #ff3b5c 0%,
+    #ff9f1c 16%,
+    #ffe14d 32%,
+    #35d07f 48%,
+    #24c8e8 64%,
+    #5875ff 80%,
+    #bd55e8 100%
+  );
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px rgb(131 91 255 / 55%);
+  content: "";
+  animation: rgb-spectrum-scroll 8s linear infinite;
+}
+
+:root[data-theme="lgbt"] .site-header {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, #f04479 var(--header-bg-opacity, 88%), transparent) 0%,
+    color-mix(in srgb, #a647bd var(--header-bg-opacity, 88%), transparent) 22%,
+    color-mix(in srgb, #4288d4 var(--header-bg-opacity, 88%), transparent) 43%,
+    color-mix(in srgb, #2da987 var(--header-bg-opacity, 88%), transparent) 62%,
+    color-mix(in srgb, #c2a52c var(--header-bg-opacity, 88%), transparent) 81%,
+    color-mix(in srgb, #e86628 var(--header-bg-opacity, 88%), transparent) 100%
+  );
+  box-shadow: 0 5px 24px rgb(180 75 225 / 14%);
+}
+
+:root[data-theme="lgbt"] .site-header::before {
+  height: 2px;
+  opacity: 0.8;
+}
+
+.site-header > div {
+  position: relative;
+  z-index: 2;
 }
 
 .route-transition {
@@ -147,6 +206,8 @@ main form[class*="rounded"][class*="border"],
 main details[class*="rounded"][class*="border"],
 main a[class*="rounded"][class*="border"],
 main div[class*="rounded"][class*="border"] {
+  position: relative;
+  isolation: isolate;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--led-color) 16%, transparent),
     0 0 14px color-mix(in srgb, var(--led-color) 8%, transparent);
@@ -154,7 +215,51 @@ main div[class*="rounded"][class*="border"] {
     border-color 320ms ease,
     box-shadow 320ms ease,
     transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: card-enter 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation:
+    card-enter 680ms cubic-bezier(0.16, 1, 0.3, 1) both,
+    led-rgb-cycle 12s linear infinite;
+}
+
+main section[class*="rounded"][class*="border"]::before,
+main article[class*="rounded"][class*="border"]::before,
+main aside[class*="rounded"][class*="border"]::before,
+main form[class*="rounded"][class*="border"]::before,
+main details[class*="rounded"][class*="border"]::before,
+main a[class*="rounded"][class*="border"]::before,
+main div[class*="rounded"][class*="border"]::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    115deg,
+    #ff3b5c 0%,
+    #ff9f1c 18%,
+    #ffe14d 34%,
+    #35d07f 50%,
+    #24c8e8 66%,
+    #5875ff 82%,
+    #bd55e8 100%
+  );
+  background-size: 250% 250%;
+  opacity: 0.58;
+  pointer-events: none;
+  content: "";
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: rgb-spectrum-scroll 8s linear infinite;
+}
+
+:root[data-theme="lgbt"] main section[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main article[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main aside[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main form[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main details[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main a[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main div[class*="rounded"][class*="border"]::before {
+  background-size: 300% 300%;
+  opacity: 0.92;
 }
 
 :root[data-theme="lgbt"] main section[class*="rounded"][class*="border"],
@@ -165,9 +270,33 @@ main div[class*="rounded"][class*="border"] {
 :root[data-theme="lgbt"] main a[class*="rounded"][class*="border"],
 :root[data-theme="lgbt"] main div[class*="rounded"][class*="border"] {
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #f472b6 25%, transparent),
-    0 0 16px color-mix(in srgb, #f472b6 12%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--led-color) 24%, transparent),
+    0 0 16px color-mix(in srgb, var(--led-color) 12%, transparent),
     0 0 24px color-mix(in srgb, #38bdf8 8%, transparent);
+}
+
+:root[data-theme="lgbt"] main section[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main article[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main aside[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main form[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main details[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main a[class*="rounded"][class*="border"]::before,
+:root[data-theme="lgbt"] main div[class*="rounded"][class*="border"]::before {
+  opacity: 0.8;
+}
+
+@keyframes led-rgb-cycle {
+  0%, 100% { --led-color: #ff4d6d; }
+  17% { --led-color: #ff9f1c; }
+  34% { --led-color: #a3e635; }
+  51% { --led-color: #22d3ee; }
+  68% { --led-color: #6366f1; }
+  85% { --led-color: #d946ef; }
+}
+
+@keyframes rgb-spectrum-scroll {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
@@ -176,13 +305,14 @@ main div[class*="rounded"][class*="border"] {
   main aside[class*="rounded"][class*="border"]:hover,
   main form[class*="rounded"][class*="border"]:hover,
   main details[class*="rounded"][class*="border"]:hover,
-  main a[class*="rounded"][class*="border"]:hover {
+  main a[class*="rounded"][class*="border"]:hover,
+  main div[class*="rounded"][class*="border"]:hover {
     transform: translateY(-2px);
     border-color: color-mix(in srgb, var(--teal) 55%, var(--line));
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--teal) 35%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--led-color) 35%, transparent),
       0 14px 32px rgb(2 8 23 / 28%),
-      0 0 24px color-mix(in srgb, var(--teal) 18%, transparent);
+      0 0 24px color-mix(in srgb, var(--led-color) 24%, transparent);
   }
 
   :root[data-theme="lgbt"] main section[class*="rounded"][class*="border"]:hover,
@@ -190,11 +320,12 @@ main div[class*="rounded"][class*="border"] {
   :root[data-theme="lgbt"] main aside[class*="rounded"][class*="border"]:hover,
   :root[data-theme="lgbt"] main form[class*="rounded"][class*="border"]:hover,
   :root[data-theme="lgbt"] main details[class*="rounded"][class*="border"]:hover,
-  :root[data-theme="lgbt"] main a[class*="rounded"][class*="border"]:hover {
+  :root[data-theme="lgbt"] main a[class*="rounded"][class*="border"]:hover,
+  :root[data-theme="lgbt"] main div[class*="rounded"][class*="border"]:hover {
     box-shadow:
-      0 0 0 1px color-mix(in srgb, #f472b6 55%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--led-color) 55%, transparent),
       0 14px 32px rgb(2 8 23 / 28%),
-      0 0 24px color-mix(in srgb, #f472b6 25%, transparent),
+      0 0 24px color-mix(in srgb, var(--led-color) 25%, transparent),
       0 0 34px color-mix(in srgb, #38bdf8 18%, transparent);
   }
 
@@ -202,12 +333,19 @@ main div[class*="rounded"][class*="border"] {
   main article[class*="rounded"][class*="border"]:focus-within,
   main aside[class*="rounded"][class*="border"]:focus-within,
   main form[class*="rounded"][class*="border"]:focus-within,
-  main details[class*="rounded"][class*="border"]:focus-within {
+  main details[class*="rounded"][class*="border"]:focus-within,
+  main div[class*="rounded"][class*="border"]:focus-within {
     border-color: color-mix(in srgb, var(--teal) 55%, var(--line));
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--teal) 35%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--led-color) 35%, transparent),
       0 14px 32px rgb(2 8 23 / 24%),
-      0 0 24px color-mix(in srgb, var(--teal) 16%, transparent);
+      0 0 24px color-mix(in srgb, var(--led-color) 24%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-header::before {
+    animation: none;
   }
 }
 
