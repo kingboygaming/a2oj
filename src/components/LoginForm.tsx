@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 export function LoginForm() {
   const router = useRouter();
-  const [username, setUsername] = useState("hs");
-  const [password, setPassword] = useState("hs123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
