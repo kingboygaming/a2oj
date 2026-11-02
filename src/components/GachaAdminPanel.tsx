@@ -144,7 +144,7 @@ export function GachaAdminPanel({
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Tên banner"><input name="title" required maxLength={100} className={inputClass} /></Field>
-          <Field label="Slug"><input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={80} className={inputClass} /></Field>
+          <Field label="Slug"><input name="slug" required minLength={2} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={80} title="Slug cần ít nhất 2 ký tự, chỉ gồm chữ thường, số và dấu gạch ngang." className={inputClass} /></Field>
           <Field label="Loại banner">
             <select name="type" value={bannerType} onChange={(event) => setBannerType(event.target.value)} className={inputClass}>
               <option value="NORMAL">Thường</option>
@@ -207,7 +207,7 @@ export function GachaAdminPanel({
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Tên thẻ"><input name="name" required maxLength={100} className={inputClass} /></Field>
-          <Field label="Slug"><input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={80} className={inputClass} /></Field>
+          <Field label="Slug"><input name="slug" required minLength={2} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={80} title="Slug cần ít nhất 2 ký tự, chỉ gồm chữ thường, số và dấu gạch ngang." className={inputClass} /></Field>
           <Field label="Nguồn nhận">
             <select name="specialOnly" className={inputClass}>
               <option value="false">Banner gacha</option>

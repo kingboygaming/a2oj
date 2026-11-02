@@ -10,7 +10,10 @@ export async function POST(request: Request) {
 
   const formData = await request.formData();
   const parsed = z.object({
-    slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    slug: z.string().trim()
+      .min(2, "Slug thẻ cần ít nhất 2 ký tự.")
+      .max(80, "Slug thẻ tối đa 80 ký tự.")
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug chỉ gồm chữ thường, số và dấu gạch ngang."),
     name: z.string().trim().min(1).max(100),
     description: z.string().trim().max(500).default(""),
     rarity: z.enum(GACHA_RARITIES),
@@ -22,7 +25,7 @@ export async function POST(request: Request) {
     rarity: formData.get("rarity"),
     specialOnly: formData.get("specialOnly") ?? "true",
   });
-  if (!parsed.success) return NextResponse.json({ error: "Thông tin thẻ đặc biệt không hợp lệ." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Thông tin thẻ không hợp lệ." }, { status: 400 });
 
   const image = formData.get("image");
   if (!(image instanceof File) || !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(image.type) || image.size <= 0 || image.size > 3 * 1024 * 1024) {

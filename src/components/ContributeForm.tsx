@@ -126,6 +126,19 @@ export function ContributeForm({
     setPending(true);
     setError("");
     try {
+      if (gachaAcRewardMin > gachaAcRewardMax) {
+        setError("Lượt tối đa khi AC phải lớn hơn hoặc bằng lượt tối thiểu.");
+        return;
+      }
+      if (gachaPacRewardMin > gachaPacRewardMax) {
+        setError("Lượt tối đa khi PAC phải lớn hơn hoặc bằng lượt tối thiểu.");
+        return;
+      }
+      if (specialGachaDropRate > 0 && !specialGachaCardId) {
+        setError("Hãy chọn thẻ đặc biệt trước khi đặt xác suất rơi.");
+        return;
+      }
+
       const res = await fetch(
         problem ? `/api/problems/${problem.id}` : "/api/problems",
         {
@@ -167,7 +180,14 @@ export function ContributeForm({
       );
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? (problem ? "Không thể cập nhật đề." : "Không tạo được đề."));
+        const fieldErrors = Object.values(data.details?.fieldErrors ?? {})
+          .flat()
+          .filter((message): message is string => typeof message === "string");
+        setError(
+          fieldErrors.length
+            ? `${data.error ?? "Dữ liệu đề bài không hợp lệ."} ${fieldErrors.join(" ")}`
+            : data.error ?? (problem ? "Không thể cập nhật đề." : "Không tạo được đề."),
+        );
         return;
       }
 

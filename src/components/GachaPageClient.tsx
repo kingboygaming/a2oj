@@ -172,13 +172,24 @@ export function GachaPageClient({
         )}
       </section>
 
+      {pulling && (
+        <section aria-live="polite" className="gacha-pull-stage relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-8 text-center sm:p-12">
+          <div className="gacha-pull-aura" aria-hidden="true" />
+          <div className="relative mx-auto flex size-24 items-center justify-center rounded-full border-2 border-[var(--teal)]/70 bg-[var(--teal)]/10 shadow-[0_0_40px_color-mix(in_srgb,var(--teal)_35%,transparent)]">
+            <span className="gacha-pull-sigil text-5xl" aria-hidden="true">✦</span>
+          </div>
+          <p className="relative mt-5 text-lg font-bold text-[var(--navy)]">Đang mở thẻ...</p>
+          <p className="relative mt-1 text-sm text-[var(--muted)]">Vận may đang đến!</p>
+        </section>
+      )}
+
       {message && <p role={error ? "alert" : "status"} className={`rounded-lg px-4 py-3 text-sm ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>{message}</p>}
 
       {revealed.length > 0 && (
         <section aria-live="polite" className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
           <h2 className="text-xl font-bold text-[var(--navy)]">Thẻ vừa nhận!</h2>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-            {revealed.map((card, index) => <CardTile key={`${card.id}-${index}`} card={card} />)}
+            {revealed.map((card, index) => <CardTile key={`${card.id}-${index}`} card={card} revealIndex={index} />)}
           </div>
         </section>
       )}
@@ -210,9 +221,9 @@ export function GachaPageClient({
   );
 }
 
-function CardTile({ card }: { card: CardView }) {
-  return (
-    <article className={`overflow-hidden rounded-xl border-2 ${rarityStyles[card.rarity] ?? rarityStyles.COMMON}`}>
+function CardTile({ card, revealIndex }: { card: CardView; revealIndex?: number }) {
+  const tile = (
+    <article className={`overflow-hidden rounded-xl border-2 ${rarityStyles[card.rarity] ?? rarityStyles.COMMON} ${revealIndex !== undefined && ["EPIC", "LEGENDARY", "SPECIAL"].includes(card.rarity) ? "gacha-card-rare" : ""}`}>
       <div className="relative aspect-[3/4] bg-[var(--navy)]/5">
         <Image src={card.imageUrl} alt={card.name} fill unoptimized sizes="(max-width: 640px) 45vw, 180px" className="object-cover" />
         {card.count && card.count > 1 && <span className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-white">×{card.count}</span>}
@@ -223,5 +234,22 @@ function CardTile({ card }: { card: CardView }) {
         {card.description && <p className="mt-1 line-clamp-2 text-xs opacity-80">{card.description}</p>}
       </div>
     </article>
+  );
+
+  if (revealIndex === undefined) return tile;
+
+  return (
+    <div
+      className="gacha-card-perspective"
+      style={{ "--gacha-reveal-delay": `${Math.min(revealIndex, 9) * 100}ms` } as React.CSSProperties}
+    >
+      <div className="gacha-card-flip">
+        <div className="gacha-card-back" aria-hidden="true">
+          <span className="text-5xl text-amber-200">✦</span>
+          <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.25em] text-white/75">A2OJ</span>
+        </div>
+        {tile}
+      </div>
+    </div>
   );
 }

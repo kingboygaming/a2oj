@@ -4,7 +4,10 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const bannerSchema = z.object({
-  slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  slug: z.string().trim()
+    .min(2, "Slug banner cần ít nhất 2 ký tự.")
+    .max(80, "Slug banner tối đa 80 ký tự.")
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug chỉ gồm chữ thường, số và dấu gạch ngang."),
   title: z.string().trim().min(2).max(100),
   description: z.string().trim().max(500).default(""),
   type: z.enum(["NORMAL", "LIMITED"]),
