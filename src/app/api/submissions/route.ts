@@ -5,6 +5,7 @@ import { getCurrentUser, hasContestAccess } from "@/lib/auth";
 import { judgeSubmission } from "@/lib/judge";
 import { serializeJudgeResults } from "@/lib/submission-results";
 import { gradeStoredSubmission } from "@/lib/submission-grading";
+import { completeSubmission } from "@/lib/gacha";
 import {
   enqueueSubmission,
   isSubmissionQueueConfigured,
@@ -144,19 +145,9 @@ export async function POST(request: Request) {
 
       try {
         const { result, totalTests } = await gradeStoredSubmission(queued.id);
-        const updated = await prisma.submission.update({
-          where: { id: queued.id },
-          data: {
-            verdict: result.verdict,
-            score: result.score,
-            timeMs: result.timeMs,
-            log: serializeJudgeResults(result, totalTests),
-            judgeStartedAt: null,
-          },
-          include: { problem: { select: { slug: true, title: true } } },
-        });
+        const completed = await completeSubmission(queued.id, result, serializeJudgeResults(result, totalTests));
         return NextResponse.json(
-          { ...updated, log: result.log, queueFallback: true },
+          { ...completed.submission, log: result.log, queueFallback: true, gachaReward: completed.reward },
           { status: 201 },
         );
       } catch (gradingError) {
@@ -253,19 +244,10 @@ export async function POST(request: Request) {
     problem.heuristicTolerancePercent,
   );
 
-  const updated = await prisma.submission.update({
-    where: { id: queued.id },
-    data: {
-      verdict: result.verdict,
-      score: result.score,
-      timeMs: result.timeMs,
-      log: serializeJudgeResults(result, gradingSet.length),
-    },
-    include: { problem: { select: { slug: true, title: true } } },
-  });
+  const completed = await completeSubmission(queued.id, result, serializeJudgeResults(result, gradingSet.length));
 
   return NextResponse.json(
-    { ...updated, log: result.log, testResults: result.testResults },
+    { ...completed.submission, log: result.log, testResults: result.testResults, gachaReward: completed.reward },
     { status: 201 },
   );
 }

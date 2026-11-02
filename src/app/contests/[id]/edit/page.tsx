@@ -51,7 +51,7 @@ export default async function EditContestPage({
   }
 
   // Get all published non-contest-only problems, plus any problems already in this contest
-  const availableProblems = await prisma.problem.findMany({
+  const [availableProblems, specialCards] = await Promise.all([prisma.problem.findMany({
     where: {
       OR: [
         { published: true, contestOnly: false },
@@ -69,7 +69,11 @@ export default async function EditContestPage({
       inputFile: true,
       outputFile: true,
     },
-  });
+  }), prisma.gachaCard.findMany({
+    where: { specialOnly: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, rarity: true },
+  })]);
 
   return (
     <div className="max-w-3xl">
@@ -96,6 +100,12 @@ export default async function EditContestPage({
           testLimit: contest.testLimit,
           rankPointsEnabled: contest.rankPointsEnabled,
           scoringMode: contest.scoringMode === "VNOI" ? "VNOI" : "ICPC",
+          gachaAcRewardMin: contest.gachaAcRewardMin,
+          gachaAcRewardMax: contest.gachaAcRewardMax,
+          gachaPacRewardMin: contest.gachaPacRewardMin,
+          gachaPacRewardMax: contest.gachaPacRewardMax,
+          specialGachaCardId: contest.specialGachaCardId,
+          specialGachaDropRate: contest.specialGachaDropRate,
           hasPassword: Boolean(contest.passwordHash),
           problemIds: contest.problems.map((p) => p.problemId),
           problemCustomTitles: Object.fromEntries(
@@ -124,6 +134,7 @@ export default async function EditContestPage({
               .map((p) => [p.problemId, p.outputFile as string]),
           ),
         }}
+        specialCards={specialCards}
       />
     </div>
   );

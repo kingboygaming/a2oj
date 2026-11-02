@@ -20,6 +20,12 @@ export type ProblemDraft = {
   memoryLimitMb: number;
   judgeType?: "STANDARD" | "HEURISTIC";
   scoringMode?: "ICPC" | "VNOI";
+  gachaAcRewardMin?: number;
+  gachaAcRewardMax?: number;
+  gachaPacRewardMin?: number;
+  gachaPacRewardMax?: number;
+  specialGachaCardId?: string | null;
+  specialGachaDropRate?: number;
   ioMode?: "STDIO" | "FILE";
   inputFile?: string;
   outputFile?: string;
@@ -37,6 +43,12 @@ export type InitialContestData = {
   rankPointsEnabled?: boolean;
   scoringMode?: "ICPC" | "VNOI";
   hasPassword?: boolean;
+  gachaAcRewardMin?: number;
+  gachaAcRewardMax?: number;
+  gachaPacRewardMin?: number;
+  gachaPacRewardMax?: number;
+  specialGachaCardId?: string | null;
+  specialGachaDropRate?: number;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
   problemJudgeTypes?: Record<string, "STANDARD" | "HEURISTIC">;
@@ -80,6 +92,7 @@ function toLocalDatetimeString(isoString: string): string {
 export function ContestForm({
   availableProblems,
   initialData,
+  specialCards = [],
 }: {
   availableProblems: {
     id: string;
@@ -92,6 +105,7 @@ export function ContestForm({
     outputFile?: string | null;
   }[];
   initialData?: InitialContestData;
+  specialCards?: { id: string; name: string; rarity: string }[];
 }) {
   const router = useRouter();
   const isEditing = Boolean(initialData);
@@ -110,6 +124,12 @@ export function ContestForm({
   const [scoringMode, setScoringMode] = useState<"ICPC" | "VNOI">(
     initialData?.scoringMode === "VNOI" ? "VNOI" : "ICPC",
   );
+  const [gachaAcRewardMin, setGachaAcRewardMin] = useState(initialData?.gachaAcRewardMin ?? 5);
+  const [gachaAcRewardMax, setGachaAcRewardMax] = useState(initialData?.gachaAcRewardMax ?? 10);
+  const [gachaPacRewardMin, setGachaPacRewardMin] = useState(initialData?.gachaPacRewardMin ?? 0);
+  const [gachaPacRewardMax, setGachaPacRewardMax] = useState(initialData?.gachaPacRewardMax ?? 5);
+  const [specialGachaCardId, setSpecialGachaCardId] = useState(initialData?.specialGachaCardId ?? "");
+  const [specialGachaDropRate, setSpecialGachaDropRate] = useState(initialData?.specialGachaDropRate ?? 0);
   const [password, setPassword] = useState("");
   const [removePassword, setRemovePassword] = useState(false);
   const [problemIds, setProblemIds] = useState<string[]>(initialData?.problemIds ?? []);
@@ -162,6 +182,30 @@ export function ContestForm({
   function updateProblem(index: number, patch: Partial<ProblemDraft>) {
     setNewProblems((current) =>
       current.map((problem, i) => (i === index ? { ...problem, ...patch } : problem)),
+    );
+  }
+
+  function GachaRange({
+    label,
+    min,
+    max,
+    onMinChange,
+    onMaxChange,
+  }: {
+    label: string;
+    min: number;
+    max: number;
+    onMinChange: (value: number) => void;
+    onMaxChange: (value: number) => void;
+  }) {
+    return (
+      <fieldset className="rounded-lg border border-[var(--line)] p-3">
+        <legend className="px-1 text-sm font-medium">{label}</legend>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-[var(--muted)]">Tối thiểu<input type="number" min={0} max={1000} value={min} onChange={(event) => onMinChange(Number(event.target.value))} className="mt-1 w-full rounded-md border border-[var(--line)] px-2 py-1.5 text-sm text-[var(--ink)]" /></label>
+          <label className="text-xs text-[var(--muted)]">Tối đa<input type="number" min={0} max={1000} value={max} onChange={(event) => onMaxChange(Number(event.target.value))} className="mt-1 w-full rounded-md border border-[var(--line)] px-2 py-1.5 text-sm text-[var(--ink)]" /></label>
+        </div>
+      </fieldset>
     );
   }
 
@@ -254,6 +298,12 @@ export function ContestForm({
           ...prob,
           judgeType: jType,
           scoringMode,
+          gachaAcRewardMin,
+          gachaAcRewardMax,
+          gachaPacRewardMin,
+          gachaPacRewardMax,
+          specialGachaCardId: specialGachaCardId || null,
+          specialGachaDropRate,
           ioMode: mode,
           inputFile: mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
           outputFile: mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
@@ -423,6 +473,29 @@ export function ContestForm({
           <input type="checkbox" checked={rankPointsEnabled} onChange={(event) => setRankPointsEnabled(event.target.checked)} className="mt-0.5 size-4 accent-[var(--teal)]" />
           <span><strong>Tính điểm rank cho contest này</strong><span className="mt-0.5 block text-xs text-[var(--muted)]">Khi contest kết thúc, top 3 nhận lần lượt 100, 70 và 50 điểm. Contest luyện tập có thể để tắt.</span></span>
         </label>
+
+        <section className="space-y-4 rounded-lg border border-[var(--line)] p-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--navy)]">Thưởng gacha contest</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">Mỗi thí sinh nhận tối đa một lần thưởng PAC và một lần thưởng AC cho mỗi bài trong contest này.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <GachaRange label="Lượt khi AC" min={gachaAcRewardMin} max={gachaAcRewardMax} onMinChange={setGachaAcRewardMin} onMaxChange={setGachaAcRewardMax} />
+            <GachaRange label="Lượt khi PAC" min={gachaPacRewardMin} max={gachaPacRewardMax} onMinChange={setGachaPacRewardMin} onMaxChange={setGachaPacRewardMax} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm">Thẻ đặc biệt
+              <select value={specialGachaCardId} onChange={(event) => setSpecialGachaCardId(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm">
+                <option value="">Không chọn thẻ</option>
+                {specialCards.map((card) => <option key={card.id} value={card.id}>{card.name} · {card.rarity}</option>)}
+              </select>
+            </label>
+            <label className="text-sm">Xác suất rơi thẻ (%)
+              <input type="number" min={0} max={100} step={0.01} value={specialGachaDropRate} onChange={(event) => setSpecialGachaDropRate(Number(event.target.value))} className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm" />
+            </label>
+          </div>
+          {specialCards.length === 0 && <p className="text-xs text-[var(--muted)]">Quản trị viên chưa tạo thẻ đặc biệt nào.</p>}
+        </section>
 
         <div className="space-y-2 border-t border-[var(--line)] pt-4">
           <label className="block text-sm">

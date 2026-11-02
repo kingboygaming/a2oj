@@ -58,6 +58,8 @@ model User {
   nameColorMode String @default("RANK")
   nameColorAchievementId String?
   achievementNotificationsInitialized Boolean @default(false)
+  gachaTickets Int @default(0)
+  featuredGachaCardId String?
   createdAt     DateTime               @default(now())
   news          News[]
   problems      Problem[]              @relation("Author")
@@ -66,6 +68,10 @@ model User {
   wikiArticles  WikiArticle[]          @relation("WikiAuthor")
   registrations ContestRegistration[]
   achievementUnlocks AchievementUnlock[]
+  gachaCards UserGachaCard[]
+  gachaPulls GachaPull[]
+  gachaRewardClaims GachaRewardClaim[]
+  featuredGachaCard GachaCard? @relation("FeaturedGachaCard", fields: [featuredGachaCardId], references: [id], onDelete: SetNull)
 }
 
 model News {
@@ -151,6 +157,13 @@ model Problem {
   submissions   Submission[]
   contestLinks  ContestProblem[]
   tags          Tag[]            @relation("ProblemTags")
+  gachaAcRewardMin Int @default(5)
+  gachaAcRewardMax Int @default(10)
+  gachaPacRewardMin Int @default(0)
+  gachaPacRewardMax Int @default(5)
+  specialGachaCardId String?
+  specialGachaDropRate Float @default(0)
+  specialGachaCard GachaCard? @relation("ProblemSpecialGachaCard", fields: [specialGachaCardId], references: [id], onDelete: SetNull)
 }
 
 model Tag {
@@ -187,6 +200,13 @@ model Contest {
   problems      ContestProblem[]
   registrations ContestRegistration[]
   submissions   Submission[]
+  gachaAcRewardMin Int @default(5)
+  gachaAcRewardMax Int @default(10)
+  gachaPacRewardMin Int @default(0)
+  gachaPacRewardMax Int @default(5)
+  specialGachaCardId String?
+  specialGachaDropRate Float @default(0)
+  specialGachaCard GachaCard? @relation("ContestSpecialGachaCard", fields: [specialGachaCardId], references: [id], onDelete: SetNull)
 }
 
 model ContestProblem {
@@ -235,4 +255,90 @@ model Submission {
   contest   Contest?  @relation(fields: [contestId], references: [id])
 
   @@index([verdict, judgeNextAttemptAt, createdAt])
+}
+
+model GachaBanner {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String   @default("")
+  type        String   @default("NORMAL")
+  active      Boolean  @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime @default(now())
+  cards       GachaBannerCard[]
+  pulls       GachaPull[]
+
+  @@index([active, type, startsAt, endsAt])
+}
+
+model GachaCard {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String   @default("")
+  rarity      String   @default("COMMON")
+  specialOnly Boolean  @default(false)
+  imageData   Bytes?
+  imageMimeType String?
+  createdAt   DateTime @default(now())
+  banners     GachaBannerCard[]
+  ownedBy     UserGachaCard[]
+  pulls       GachaPull[]
+  rewardClaims GachaRewardClaim[]
+  featuredBy  User[] @relation("FeaturedGachaCard")
+  problemDrops Problem[] @relation("ProblemSpecialGachaCard")
+  contestDrops Contest[] @relation("ContestSpecialGachaCard")
+}
+
+model GachaBannerCard {
+  bannerId String
+  cardId   String
+  dropRate Float
+  banner   GachaBanner @relation(fields: [bannerId], references: [id], onDelete: Cascade)
+  card     GachaCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([bannerId, cardId])
+}
+
+model UserGachaCard {
+  userId String
+  cardId String
+  count  Int      @default(1)
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card   GachaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cardId])
+}
+
+model GachaPull {
+  id        String     @id @default(cuid())
+  userId    String
+  bannerId  String
+  cardId    String
+  createdAt DateTime   @default(now())
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  banner    GachaBanner @relation(fields: [bannerId], references: [id], onDelete: Restrict)
+  card      GachaCard  @relation(fields: [cardId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+}
+
+model GachaRewardClaim {
+  id             String   @id @default(cuid())
+  eventKey       String   @unique
+  userId         String
+  problemId      String
+  contestId      String?
+  submissionId   String?
+  rewardType     String
+  ticketsAwarded Int      @default(0)
+  cardId         String?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card           GachaCard? @relation(fields: [cardId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([submissionId])
 }

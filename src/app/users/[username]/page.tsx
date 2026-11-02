@@ -30,6 +30,9 @@ export default async function PublicProfilePage({
       school: true,
       createdAt: true,
       avatarMimeType: true,
+      featuredGachaCard: {
+        select: { id: true, name: true, rarity: true, description: true },
+      },
     },
   });
   if (!user) notFound();
@@ -81,6 +84,26 @@ export default async function PublicProfilePage({
           Tham gia từ {user.createdAt.toLocaleDateString("vi-VN")}
         </p>
       </section>
+      {user.featuredGachaCard && (
+        <section className="mt-5 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
+          <h2 className="mb-3 text-lg font-semibold text-[var(--navy)]">Thẻ nổi bật</h2>
+          <div className="flex items-center gap-4">
+            <Image
+              src={`/api/gacha/cards/${user.featuredGachaCard.id}/image`}
+              alt={user.featuredGachaCard.name}
+              width={112}
+              height={144}
+              unoptimized
+              className="h-36 w-28 rounded-lg border border-[var(--line)] object-cover"
+            />
+            <div>
+              <p className="font-semibold text-[var(--navy)]">{user.featuredGachaCard.name}</p>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[var(--teal)]">{user.featuredGachaCard.rarity}</p>
+              {user.featuredGachaCard.description && <p className="mt-2 text-sm text-[var(--muted)]">{user.featuredGachaCard.description}</p>}
+            </div>
+          </div>
+        </section>
+      )}
       <div className="mt-5"><RankSummary summary={rankSummary} /></div>
     </div>
   );

@@ -95,6 +95,12 @@ Runner chỉ nhận POST đã ký, từ chối request lặp, giới hạn tối
 
 Giáo viên có thể chọn bài tập đã xuất bản hoặc tạo bài mới ngay trong form tạo contest. Bài tạo riêng chỉ xuất hiện trong contest đó, không hiển thị ở danh sách bài tập thường. Mỗi contest có các mục **Tổng quan**, **Đề bài** và **Bảng xếp hạng**; trạng thái AC trong contest được tính riêng với bài tập thường.
 
+## Gacha và thẻ sưu tầm
+
+Trang `/gacha` có banner thường và banner giới hạn, tỉ lệ từng thẻ được công khai và phải cộng đúng 100%. Quản trị viên tạo banner/thẻ và ảnh thẻ tại `/admin/gacha`; banner giới hạn có thể đặt thời gian mở. Ảnh JPEG, PNG, WebP hoặc GIF tối đa 3 MB được lưu trong cơ sở dữ liệu.
+
+Người tạo bài tập và contest cấu hình số lượt ngẫu nhiên nhận khi AC/PAC (mặc định AC 5–10, PAC 0–5) và tỉ lệ rơi một thẻ đặc biệt. Thẻ đặc biệt do quản trị viên tạo, không nằm trong banner; PAC chỉ nhận thưởng với bài/contest chấm VNOI và có điểm lớn hơn 0. Mỗi người chỉ nhận một lần PAC và một lần AC cho mỗi bài trong từng contest (hoặc một lần cho bài luyện tập), tránh farm bằng cách nộp lại. Thẻ sưu tầm có thể trưng bày trên hồ sơ công khai.
+
 ## Hồ sơ và tài khoản
 
 Trang hồ sơ hiển thị thống kê và hoạt động; các mục cài đặt được tách tại `/settings/profile`, `/settings/security` và `/settings/email`. Có thể cập nhật tên hiển thị, ảnh đại diện (JPEG/PNG/WebP, tối đa 2 MB), tiểu sử và trường học. Tiểu sử và trường học hiển thị công khai tại `/users/{username}`; email không được hiển thị công khai. Đổi mật khẩu yêu cầu mật khẩu hiện tại và đăng xuất các phiên khác.

@@ -58,6 +58,7 @@ export function SubmitPanel({
     score: number;
     timeMs: number | null;
     log: string;
+    gachaReward?: { rewardType: string; ticketsAwarded: number; card: { name: string; rarity: string } | null } | null;
   } | null>(null);
   const [error, setError] = useState("");
 
@@ -89,6 +90,7 @@ export function SubmitPanel({
               score: data.score,
               timeMs: data.timeMs,
               log: data.log ?? current.log,
+              gachaReward: data.gachaReward ?? current.gachaReward,
             }
           : current);
         if (!["QUEUED", "RUNNING"].includes(data.verdict)) {
@@ -542,6 +544,12 @@ export function SubmitPanel({
             <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-[var(--muted)]">
               {result.log}
             </pre>
+          )}
+          {result.gachaReward && (
+            <p className="mt-2 rounded-md bg-amber-400/10 px-2.5 py-2 text-xs font-medium text-amber-200">
+              🎟 Nhận {result.gachaReward.ticketsAwarded} lượt gacha
+              {result.gachaReward.card ? ` và thẻ đặc biệt ${result.gachaReward.card.name}!` : "."}
+            </p>
           )}
           <Link href={`/submissions/${result.id}`} className="mt-2 inline-block text-xs text-emerald-300">
             Chi tiết submission

@@ -29,6 +29,7 @@ export default async function ProblemDetailPage({
       testCases: { where: { isSample: true }, orderBy: { order: "asc" } },
       tags: { orderBy: { name: "asc" } },
       author: { select: { displayName: true } },
+      specialGachaCard: { select: { name: true } },
       contestLinks: {
         select: {
           contest: {
@@ -39,6 +40,12 @@ export default async function ProblemDetailPage({
               authorId: true,
               startAt: true,
               passwordHash: true,
+              gachaAcRewardMin: true,
+              gachaAcRewardMax: true,
+              gachaPacRewardMin: true,
+              gachaPacRewardMax: true,
+              specialGachaDropRate: true,
+              specialGachaCard: { select: { name: true } },
             },
           },
         },
@@ -62,6 +69,12 @@ export default async function ProblemDetailPage({
           authorId: true,
           startAt: true,
           scoringMode: true,
+          gachaAcRewardMin: true,
+          gachaAcRewardMax: true,
+          gachaPacRewardMin: true,
+          gachaPacRewardMax: true,
+          specialGachaDropRate: true,
+          specialGachaCard: { select: { name: true } },
           passwordHash: true,
           problems: {
             where: { problemId: problem.id },
@@ -124,6 +137,7 @@ export default async function ProblemDetailPage({
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
   const effectiveJudgeType = currentContestProblem?.judgeType || problem.judgeType || "STANDARD";
   const effectiveScoringMode = contestContext?.scoringMode ?? problem.scoringMode;
+  const gachaRewardConfig = contestContext ?? problem;
   const effectiveIoMode = currentContestProblem?.ioMode || problem.ioMode || "STDIO";
   const effectiveInputFile =
     effectiveIoMode === "FILE"
@@ -233,6 +247,10 @@ export default async function ProblemDetailPage({
               )}
               <span className="rounded-md border border-white/10 px-2.5 py-1.5">
                 Chấm {effectiveScoringMode === "VNOI" ? "VNOI · điểm từng test" : "ICPC · AC toàn bộ test"}
+              </span>
+              <span className="rounded-md border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-amber-100">
+                🎟 AC {gachaRewardConfig.gachaAcRewardMin}–{gachaRewardConfig.gachaAcRewardMax} · PAC {gachaRewardConfig.gachaPacRewardMin}–{gachaRewardConfig.gachaPacRewardMax} lượt
+                {gachaRewardConfig.specialGachaCard && ` · ${gachaRewardConfig.specialGachaCard.name} ${gachaRewardConfig.specialGachaDropRate}%`}
               </span>
             </div>
           </div>

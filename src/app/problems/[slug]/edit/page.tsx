@@ -31,6 +31,11 @@ export default async function EditContributedProblemPage({
   if (!canEdit) {
     notFound();
   }
+  const specialCards = await prisma.gachaCard.findMany({
+    where: { specialOnly: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, rarity: true },
+  });
 
   return (
     <div className="max-w-3xl">
@@ -59,6 +64,13 @@ export default async function EditContributedProblemPage({
           timeLimitMs: problem.timeLimitMs,
           memoryLimitMb: problem.memoryLimitMb,
           judgeType: problem.judgeType,
+          scoringMode: problem.scoringMode,
+          gachaAcRewardMin: problem.gachaAcRewardMin,
+          gachaAcRewardMax: problem.gachaAcRewardMax,
+          gachaPacRewardMin: problem.gachaPacRewardMin,
+          gachaPacRewardMax: problem.gachaPacRewardMax,
+          specialGachaCardId: problem.specialGachaCardId,
+          specialGachaDropRate: problem.specialGachaDropRate,
           heuristicTolerancePercent: problem.heuristicTolerancePercent,
           achievementBadgeTitle: problem.achievementBadgeTitle,
           achievementBadgeDescription: problem.achievementBadgeDescription,
@@ -73,6 +85,7 @@ export default async function EditContributedProblemPage({
             points,
           })),
         }}
+        specialCards={specialCards}
         returnUrl={`/problems/${problem.slug}`}
       />
     </div>

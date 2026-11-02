@@ -163,6 +163,14 @@ export function UserMenu({ user, rank, nameColorClass }: UserMenuProps) {
             >
               Contest
             </Link>
+            <Link
+              role="menuitem"
+              href="/gacha"
+              onClick={() => setOpen(false)}
+              className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--navy)]/5 focus-visible:outline-2 focus-visible:outline-[var(--teal)]"
+            >
+              Gacha và bộ sưu tập
+            </Link>
             {user.role === "ADMIN" && (
               <Link
                 role="menuitem"

@@ -15,7 +15,7 @@ export default async function NewProblemPage() {
     );
   }
 
-  const pendingProblems = await prisma.problem.findMany({
+  const [pendingProblems, specialCards] = await Promise.all([prisma.problem.findMany({
     where: {
       authorId: user.id,
       published: false,
@@ -29,7 +29,11 @@ export default async function NewProblemPage() {
       createdAt: true,
       _count: { select: { testCases: true } },
     },
-  });
+  }), prisma.gachaCard.findMany({
+    where: { specialOnly: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, rarity: true },
+  })]);
 
   return (
     <div className="max-w-3xl">
@@ -79,7 +83,7 @@ export default async function NewProblemPage() {
         </div>
       )}
 
-      <ContributeForm />
+      <ContributeForm specialCards={specialCards} />
     </div>
   );
 }

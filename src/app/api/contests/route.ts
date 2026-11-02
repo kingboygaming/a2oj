@@ -24,6 +24,12 @@ const schema = z.object({
   endAt: z.string().datetime(),
   testLimit: z.number().int().min(0).max(100).default(5),
   scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
+  gachaAcRewardMin: z.number().int().min(0).max(1000).optional().default(5),
+  gachaAcRewardMax: z.number().int().min(0).max(1000).optional().default(10),
+  gachaPacRewardMin: z.number().int().min(0).max(1000).optional().default(0),
+  gachaPacRewardMax: z.number().int().min(0).max(1000).optional().default(5),
+  specialGachaCardId: z.string().min(1).nullable().optional().default(null),
+  specialGachaDropRate: z.number().min(0).max(100).optional().default(0),
   rankPointsEnabled: z.boolean().optional().default(false),
   password: z.string().trim().max(128).optional(),
   problemIds: z.array(z.string().min(1)),
@@ -55,6 +61,10 @@ const schema = z.object({
       ).min(1),
     }),
   ).default([]),
+}).superRefine((data, context) => {
+  if (data.gachaAcRewardMin > data.gachaAcRewardMax) context.addIssue({ code: "custom", path: ["gachaAcRewardMax"], message: "Lượt tối đa khi AC phải lớn hơn hoặc bằng lượt tối thiểu." });
+  if (data.gachaPacRewardMin > data.gachaPacRewardMax) context.addIssue({ code: "custom", path: ["gachaPacRewardMax"], message: "Lượt tối đa khi PAC phải lớn hơn hoặc bằng lượt tối thiểu." });
+  if (data.specialGachaDropRate > 0 && !data.specialGachaCardId) context.addIssue({ code: "custom", path: ["specialGachaCardId"], message: "Chọn thẻ đặc biệt khi đặt xác suất rơi." });
 });
 
 export async function POST(request: Request) {
@@ -67,6 +77,13 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Dữ liệu contest không hợp lệ." }, { status: 400 });
+  }
+  if (parsed.data.specialGachaCardId) {
+    const card = await prisma.gachaCard.findFirst({
+      where: { id: parsed.data.specialGachaCardId, specialOnly: true },
+      select: { id: true },
+    });
+    if (!card) return NextResponse.json({ error: "Không tìm thấy thẻ đặc biệt đã chọn." }, { status: 400 });
   }
 
   const startAt = new Date(parsed.data.startAt);
@@ -128,6 +145,12 @@ export async function POST(request: Request) {
         endAt,
         testLimit: parsed.data.testLimit,
         scoringMode: parsed.data.scoringMode,
+        gachaAcRewardMin: parsed.data.gachaAcRewardMin,
+        gachaAcRewardMax: parsed.data.gachaAcRewardMax,
+        gachaPacRewardMin: parsed.data.gachaPacRewardMin,
+        gachaPacRewardMax: parsed.data.gachaPacRewardMax,
+        specialGachaCardId: parsed.data.specialGachaCardId,
+        specialGachaDropRate: parsed.data.specialGachaDropRate,
         rankPointsEnabled: parsed.data.rankPointsEnabled,
         passwordHash,
         authorId: user.id,

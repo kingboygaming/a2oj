@@ -25,6 +25,12 @@ type ProblemDraft = {
   outputFile?: string | null;
   judgeType?: string | null;
   scoringMode?: string | null;
+  gachaAcRewardMin?: number;
+  gachaAcRewardMax?: number;
+  gachaPacRewardMin?: number;
+  gachaPacRewardMax?: number;
+  specialGachaCardId?: string | null;
+  specialGachaDropRate?: number;
   heuristicTolerancePercent?: number;
   achievementBadgeTitle?: string | null;
   achievementBadgeDescription?: string | null;
@@ -36,9 +42,11 @@ type ProblemDraft = {
 export function ContributeForm({
   problem,
   returnUrl,
+  specialCards = [],
 }: {
   problem?: ProblemDraft;
   returnUrl?: string;
+  specialCards?: { id: string; name: string; rarity: string }[];
 }) {
   const router = useRouter();
   const [slug, setSlug] = useState(problem?.slug ?? "");
@@ -59,6 +67,12 @@ export function ContributeForm({
   const [scoringMode, setScoringMode] = useState<"ICPC" | "VNOI">(
     problem?.scoringMode === "VNOI" ? "VNOI" : "ICPC",
   );
+  const [gachaAcRewardMin, setGachaAcRewardMin] = useState(problem?.gachaAcRewardMin ?? 5);
+  const [gachaAcRewardMax, setGachaAcRewardMax] = useState(problem?.gachaAcRewardMax ?? 10);
+  const [gachaPacRewardMin, setGachaPacRewardMin] = useState(problem?.gachaPacRewardMin ?? 0);
+  const [gachaPacRewardMax, setGachaPacRewardMax] = useState(problem?.gachaPacRewardMax ?? 5);
+  const [specialGachaCardId, setSpecialGachaCardId] = useState(problem?.specialGachaCardId ?? "");
+  const [specialGachaDropRate, setSpecialGachaDropRate] = useState(problem?.specialGachaDropRate ?? 0);
   const [inputFile, setInputFile] = useState(problem?.inputFile ?? "");
   const [heuristicTolerancePercent, setHeuristicTolerancePercent] = useState(
     problem?.heuristicTolerancePercent ?? 5,
@@ -127,6 +141,12 @@ export function ContributeForm({
             memoryLimitMb,
             judgeType,
             scoringMode,
+            gachaAcRewardMin,
+            gachaAcRewardMax,
+            gachaPacRewardMin,
+            gachaPacRewardMax,
+            specialGachaCardId: specialGachaCardId || null,
+            specialGachaDropRate,
             heuristicTolerancePercent,
             achievementBadgeTitle: judgeType === "HEURISTIC" ? achievementBadgeTitle.trim() || null : null,
             achievementBadgeDescription: judgeType === "HEURISTIC" ? achievementBadgeDescription.trim() || null : null,
@@ -286,6 +306,31 @@ export function ContributeForm({
           </label>
         </div>
       </div>
+
+      <section className="space-y-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--navy)]">Thưởng gacha cho bài này</h2>
+          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Mặc định AC nhận 5–10 lượt, PAC nhận 0–5 lượt. Mỗi tài khoản chỉ nhận thưởng AC/PAC một lần cho bài này.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumberRange label="Lượt khi AC" min={gachaAcRewardMin} max={gachaAcRewardMax} onMinChange={setGachaAcRewardMin} onMaxChange={setGachaAcRewardMax} />
+          <NumberRange label="Lượt khi PAC" min={gachaPacRewardMin} max={gachaPacRewardMax} onMinChange={setGachaPacRewardMin} onMaxChange={setGachaPacRewardMax} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            Thẻ đặc biệt có thể rơi
+            <select value={specialGachaCardId} onChange={(event) => setSpecialGachaCardId(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm">
+              <option value="">Không chọn thẻ</option>
+              {specialCards.map((card) => <option key={card.id} value={card.id}>{card.name} · {card.rarity}</option>)}
+            </select>
+          </label>
+          <label className="text-sm">
+            Xác suất rơi thẻ (%)
+            <input type="number" min={0} max={100} step={0.01} value={specialGachaDropRate} onChange={(event) => setSpecialGachaDropRate(Number(event.target.value))} className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm" />
+          </label>
+        </div>
+        {specialCards.length === 0 && <p className="text-xs text-[var(--muted)]">Quản trị viên chưa tạo thẻ đặc biệt nào.</p>}
+      </section>
 
       <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 space-y-3">
         <div>
@@ -458,6 +503,7 @@ export function ContributeForm({
             onClick={() =>
               setCases((c) => [...c, { input: "", output: "", isSample: false, points: 100 }])
             }
+
           >
             + Thêm test
           </button>
@@ -549,5 +595,29 @@ export function ContributeForm({
         {pending ? "Đang lưu..." : problem ? "Lưu thay đổi" : "Đăng đề"}
       </button>
     </form>
+  );
+}
+
+function NumberRange({
+  label,
+  min,
+  max,
+  onMinChange,
+  onMaxChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  onMinChange: (value: number) => void;
+  onMaxChange: (value: number) => void;
+}) {
+  return (
+    <fieldset className="rounded-lg border border-[var(--line)] p-3">
+      <legend className="px-1 text-sm font-medium">{label}</legend>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs text-[var(--muted)]">Tối thiểu<input type="number" min={0} max={1000} value={min} onChange={(event) => onMinChange(Number(event.target.value))} className="mt-1 w-full rounded-md border border-[var(--line)] px-2 py-1.5 text-sm text-[var(--ink)]" /></label>
+        <label className="text-xs text-[var(--muted)]">Tối đa<input type="number" min={0} max={1000} value={max} onChange={(event) => onMaxChange(Number(event.target.value))} className="mt-1 w-full rounded-md border border-[var(--line)] px-2 py-1.5 text-sm text-[var(--ink)]" /></label>
+      </div>
+    </fieldset>
   );
 }

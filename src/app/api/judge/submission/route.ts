@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { gradeStoredSubmission } from "@/lib/submission-grading";
+import { completeSubmission } from "@/lib/gacha";
 import { serializeJudgeResults } from "@/lib/submission-results";
 
 export const runtime = "nodejs";
@@ -40,17 +41,7 @@ async function handle(request: Request) {
 
   try {
     const { result, totalTests } = await gradeStoredSubmission(submissionId);
-    await prisma.submission.update({
-      where: { id: submissionId },
-      data: {
-        verdict: result.verdict,
-        score: result.score,
-        timeMs: result.timeMs,
-        log: serializeJudgeResults(result, totalTests),
-        judgeStartedAt: null,
-        judgeNextAttemptAt: null,
-      },
-    });
+    await completeSubmission(submissionId, result, serializeJudgeResults(result, totalTests));
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Queued submission grading failed:", error);

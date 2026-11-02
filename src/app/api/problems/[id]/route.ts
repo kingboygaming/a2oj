@@ -95,6 +95,12 @@ const updateSchema = z.object({
   ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
   judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
   scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
+  gachaAcRewardMin: z.number().int().min(0).max(1000).optional().default(5),
+  gachaAcRewardMax: z.number().int().min(0).max(1000).optional().default(10),
+  gachaPacRewardMin: z.number().int().min(0).max(1000).optional().default(0),
+  gachaPacRewardMax: z.number().int().min(0).max(1000).optional().default(5),
+  specialGachaCardId: z.string().min(1).nullable().optional().default(null),
+  specialGachaDropRate: z.number().min(0).max(100).optional().default(0),
   heuristicTolerancePercent: z.number().int().min(0).max(100).optional().default(5),
   achievementBadgeTitle: z.string().trim().max(80).nullable().optional(),
   achievementBadgeDescription: z.string().trim().max(180).nullable().optional(),
@@ -103,6 +109,10 @@ const updateSchema = z.object({
   outputFile: z.string().trim().max(100).nullable().optional(),
   testCases: z.array(testCaseSchema).min(1),
   tags: z.array(z.string().trim().toLowerCase().min(2).max(32)).max(10).optional().default([]).transform((tags) => [...new Set(tags)]),
+}).superRefine((data, context) => {
+  if (data.gachaAcRewardMin > data.gachaAcRewardMax) context.addIssue({ code: "custom", path: ["gachaAcRewardMax"], message: "Lượt tối đa khi AC phải lớn hơn hoặc bằng lượt tối thiểu." });
+  if (data.gachaPacRewardMin > data.gachaPacRewardMax) context.addIssue({ code: "custom", path: ["gachaPacRewardMax"], message: "Lượt tối đa khi PAC phải lớn hơn hoặc bằng lượt tối thiểu." });
+  if (data.specialGachaDropRate > 0 && !data.specialGachaCardId) context.addIssue({ code: "custom", path: ["specialGachaCardId"], message: "Chọn thẻ đặc biệt khi đặt xác suất rơi." });
 });
 
 export async function PATCH(
@@ -147,6 +157,13 @@ export async function PATCH(
       { status: 400 },
     );
   }
+  if (parsed.data.specialGachaCardId) {
+    const card = await prisma.gachaCard.findFirst({
+      where: { id: parsed.data.specialGachaCardId, specialOnly: true },
+      select: { id: true },
+    });
+    if (!card) return NextResponse.json({ error: "Không tìm thấy thẻ đặc biệt đã chọn." }, { status: 400 });
+  }
 
   const slugOwner = await prisma.problem.findUnique({
     where: { slug: parsed.data.slug },
@@ -170,6 +187,12 @@ export async function PATCH(
           ioMode: parsed.data.ioMode ?? "STDIO",
           judgeType: parsed.data.judgeType ?? "STANDARD",
           scoringMode: parsed.data.scoringMode,
+          gachaAcRewardMin: parsed.data.gachaAcRewardMin,
+          gachaAcRewardMax: parsed.data.gachaAcRewardMax,
+          gachaPacRewardMin: parsed.data.gachaPacRewardMin,
+          gachaPacRewardMax: parsed.data.gachaPacRewardMax,
+          specialGachaCardId: parsed.data.specialGachaCardId,
+          specialGachaDropRate: parsed.data.specialGachaDropRate,
           heuristicTolerancePercent: parsed.data.heuristicTolerancePercent ?? 5,
           achievementBadgeTitle: parsed.data.judgeType === "HEURISTIC" ? parsed.data.achievementBadgeTitle || null : null,
           achievementBadgeDescription: parsed.data.judgeType === "HEURISTIC" && parsed.data.achievementBadgeTitle ? parsed.data.achievementBadgeDescription || null : null,

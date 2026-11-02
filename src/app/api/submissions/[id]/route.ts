@@ -27,8 +27,15 @@ export async function GET(
   }
 
   const storedResult = parseJudgeResults(submission.log);
+  const reward = await prisma.gachaRewardClaim.findFirst({
+    where: { submissionId: id },
+    include: { card: { select: { name: true, rarity: true } } },
+  });
   return NextResponse.json({
     ...submission,
     log: storedResult?.message ?? submission.log,
+    gachaReward: reward
+      ? { rewardType: reward.rewardType, ticketsAwarded: reward.ticketsAwarded, card: reward.card }
+      : null,
   });
 }

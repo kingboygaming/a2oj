@@ -15,7 +15,7 @@ export default async function NewContestPage() {
     );
   }
 
-  const problems = await prisma.problem.findMany({
+  const [problems, specialCards] = await Promise.all([prisma.problem.findMany({
     where: { published: true, contestOnly: false },
     orderBy: { title: "asc" },
     select: {
@@ -28,7 +28,11 @@ export default async function NewContestPage() {
       inputFile: true,
       outputFile: true,
     },
-  });
+  }), prisma.gachaCard.findMany({
+    where: { specialOnly: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, rarity: true },
+  })]);
 
   return (
     <div className="max-w-3xl">
@@ -36,7 +40,7 @@ export default async function NewContestPage() {
       <p className="mt-1 text-sm text-[var(--muted)]">
         Thiết lập thời gian, bài tập, cấu hình số test chấm và thêm các bài thi độc lập.
       </p>
-      <ContestForm availableProblems={problems} />
+      <ContestForm availableProblems={problems} specialCards={specialCards} />
     </div>
   );
 }

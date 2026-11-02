@@ -28,6 +28,7 @@ export default async function ContestDetailPage({
         orderBy: { letter: "asc" },
       },
       registrations: true,
+      specialGachaCard: { select: { name: true } },
     },
   });
   if (!contest) notFound();
@@ -65,6 +66,10 @@ export default async function ContestDetailPage({
       </p>
       <p className="mt-2 inline-flex rounded-md border border-[var(--line)] bg-[var(--paper)] px-2.5 py-1 text-xs text-[var(--muted)]">
         Chế độ chấm: {contest.scoringMode === "VNOI" ? "VNOI · điểm từng test" : "ICPC · AC và penalty"}
+      </p>
+      <p className="mt-2 inline-flex rounded-md border border-amber-300/40 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
+        🎟 AC {contest.gachaAcRewardMin}–{contest.gachaAcRewardMax} · PAC {contest.gachaPacRewardMin}–{contest.gachaPacRewardMax} lượt
+        {contest.specialGachaCard && ` · ${contest.specialGachaCard.name} ${contest.specialGachaDropRate}%`}
       </p>
 
       {contest.passwordHash && !passwordUnlocked && (
