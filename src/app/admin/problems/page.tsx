@@ -1,5 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  BulkProblemScoringModeQuickEdit,
+  ProblemScoringModeQuickEdit,
+} from "@/components/ProblemScoringModeQuickEdit";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -18,6 +22,7 @@ export default async function AdminProblemsPage() {
       title: true,
       difficulty: true,
       published: true,
+      scoringMode: true,
       createdAt: true,
       judgeType: true,
       ioMode: true,
@@ -45,17 +50,20 @@ export default async function AdminProblemsPage() {
         </p>
       </header>
 
+      <BulkProblemScoringModeQuickEdit />
+
       {problems.length === 0 ? (
         <p className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-6 text-center text-sm text-[var(--muted)]">
           Chưa có bài tập nào.
         </p>
       ) : (
         <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
-          <table className="w-full min-w-[700px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
               <tr>
                 <th className="px-4 py-3 font-medium">Bài tập</th>
                 <th className="px-4 py-3 font-medium">Tác giả</th>
+                <th className="px-4 py-3 font-medium">Kiểu chấm</th>
                 <th className="px-4 py-3 font-medium">Trạng thái</th>
                 <th className="px-4 py-3 font-medium">Test / nộp</th>
                 <th className="px-4 py-3 text-right font-medium">Thao tác</th>
@@ -90,6 +98,12 @@ export default async function AdminProblemsPage() {
                     <span className="ml-1 text-xs text-[var(--muted)]">
                       @{problem.author.username}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <ProblemScoringModeQuickEdit
+                      problemId={problem.id}
+                      scoringMode={problem.scoringMode}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <span
