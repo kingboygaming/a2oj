@@ -1956,6 +1956,9 @@ export default function BattleRoomPage() {
             Đây là biến thể OCG rút gọn của A2OJ (luật chính thức yêu cầu 3 hiến tế cho Thần Ai Cập). Bài Phép dùng ngay; Bẫy được úp và tự kích hoạt ở đòn tấn công đầu tiên. Thần có hiệu ứng riêng; Phép/Bẫy dùng Mana.
           </p>
         )}
+        <p className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/5 px-3 py-2 text-[11px] leading-5 text-cyan-100/80">
+          Hướng dẫn: triệu hồi quái ở thế công hoặc thủ. Quái vừa triệu hồi chưa thể đổi thế; mỗi quái chỉ đổi thế một lần trong lượt và không thể đổi sau khi đã tấn công. Khi đối thủ có quái, bấm “Chọn mục tiêu” trên quái của bạn rồi chọn một quái trên sân đối thủ. Chỉ tấn công trực tiếp khi sân đối thủ trống.
+        </p>
         {opponent.playerId && opponent.ruleSet !== ruleSet && (
           <p role="alert" className="mt-3 rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
             Đối thủ đang chọn luật {opponent.ruleSet.toUpperCase()}. Hãy thống nhất luật trước khi tiếp tục.
