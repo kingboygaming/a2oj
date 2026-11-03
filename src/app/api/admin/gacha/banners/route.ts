@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Dữ liệu banner không hợp lệ." }, { status: 400 });
 
   const selectedCards = await prisma.gachaCard.findMany({
-    where: { id: { in: parsed.data.cards.map((card) => card.cardId) }, specialOnly: false },
+    where: { id: { in: parsed.data.cards.map((card) => card.cardId) }, specialOnly: false, category: "DISPLAY" },
     select: { id: true },
   });
   if (selectedCards.length !== parsed.data.cards.length) {

@@ -280,6 +280,19 @@ model GachaCard {
   description String   @default("")
   rarity      String   @default("COMMON")
   specialOnly Boolean  @default(false)
+  category    String   @default("DISPLAY")
+  attack      Int      @default(0)
+  defense     Int      @default(0)
+  manaCost    Int      @default(0)
+  level       Int      @default(1)
+  element     String   @default("Tin học")
+  icon        String   @default("🃏")
+  critRate    Int      @default(0)
+  evasionRate Int      @default(0)
+  counterRate Int      @default(0)
+  lifeStealRate Int    @default(0)
+  specialEffect String @default("NONE")
+  bugPart     String?
   imageData   Bytes?
   imageMimeType String?
   createdAt   DateTime @default(now())

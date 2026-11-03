@@ -29,7 +29,7 @@ export default async function NewContestPage() {
       outputFile: true,
     },
   }), prisma.gachaCard.findMany({
-    where: { specialOnly: true },
+    where: { specialOnly: true, category: "DISPLAY" },
     orderBy: { name: "asc" },
     select: { id: true, name: true, rarity: true },
   })]);

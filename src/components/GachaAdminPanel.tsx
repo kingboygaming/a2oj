@@ -10,6 +10,7 @@ type CardSummary = {
   name: string;
   rarity: string;
   specialOnly: boolean;
+  category: string;
 };
 
 type BannerSummary = {
@@ -23,6 +24,9 @@ type BannerSummary = {
 const rarityNames: Record<string, string> = {
   COMMON: "Thường",
   UNCOMMON: "Không phổ biến",
+  R: "Rare",
+  SR: "Super Rare",
+  SSR: "Super Special Rare",
   RARE: "Hiếm",
   EPIC: "Sử thi",
   LEGENDARY: "Huyền thoại",
@@ -163,7 +167,7 @@ export function GachaAdminPanel({
               Tổng: {totalRate.toFixed(2)}%
             </span>
           </div>
-          {cards.filter((card) => !card.specialOnly).length === 0 ? (
+          {cards.filter((card) => card.category === "DISPLAY" && !card.specialOnly).length === 0 ? (
             <p className="text-sm text-[var(--muted)]">Hãy tạo thẻ banner ở phần bên dưới trước.</p>
           ) : (
             <div className="space-y-2">
@@ -183,7 +187,7 @@ export function GachaAdminPanel({
               <div className="flex flex-wrap gap-2">
                 <select value={cardToAdd} onChange={(event) => setCardToAdd(event.target.value)} className={`${inputClass} max-w-sm`}>
                   <option value="">Chọn thẻ banner để thêm</option>
-                  {cards.filter((card) => !card.specialOnly && !selectedCardIds.includes(card.id)).map((card) => <option key={card.id} value={card.id}>{card.name} · {card.rarity}</option>)}
+                  {cards.filter((card) => card.category === "DISPLAY" && !card.specialOnly && !selectedCardIds.includes(card.id)).map((card) => <option key={card.id} value={card.id}>{card.name} · {card.rarity}</option>)}
                 </select>
                 <button type="button" disabled={!cardToAdd || selectedCardIds.length >= 20} onClick={() => {
                   setSelectedCardIds((current) => [...current, cardToAdd]);

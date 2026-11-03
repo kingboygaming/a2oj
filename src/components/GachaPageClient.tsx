@@ -42,6 +42,9 @@ type BannerView = {
 const rarityStyles: Record<string, string> = {
   COMMON: "border-slate-300 bg-slate-100 text-slate-700",
   UNCOMMON: "border-emerald-300 bg-emerald-50 text-emerald-800",
+  R: "border-sky-300 bg-sky-50 text-sky-800",
+  SR: "border-violet-300 bg-violet-50 text-violet-800",
+  SSR: "border-amber-400 bg-amber-50 text-amber-900",
   RARE: "border-sky-300 bg-sky-50 text-sky-800",
   EPIC: "border-violet-300 bg-violet-50 text-violet-800",
   LEGENDARY: "border-amber-400 bg-amber-50 text-amber-900",
@@ -51,6 +54,9 @@ const rarityStyles: Record<string, string> = {
 const rarityNames: Record<string, string> = {
   COMMON: "Thường",
   UNCOMMON: "Không phổ biến",
+  R: "Rare",
+  SR: "Super Rare",
+  SSR: "Super Special Rare",
   RARE: "Hiếm",
   EPIC: "Sử thi",
   LEGENDARY: "Huyền thoại",

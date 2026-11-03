@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   }
   if (parsed.data.specialGachaCardId) {
     const card = await prisma.gachaCard.findFirst({
-      where: { id: parsed.data.specialGachaCardId, specialOnly: true },
+      where: { id: parsed.data.specialGachaCardId, specialOnly: true, category: "DISPLAY" },
       select: { id: true },
     });
     if (!card) return NextResponse.json({ error: "Không tìm thấy thẻ đặc biệt đã chọn." }, { status: 400 });

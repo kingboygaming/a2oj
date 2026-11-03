@@ -15,13 +15,14 @@ export default async function AdminGachaPage() {
       include: { cards: { include: { card: { select: { name: true, rarity: true } } } } },
     }),
     prisma.gachaCard.findMany({
-      where: { specialOnly: true },
+      where: { specialOnly: true, category: "DISPLAY" },
       orderBy: { createdAt: "desc" },
       select: { id: true, name: true, rarity: true },
     }),
     prisma.gachaCard.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, slug: true, name: true, rarity: true, specialOnly: true },
+      where: { category: "DISPLAY" },
+      select: { id: true, slug: true, name: true, rarity: true, specialOnly: true, category: true },
     }),
   ]);
   return (

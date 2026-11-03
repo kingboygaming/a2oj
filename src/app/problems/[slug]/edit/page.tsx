@@ -32,7 +32,7 @@ export default async function EditContributedProblemPage({
     notFound();
   }
   const specialCards = await prisma.gachaCard.findMany({
-    where: { specialOnly: true },
+    where: { specialOnly: true, category: "DISPLAY" },
     orderBy: { name: "asc" },
     select: { id: true, name: true, rarity: true },
   });
