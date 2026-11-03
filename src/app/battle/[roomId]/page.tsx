@@ -8,6 +8,8 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type RuleSet = "basic" | "ocg";
+type CoinSide = "heads" | "tails";
+type CoinResult = { side: CoinSide; firstPlayerId: string };
 
 type BattleCard = {
   id: string;
@@ -64,6 +66,8 @@ type BattleMessage =
   | { type: "spell-effect"; playerId: string; cardName: string; effect: string; handCount: number }
   | { type: "trap-trigger"; playerId: string; cardName: string; effect: string; damage: number }
   | { type: "draw"; playerId: string; handCount: number }
+  | { type: "coin-choice"; playerId: string; side: CoinSide }
+  | { type: "coin-result"; playerId: string; side: CoinSide; firstPlayerId: string }
   | { type: "attack"; playerId: string; cardId: string; damage: number }
   | { type: "attack-hit"; playerId: string; cardId: string; damage: number }
   | { type: "evade"; playerId: string; damage: number }
@@ -265,6 +269,11 @@ function isBattleMessage(value: unknown): value is BattleMessage {
         typeof message.damage === "number";
     case "draw":
       return typeof message.handCount === "number";
+    case "coin-choice":
+      return message.side === "heads" || message.side === "tails";
+    case "coin-result":
+      return (message.side === "heads" || message.side === "tails") &&
+        typeof message.firstPlayerId === "string";
     case "attack":
     case "attack-hit":
       return typeof message.cardId === "string" && typeof message.damage === "number";
@@ -443,10 +452,14 @@ export default function BattleRoomPage() {
   const [mana, setMana] = useState(5);
   const [playerHp, setPlayerHp] = useState(BASIC_HP);
   const [opponent, setOpponent] = useState(EMPTY_OPPONENT);
-  const [isMyTurn, setIsMyTurn] = useState(true);
+  const [isMyTurn, setIsMyTurn] = useState(false);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [hasNormalSummoned, setHasNormalSummoned] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
+  const [coinChoice, setCoinChoice] = useState<CoinSide | null>(null);
+  const [opponentChoseCoin, setOpponentChoseCoin] = useState(false);
+  const [coinResult, setCoinResult] = useState<CoinResult | null>(null);
+  const [coinAnimating, setCoinAnimating] = useState(false);
   const [pendingSummonCardId, setPendingSummonCardId] = useState<string | null>(null);
   const [selectedTributeIds, setSelectedTributeIds] = useState<string[]>([]);
   const [raLifePayment, setRaLifePayment] = useState(0);
@@ -470,8 +483,18 @@ export default function BattleRoomPage() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const boardDropRef = useRef<HTMLDivElement>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coinChoiceRef = useRef<CoinSide | null>(null);
+  const coinResultRef = useRef<CoinResult | null>(null);
   const lifeLabel = ruleSet === "ocg" ? "LP" : "HP";
-  const playerCanAct = deckReady && getCardPool(ruleSet, deckCards).length >= 5 && isMyTurn && !winner && (!opponent.playerId || opponent.ruleSet === ruleSet);
+  const coinChooserId = opponent.playerId && opponent.playerId.localeCompare(playerId) < 0
+    ? opponent.playerId
+    : playerId;
+  const isCoinChooser = coinChooserId === playerId;
+  const canChooseCoin = isCoinChooser &&
+    (Boolean(opponent.playerId) || !supabaseConfigured) &&
+    (!opponent.playerId || opponent.ruleSet === ruleSet);
+  const playerCanAct = gameStarted && deckReady && getCardPool(ruleSet, deckCards).length >= 5 && isMyTurn && !winner && (!opponent.playerId || opponent.ruleSet === ruleSet);
   const pendingSummonCard = hand.find((card) => card.id === pendingSummonCardId);
   const requiredTributes = pendingSummonCard ? getRequiredTributes(pendingSummonCard) : 0;
   const playerSnapshotRef = useRef<PlayerSnapshot>({
@@ -494,7 +517,7 @@ export default function BattleRoomPage() {
 
   const publish = useCallback(async (message: BattleMessage) => {
     const channel = channelRef.current;
-    if (!channel) return;
+    if (!channel) return false;
 
     const result = await channel.send({
       type: "broadcast",
@@ -504,8 +527,53 @@ export default function BattleRoomPage() {
     if (result !== "ok") {
       setRealtimeStatus(`Không thể gửi sự kiện: ${result}`);
       notify("Không đồng bộ được thao tác với đối thủ.");
+      return false;
     }
+    return true;
   }, [notify]);
+
+  const applyCoinResult = useCallback((result: CoinResult) => {
+    if (coinResultRef.current) return;
+    coinResultRef.current = result;
+    setCoinResult(result);
+    setCoinAnimating(true);
+    if (coinTimerRef.current) clearTimeout(coinTimerRef.current);
+    coinTimerRef.current = setTimeout(() => {
+      setCoinAnimating(false);
+      setGameStarted(true);
+      setIsMyTurn(result.firstPlayerId === playerId);
+      const firstPlayer = result.firstPlayerId === playerId ? "Bạn" : opponentSnapshotRef.current.name;
+      notify(`Đồng xu ra ${result.side === "heads" ? "Ngửa" : "Sấp"} — ${firstPlayer} đi trước!`);
+    }, 1800);
+  }, [notify, playerId]);
+
+  function chooseCoinSide(side: CoinSide) {
+    if (!canChooseCoin || gameStarted || coinResultRef.current || coinChoiceRef.current) return;
+    coinChoiceRef.current = side;
+    setCoinChoice(side);
+    setOpponentChoseCoin(true);
+    void publish({ type: "coin-choice", playerId, side });
+  }
+
+  async function tossCoin() {
+    const mayTossWithoutOpponent = !supabaseConfigured && !opponent.playerId;
+    if (!canChooseCoin || !coinChoiceRef.current || gameStarted || coinResultRef.current || coinAnimating) return;
+    if (!opponent.playerId && !mayTossWithoutOpponent) {
+      notify("Đang chờ đối thủ vào phòng trước khi tung đồng xu.");
+      return;
+    }
+
+    const side: CoinSide = crypto.getRandomValues(new Uint8Array(1))[0] % 2 === 0 ? "heads" : "tails";
+    const result: CoinResult = {
+      side,
+      firstPlayerId: side === coinChoiceRef.current ? playerId : opponent.playerId || playerId,
+    };
+    if (opponent.playerId) {
+      const sent = await publish({ type: "coin-result", playerId, ...result });
+      if (!sent) return;
+    }
+    applyCoinResult(result);
+  }
 
   function checkExodia(cards: BattleCard[]) {
     const parts = new Set(cards.map((card) => card.bugPart).filter((part): part is string => Boolean(part)));
@@ -521,6 +589,7 @@ export default function BattleRoomPage() {
   useEffect(() => {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      if (coinTimerRef.current) clearTimeout(coinTimerRef.current);
     };
   }, []);
 
@@ -607,8 +676,6 @@ export default function BattleRoomPage() {
           setOpponent(payload.player);
           if (payload.player.ruleSet !== ruleSet) {
             notify("Hai người chơi cần chọn cùng một bộ luật.");
-          } else {
-            setIsMyTurn(playerId.localeCompare(payload.playerId) < 0);
           }
           if (payload.type === "join") {
             void channel.send({
@@ -620,6 +687,31 @@ export default function BattleRoomPage() {
                 player: playerSnapshotRef.current,
               } satisfies BattleMessage,
             });
+          }
+          if (coinChoiceRef.current) {
+            void channel.send({
+              type: "broadcast",
+              event: "battle",
+              payload: { type: "coin-choice", playerId, side: coinChoiceRef.current } satisfies BattleMessage,
+            });
+          }
+          if (coinResultRef.current) {
+            void channel.send({
+              type: "broadcast",
+              event: "battle",
+              payload: { type: "coin-result", playerId, ...coinResultRef.current } satisfies BattleMessage,
+            });
+          }
+          break;
+        case "coin-choice":
+          if (payload.playerId.localeCompare(playerId) < 0) setOpponentChoseCoin(true);
+          break;
+        case "coin-result":
+          if (
+            payload.playerId.localeCompare(playerId) < 0 &&
+            [payload.playerId, playerId].includes(payload.firstPlayerId)
+          ) {
+            applyCoinResult({ side: payload.side, firstPlayerId: payload.firstPlayerId });
           }
           break;
         case "play-card":
@@ -862,7 +954,7 @@ export default function BattleRoomPage() {
       channelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [notify, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
+  }, [applyCoinResult, notify, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
 
   function playCard(card: BattleCard, tributeIds: string[] = [], raPayment: number | null = null) {
     if (pendingRaDestroyCardId || pendingStoneWardenCardId) {
@@ -1145,7 +1237,7 @@ export default function BattleRoomPage() {
   }
 
   function changeRuleSet(nextRuleSet: RuleSet) {
-    if (gameStarted || nextRuleSet === ruleSet) return;
+    if (gameStarted || coinResultRef.current || nextRuleSet === ruleSet) return;
     setRuleSet(nextRuleSet);
     const shuffledDeck = shuffleCards(deckCards);
     setDeckCards(shuffledDeck);
@@ -1158,7 +1250,7 @@ export default function BattleRoomPage() {
     setMana(5);
     setPlayerHp(getStartingLifePoints(nextRuleSet));
     setOpponent({ ...EMPTY_OPPONENT, hp: getStartingLifePoints(nextRuleSet), ruleSet: nextRuleSet });
-    setIsMyTurn(true);
+    setIsMyTurn(false);
     setHasDrawn(false);
     setHasNormalSummoned(false);
     setPendingSummonCardId(null);
@@ -1481,7 +1573,7 @@ export default function BattleRoomPage() {
         <div className="grid gap-2 sm:grid-cols-2">
           <button
             type="button"
-            disabled={gameStarted}
+            disabled={gameStarted || Boolean(coinResult)}
             onClick={() => changeRuleSet("basic")}
             className={`rounded-xl border p-3 text-left transition disabled:cursor-not-allowed ${
               ruleSet === "basic"
@@ -1496,7 +1588,7 @@ export default function BattleRoomPage() {
           </button>
           <button
             type="button"
-            disabled={gameStarted}
+            disabled={gameStarted || Boolean(coinResult)}
             onClick={() => changeRuleSet("ocg")}
             className={`rounded-xl border p-3 text-left transition disabled:cursor-not-allowed ${
               ruleSet === "ocg"
@@ -1520,6 +1612,72 @@ export default function BattleRoomPage() {
             Đối thủ đang chọn luật {opponent.ruleSet.toUpperCase()}. Hãy thống nhất luật trước khi tiếp tục.
           </p>
         )}
+      </section>
+
+      <section aria-label="Tung đồng xu quyết định lượt đi" className="mb-4 overflow-hidden rounded-2xl border border-amber-300/25 bg-gradient-to-br from-amber-300/10 via-slate-900 to-slate-950 p-4 sm:p-5">
+        <div className="flex flex-col items-center gap-4 sm:flex-row">
+          <div className="grid size-32 shrink-0 place-items-center [perspective:900px]">
+            <motion.div
+              className="relative size-24 rounded-full"
+              style={{ transformStyle: "preserve-3d" }}
+              animate={{
+                rotateY: coinResult ? 1440 + (coinResult.side === "tails" ? 180 : 0) : 0,
+                rotateZ: coinAnimating ? [0, 12, -12, 8, -8, 0] : 0,
+              }}
+              transition={{
+                rotateY: { duration: coinAnimating ? 1.8 : 0.35, ease: "easeOut" },
+                rotateZ: { duration: coinAnimating ? 1.8 : 0.25, ease: "easeInOut" },
+              }}
+            >
+              <div
+                className="absolute inset-0 grid place-items-center rounded-full border-4 border-amber-200 bg-gradient-to-br from-amber-300 to-amber-600 text-center font-black text-amber-950 shadow-[0_0_35px_rgba(251,191,36,0.3)]"
+                style={{ backfaceVisibility: "hidden" }}
+              >
+                <span><span className="block text-2xl">A2</span><span className="text-[9px] tracking-[0.2em]">NGỬA</span></span>
+              </div>
+              <div
+                className="absolute inset-0 grid place-items-center rounded-full border-4 border-cyan-100 bg-gradient-to-br from-cyan-200 to-cyan-600 text-center font-black text-cyan-950 shadow-[0_0_35px_rgba(34,211,238,0.25)]"
+                style={{ transform: "rotateY(180deg)", backfaceVisibility: "hidden" }}
+              >
+                <span><span className="block text-2xl">✦</span><span className="text-[9px] tracking-[0.2em]">SẤP</span></span>
+              </div>
+            </motion.div>
+          </div>
+          <div className="w-full min-w-0 text-center sm:text-left">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200/70">Trước khi bắt đầu trận</p>
+            <h2 className="mt-1 text-lg font-black text-amber-100">Tung đồng xu chọn người đi trước</h2>
+            {!coinResult ? (
+              <>
+                <p className="mt-1 text-xs leading-5 text-slate-300">
+                  {canChooseCoin
+                    ? "Bạn được chọn ngẫu nhiên làm người chọn mặt. Chốt Ngửa hoặc Sấp, sau đó tung đồng xu."
+                    : opponent.playerId
+                      ? opponentChoseCoin ? "Đối thủ đã chốt mặt đồng xu. Đang chờ họ tung." : "Đối thủ sẽ chọn mặt đồng xu và tung để quyết định lượt đi."
+                      : "Đang chờ đối thủ vào phòng để bắt đầu."}
+                </p>
+                {canChooseCoin && !coinChoice && !coinAnimating && (
+                  <div className="mt-3 flex justify-center gap-2 sm:justify-start">
+                    <button type="button" onClick={() => chooseCoinSide("heads")} className="rounded-lg border border-amber-200/40 bg-amber-300/10 px-4 py-2 text-sm font-bold text-amber-100 hover:bg-amber-300/20">Chọn Ngửa</button>
+                    <button type="button" onClick={() => chooseCoinSide("tails")} className="rounded-lg border border-cyan-200/40 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-300/20">Chọn Sấp</button>
+                  </div>
+                )}
+                {canChooseCoin && coinChoice && !coinAnimating && (
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
+                    <span className="text-xs font-semibold text-slate-300">Bạn đã chốt: {coinChoice === "heads" ? "Ngửa" : "Sấp"}</span>
+                    <button type="button" onClick={() => void tossCoin()} disabled={Boolean(supabaseConfigured && !opponent.playerId)} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-black text-slate-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40">Tung đồng xu</button>
+                  </div>
+                )}
+                {coinAnimating && <p role="status" className="mt-3 text-sm font-bold text-amber-100">Đồng xu đang tung...</p>}
+              </>
+            ) : (
+              <p className={`mt-2 text-sm font-bold ${coinAnimating ? "text-amber-100" : "text-emerald-200"}`} aria-live="polite">
+                {coinAnimating
+                  ? "Đồng xu đang tung..."
+                  : `Kết quả: ${coinResult.side === "heads" ? "Ngửa" : "Sấp"} · ${coinResult.firstPlayerId === playerId ? "Bạn" : opponent.name} đi trước!`}
+              </p>
+            )}
+          </div>
+        </div>
       </section>
 
       {!realtimeConnected && (
