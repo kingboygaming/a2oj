@@ -18,7 +18,7 @@ export const gachaCardSchema = z.object({
   level: z.coerce.number().int().min(1).max(12).default(1),
   requiredTributes: z.preprocess(
     (value) => value == null || value === "" ? null : value,
-    z.union([z.null(), z.coerce.number().int().min(0).max(2)]),
+    z.union([z.null(), z.coerce.number().int().min(0).max(3)]),
   ).default(null),
   element: z.preprocess(
     (value) => value == null || (typeof value === "string" && !value.trim()) ? "Tin học" : value,

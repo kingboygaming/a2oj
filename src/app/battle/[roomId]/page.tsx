@@ -173,7 +173,7 @@ function isBattleCard(value: unknown): value is BattleCard {
     typeof card.level === "number" &&
     (card.requiredTributes === undefined || card.requiredTributes === null ||
       (typeof card.requiredTributes === "number" &&
-        Number.isInteger(card.requiredTributes) && card.requiredTributes >= 0 && card.requiredTributes <= 2)) &&
+        Number.isInteger(card.requiredTributes) && card.requiredTributes >= 0 && card.requiredTributes <= 3)) &&
     typeof card.element === "string" &&
     typeof card.icon === "string" &&
     (card.attack === undefined || typeof card.attack === "number") &&

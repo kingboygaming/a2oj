@@ -383,6 +383,7 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
                   <option value="0">Không cần hiến tế</option>
                   <option value="1">Hiến tế 1 quái vật</option>
                   <option value="2">Hiến tế 2 quái vật</option>
+                  <option value="3">Hiến tế 3 quái vật</option>
                 </select>
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
