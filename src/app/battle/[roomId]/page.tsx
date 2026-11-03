@@ -247,11 +247,12 @@ function CardFace({
 }) {
   return (
     <div
-      className={`grid h-full grid-rows-[auto_minmax(2rem,1fr)_auto] gap-2 overflow-hidden rounded-xl border ${
+      className={`${compact
+        ? "flex min-h-28 w-full flex-col gap-1 overflow-hidden rounded-lg p-1.5"
+        : "grid h-full min-h-48 w-32 grid-rows-[auto_minmax(2rem,1fr)_auto] gap-2 overflow-hidden rounded-xl p-2 sm:w-36"
+      } border ${
         card.isEgyptianGod ? "border-amber-300/70 shadow-amber-400/20" : "border-cyan-400/30"
-      } bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 p-2 text-left shadow-lg shadow-black/30 ${
-        compact ? "min-h-28 w-full" : "min-h-48 w-32 sm:w-36"
-      }`}
+      } bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 text-left shadow-lg shadow-black/30`}
     >
       <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
@@ -263,7 +264,16 @@ function CardFace({
           </span>
         )}
       </div>
-      {card.imageUrl ? (
+      {compact ? (
+        <div
+          className="grid min-h-10 flex-1 place-items-center overflow-hidden rounded-md bg-slate-950/60 bg-cover bg-center"
+          style={card.imageUrl ? { backgroundImage: `url("${card.imageUrl}")` } : undefined}
+        >
+          <span className="rounded-full bg-slate-950/70 px-1.5 text-2xl" aria-hidden="true">
+            {card.icon}
+          </span>
+        </div>
+      ) : card.imageUrl ? (
         <div
           className="grid h-full min-h-8 place-items-center overflow-hidden rounded-lg bg-slate-950/60 bg-cover bg-center"
           style={{ backgroundImage: `url("${card.imageUrl}")` }}
