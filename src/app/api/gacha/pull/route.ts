@@ -35,6 +35,7 @@ export async function POST(request: Request) {
       rarity: string;
       description: string;
       category: string;
+      battleType: string;
       attack: number;
       defense: number;
       manaCost: number;
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
           rarity: true,
           description: true,
           category: true,
+          battleType: true,
           attack: true,
           defense: true,
           manaCost: true,

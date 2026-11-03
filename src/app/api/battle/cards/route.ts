@@ -11,6 +11,7 @@ export async function GET() {
       name: true,
       description: true,
       rarity: true,
+      battleType: true,
       attack: true,
       defense: true,
       manaCost: true,

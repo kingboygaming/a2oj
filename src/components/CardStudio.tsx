@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { GACHA_RARITIES } from "@/lib/gacha";
 
 type Category = "DISPLAY" | "BATTLE";
+type BattleType = "MONSTER" | "SPELL" | "TRAP";
 type BugPart = "" | "CE" | "TLE" | "MLE" | "WA" | "PE";
 type PassiveKey = "critRate" | "evasionRate" | "counterRate" | "lifeStealRate";
 
@@ -14,6 +15,7 @@ type CardDraft = {
   slug: string;
   description: string;
   category: Category;
+  battleType: BattleType;
   rarity: string;
   attack: number;
   defense: number;
@@ -35,6 +37,7 @@ const INITIAL_DRAFT: CardDraft = {
   slug: "",
   description: "",
   category: "DISPLAY",
+  battleType: "MONSTER",
   rarity: "R",
   attack: 1500,
   defense: 1200,
@@ -69,6 +72,18 @@ const passiveOptions: { key: PassiveKey; label: string; icon: string }[] = [
   { key: "counterRate", label: "Phản đòn", icon: "↩️" },
   { key: "lifeStealRate", label: "Hút máu", icon: "🩸" },
 ];
+
+const effectOptions: Record<Exclude<BattleType, "MONSTER">, { value: string; label: string; description: string }[]> = {
+  SPELL: [
+    { value: "SPELL_DRAW", label: "Rút 1 lá", description: "Rút thêm một lá từ bộ bài." },
+    { value: "SPELL_HEAL", label: "Hồi phục", description: "Hồi 5 HP hoặc 1000 LP." },
+    { value: "SPELL_DAMAGE", label: "Gây sát thương", description: "Gây 4 sát thương hoặc 800 LP cho đối thủ." },
+  ],
+  TRAP: [
+    { value: "TRAP_NEGATE_ATTACK", label: "Chặn đòn đánh", description: "Hủy sát thương của đòn tấn công đầu tiên." },
+    { value: "TRAP_REFLECT_DAMAGE", label: "Phản sát thương", description: "Phản lại 25% sát thương của đòn tấn công đầu tiên." },
+  ],
+};
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -129,6 +144,26 @@ export function CardStudio() {
 
   function generateCard() {
     if (draft.category === "BATTLE") {
+      if (draft.battleType !== "MONSTER") {
+        const options = effectOptions[draft.battleType];
+        const selectedEffect = options[randomInt(0, options.length - 1)];
+        setDraft((current) => ({
+          ...current,
+          slug: current.slug || slugify(current.name),
+          attack: 0,
+          defense: 0,
+          manaCost: randomInt(1, 3),
+          level: 1,
+          description: selectedEffect.description,
+          specialEffect: selectedEffect.value,
+          bugPart: "",
+          critRate: 0,
+          evasionRate: 0,
+          counterRate: 0,
+          lifeStealRate: 0,
+        }));
+        return;
+      }
       const attack = randomInt(500, 3000);
       const defense = randomInt(500, 3000);
       const manaCost = randomInt(1, 5);
@@ -190,7 +225,7 @@ export function CardStudio() {
         setMessage(result.error ?? "Không thể tạo thẻ.");
         return;
       }
-      setMessage(`Đã tạo ${draft.category === "BATTLE" ? "thẻ chiến đấu" : "thẻ trưng bày"} "${result.card.name}".`);
+      setMessage(`Đã tạo ${draft.category === "BATTLE" ? `thẻ ${draft.battleType === "MONSTER" ? "quái vật" : draft.battleType === "SPELL" ? "Phép" : "Bẫy"}` : "thẻ trưng bày"} "${result.card.name}".`);
       setDraft(INITIAL_DRAFT);
       selectImage(null);
       form.reset();
@@ -217,7 +252,7 @@ export function CardStudio() {
         <fieldset className="grid gap-3 sm:grid-cols-2">
           {([
             ["DISPLAY", "Thẻ trưng bày", "Sưu tầm, dùng trên profile; không có chỉ số chiến đấu."],
-            ["BATTLE", "Thẻ chiến đấu", "Có ATK/DEF, dùng trong PvP và có thể thêm vào banner Gacha."],
+            ["BATTLE", "Thẻ PvP", "Tạo quái vật, bài Phép hoặc bài Bẫy để dùng trong đấu bài."],
           ] as const).map(([category, title, detail]) => (
             <label key={category} className={`cursor-pointer rounded-xl border p-4 ${draft.category === category ? "border-[var(--teal)] bg-[var(--teal)]/10" : "border-[var(--line)]"}`}>
               <input
@@ -228,6 +263,7 @@ export function CardStudio() {
                   ...current,
                   category,
                   ...(category === "DISPLAY" ? {
+                    battleType: "MONSTER",
                     critRate: 0,
                     evasionRate: 0,
                     counterRate: 0,
@@ -281,44 +317,83 @@ export function CardStudio() {
 
         {draft.category === "BATTLE" && (
           <section className="space-y-4 rounded-xl border border-cyan-400/20 bg-cyan-950/10 p-4">
-            <h3 className="font-semibold text-cyan-200">Chỉ số chiến đấu</h3>
-            <div className="grid gap-3 sm:grid-cols-4">
-              <NumberField label="ATK" min={500} max={3000} value={draft.attack} onChange={(value) => update("attack", value)} />
-              <NumberField label="DEF" min={500} max={3000} value={draft.defense} onChange={(value) => update("defense", value)} />
-              <NumberField label="Mana Cost" min={1} max={5} value={draft.manaCost} onChange={(value) => update("manaCost", value)} />
-              <NumberField label="Cấp" min={1} max={12} value={draft.level} onChange={(value) => update("level", value)} />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Nội tại đặc biệt">
-                <select value={draft.specialEffect} onChange={(event) => update("specialEffect", event.target.value)} className={inputClass}>
-                  <option value="NONE">Không có</option>
-                  <option value="SLIFER">Slifer · tăng ATK/DEF theo số bài trên tay</option>
-                  <option value="RA">Ra · hiến tế LP để tăng ATK</option>
-                  <option value="OBELISK">Obelisk · Thần Ai Cập</option>
-                </select>
-              </Field>
-              <Field label="Mảnh Compile Exodia">
-                <select value={draft.bugPart} onChange={(event) => update("bugPart", event.target.value as BugPart)} className={inputClass}>
-                  <option value="">Không phải mảnh</option>
-                  <option value="CE">CE · Compile Error</option>
-                  <option value="TLE">TLE · Time Limit</option>
-                  <option value="MLE">MLE · Memory Limit</option>
-                  <option value="WA">WA · Wrong Answer</option>
-                  <option value="PE">PE · Presentation Error</option>
-                </select>
-              </Field>
-            </div>
-
-            <div>
-              <h4 className="mb-2 text-sm font-medium text-[var(--ink)]">Nội tại ẩn · % kích hoạt</h4>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {passiveOptions.map(({ key, label, icon }) => (
-                  <NumberField key={key} label={`${icon} ${label}`} min={0} max={100} value={draft[key]} onChange={(value) => update(key, value)} />
-                ))}
+          <h3 className="font-semibold text-cyan-200">Loại và hiệu ứng</h3>
+          <Field label="Loại thẻ PvP">
+            <select
+              value={draft.battleType}
+              onChange={(event) => {
+                const battleType = event.target.value as BattleType;
+                setDraft((current) => ({
+                  ...current,
+                  battleType,
+                  attack: battleType === "MONSTER" ? 1500 : 0,
+                  defense: battleType === "MONSTER" ? 1200 : 0,
+                  manaCost: battleType === "MONSTER" ? 3 : 2,
+                  level: battleType === "MONSTER" ? 4 : 1,
+                  specialEffect: battleType === "MONSTER" ? "NONE" : effectOptions[battleType][0].value,
+                  bugPart: "",
+                  critRate: 0,
+                  evasionRate: 0,
+                  counterRate: 0,
+                  lifeStealRate: 0,
+                }));
+              }}
+              className={inputClass}
+            >
+              <option value="MONSTER">Quái vật</option>
+              <option value="SPELL">Phép</option>
+              <option value="TRAP">Bẫy</option>
+            </select>
+          </Field>
+          {draft.battleType === "MONSTER" ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-4">
+                <NumberField label="ATK" min={500} max={3000} value={draft.attack} onChange={(value) => update("attack", value)} />
+                <NumberField label="DEF" min={500} max={3000} value={draft.defense} onChange={(value) => update("defense", value)} />
+                <NumberField label="Mana Cost" min={1} max={5} value={draft.manaCost} onChange={(value) => update("manaCost", value)} />
+                <NumberField label="Cấp" min={1} max={12} value={draft.level} onChange={(value) => update("level", value)} />
               </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Nội tại đặc biệt">
+                  <select value={draft.specialEffect} onChange={(event) => update("specialEffect", event.target.value)} className={inputClass}>
+                    <option value="NONE">Không có</option>
+                    <option value="SLIFER">Tăng ATK/DEF theo số bài trên tay</option>
+                    <option value="RA">Hiến tế LP để tăng ATK</option>
+                    <option value="OBELISK">Quét sân đối thủ khi triệu hồi</option>
+                  </select>
+                </Field>
+                <Field label="Mảnh Compile Exodia">
+                  <select value={draft.bugPart} onChange={(event) => update("bugPart", event.target.value as BugPart)} className={inputClass}>
+                    <option value="">Không phải mảnh</option>
+                    <option value="CE">CE · Compile Error</option>
+                    <option value="TLE">TLE · Time Limit</option>
+                    <option value="MLE">MLE · Memory Limit</option>
+                    <option value="WA">WA · Wrong Answer</option>
+                    <option value="PE">PE · Presentation Error</option>
+                  </select>
+                </Field>
+              </div>
+            </>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <NumberField label="Mana Cost" min={1} max={5} value={draft.manaCost} onChange={(value) => update("manaCost", value)} />
+              <Field label="Hiệu ứng">
+                <select value={draft.specialEffect} onChange={(event) => update("specialEffect", event.target.value)} className={inputClass}>
+                  {effectOptions[draft.battleType].map((effect) => <option key={effect.value} value={effect.value}>{effect.label}</option>)}
+                </select>
+              </Field>
             </div>
-          </section>
+          )}
+
+          {draft.battleType === "MONSTER" && <div>
+            <h4 className="mb-2 text-sm font-medium text-[var(--ink)]">Nội tại ẩn · % kích hoạt</h4>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {passiveOptions.map(({ key, label, icon }) => (
+                <NumberField key={key} label={`${icon} ${label}`} min={0} max={100} value={draft[key]} onChange={(value) => update(key, value)} />
+              ))}
+            </div>
+          </div>}
+        </section>
         )}
 
         {draft.category === "DISPLAY" && (
@@ -362,12 +437,17 @@ export function CardStudio() {
           <p className="relative mt-2 min-h-12 text-xs leading-5 text-slate-300">
             {draft.category === "DISPLAY" ? draft.description || "Danh hiệu độc quyền sẽ hiển thị tại đây." : draft.description || "Mô tả chiến đấu sẽ hiển thị tại đây."}
           </p>
-          {draft.category === "BATTLE" && (
+          {draft.category === "BATTLE" && draft.battleType === "MONSTER" && (
             <div className="relative mt-3 flex justify-between rounded-lg bg-black/30 px-3 py-2 text-xs font-bold">
               <span>ATK {previewAttack}</span><span>DEF {previewDefense}</span><span>💎 {draft.manaCost}</span>
             </div>
           )}
-          {activePassives.length > 0 && (
+          {draft.category === "BATTLE" && draft.battleType !== "MONSTER" && (
+            <div className="relative mt-3 flex justify-between rounded-lg bg-black/30 px-3 py-2 text-xs font-bold">
+              <span>{draft.battleType === "SPELL" ? "Phép" : "Bẫy"}</span><span>💎 {draft.manaCost}</span>
+            </div>
+          )}
+          {draft.category === "BATTLE" && draft.battleType === "MONSTER" && activePassives.length > 0 && (
             <div className="relative mt-3 flex min-h-8 flex-wrap gap-1">
               {activePassives.map(({ key, icon, label }) => (
                 <span key={key} title={`${label}: ${draft[key]}%`} className="rounded-full border border-white/15 bg-slate-950/70 px-2 py-1 text-[10px]">
@@ -384,7 +464,7 @@ export function CardStudio() {
           </div>
         </article>
         <p className="text-center text-xs text-[var(--muted)]">
-          {draft.category === "DISPLAY" ? "Thẻ sưu tầm · chỉ số chiến đấu được ẩn" : "Thẻ Battle Ready · kéo vào deck PvP"}
+          {draft.category === "DISPLAY" ? "Thẻ sưu tầm · chỉ số chiến đấu được ẩn" : `Thẻ PvP · ${draft.battleType === "MONSTER" ? "Quái vật" : draft.battleType === "SPELL" ? "Phép" : "Bẫy"}`}
         </p>
       </aside>
     </div>

@@ -12,6 +12,7 @@ type BattleCard = {
   id: string;
   slug?: string;
   name: string;
+  battleType?: "MONSTER" | "SPELL" | "TRAP";
   cost: number;
   power: number;
   level: number;
@@ -37,6 +38,8 @@ type BoardCard = {
   raBonus?: number;
 };
 
+type BoardSpellTrap = { card: BattleCard };
+
 type PlayerSnapshot = {
   playerId: string;
   name: string;
@@ -44,12 +47,16 @@ type PlayerSnapshot = {
   hp: number;
   handCount: number;
   board: BoardCard[];
+  spellTrapCount: number;
   ruleSet: RuleSet;
 };
 
 type BattleMessage =
   | { type: "join" | "welcome"; playerId: string; player: PlayerSnapshot }
   | { type: "play-card"; playerId: string; card: BattleCard; handCount: number; tributeIds: string[]; clearsEnemyBoard: boolean; raPayment: number }
+  | { type: "set-trap"; playerId: string; handCount: number; spellTrapCount: number }
+  | { type: "spell-effect"; playerId: string; cardName: string; effect: string; handCount: number }
+  | { type: "trap-trigger"; playerId: string; cardName: string; effect: string; damage: number }
   | { type: "draw"; playerId: string; handCount: number }
   | { type: "attack"; playerId: string; cardId: string; damage: number }
   | { type: "attack-hit"; playerId: string; cardId: string; damage: number }
@@ -71,6 +78,7 @@ const EMPTY_OPPONENT: PlayerSnapshot = {
   hp: BASIC_HP,
   handCount: 0,
   board: [],
+  spellTrapCount: 0,
   ruleSet: "basic",
 };
 
@@ -125,6 +133,7 @@ function mapServerCard(card: {
   name: string;
   description: string;
   rarity: string;
+  battleType: "MONSTER" | "SPELL" | "TRAP";
   attack: number;
   defense: number;
   manaCost: number;
@@ -141,6 +150,7 @@ function mapServerCard(card: {
 }): BattleCard {
   return {
     ...card,
+    battleType: card.battleType,
     cost: card.manaCost,
     power: Math.max(1, Math.round(card.attack / 1000)),
     isEgyptianGod: ["SLIFER", "RA", "OBELISK"].includes(card.specialEffect),
@@ -153,6 +163,7 @@ function isBattleCard(value: unknown): value is BattleCard {
   return (
     typeof card.id === "string" &&
     typeof card.name === "string" &&
+    (card.battleType === undefined || card.battleType === "MONSTER" || card.battleType === "SPELL" || card.battleType === "TRAP") &&
     typeof card.cost === "number" &&
     typeof card.power === "number" &&
     typeof card.level === "number" &&
@@ -179,6 +190,10 @@ function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
     typeof player.avatar === "string" &&
     typeof player.hp === "number" &&
     typeof player.handCount === "number" &&
+    typeof player.spellTrapCount === "number" &&
+    Number.isInteger(player.spellTrapCount) &&
+    player.spellTrapCount >= 0 &&
+    player.spellTrapCount <= MAX_BOARD_CARDS &&
     (player.ruleSet === "basic" || player.ruleSet === "ocg") &&
     Array.isArray(player.board) &&
     player.board.every(
@@ -210,6 +225,16 @@ function isBattleMessage(value: unknown): value is BattleMessage {
         Array.isArray(message.tributeIds) &&
         message.tributeIds.every((id) => typeof id === "string")
       );
+    case "set-trap":
+      return typeof message.handCount === "number" && typeof message.spellTrapCount === "number";
+    case "spell-effect":
+      return typeof message.cardName === "string" &&
+        ["SPELL_DRAW", "SPELL_HEAL", "SPELL_DAMAGE"].includes(String(message.effect)) &&
+        typeof message.handCount === "number";
+    case "trap-trigger":
+      return typeof message.cardName === "string" &&
+        ["TRAP_NEGATE_ATTACK", "TRAP_REFLECT_DAMAGE"].includes(String(message.effect)) &&
+        typeof message.damage === "number";
     case "draw":
       return typeof message.handCount === "number";
     case "attack":
@@ -240,6 +265,8 @@ function CardFace({
   handCount?: number;
   raBonus?: number;
 }) {
+  const battleType = card.battleType ?? "MONSTER";
+  const battleTypeLabel = battleType === "SPELL" ? "Phép" : battleType === "TRAP" ? "Bẫy" : "Quái vật";
   return (
     <div
       className={`${compact
@@ -251,9 +278,11 @@ function CardFace({
     >
       <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
-          {ruleSet === "ocg" ? `★ ${card.level} · ${card.element}` : card.element}
+          {battleType === "MONSTER"
+            ? ruleSet === "ocg" ? `★ ${card.level} · ${card.element}` : card.element
+            : `${battleTypeLabel} · ${card.element}`}
         </span>
-        {ruleSet === "basic" && (
+        {(ruleSet === "basic" || battleType !== "MONSTER") && (
           <span className="grid size-6 shrink-0 place-items-center rounded-full bg-cyan-950 text-xs font-bold text-cyan-200">
             {card.cost}
           </span>
@@ -284,10 +313,12 @@ function CardFace({
       )}
       <div className="min-w-0">
         <p className="line-clamp-2 break-words text-xs font-bold leading-4 text-white">{card.name}</p>
-        <p className="mt-1 break-words text-[10px] font-semibold leading-4 text-rose-300">
-          {ruleSet === "ocg"
-            ? `⚔ ${getAttackStat(card, handCount, raBonus)} / ${getDefenseStat(card, handCount)}`
-            : `⚔ ${card.power}`}
+        <p className={`mt-1 break-words text-[10px] font-semibold leading-4 ${battleType === "MONSTER" ? "text-rose-300" : "text-violet-200"}`}>
+          {battleType === "MONSTER"
+            ? ruleSet === "ocg"
+              ? `⚔ ${getAttackStat(card, handCount, raBonus)} / ${getDefenseStat(card, handCount)}`
+              : `⚔ ${card.power}`
+            : card.description || battleTypeLabel}
         </p>
       </div>
     </div>
@@ -338,7 +369,11 @@ function HandCard({
         onClick={onPlay}
         className="mt-1.5 w-full rounded-lg bg-cyan-500 px-2 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {ruleSet === "ocg" ? "Triệu hồi" : "Dùng bài"}
+        {card.battleType === "TRAP"
+          ? "Úp bẫy"
+          : card.battleType === "SPELL"
+            ? "Kích hoạt phép"
+            : ruleSet === "ocg" ? "Triệu hồi" : "Dùng bài"}
       </button>
     </motion.div>
   );
@@ -353,6 +388,7 @@ export default function BattleRoomPage() {
   const [deckReady, setDeckReady] = useState(false);
   const [deckLoadError, setDeckLoadError] = useState("");
   const [board, setBoard] = useState<BoardCard[]>([]);
+  const [spellTraps, setSpellTraps] = useState<BoardSpellTrap[]>([]);
   const [mana, setMana] = useState(5);
   const [playerHp, setPlayerHp] = useState(BASIC_HP);
   const [opponent, setOpponent] = useState(EMPTY_OPPONENT);
@@ -392,9 +428,11 @@ export default function BattleRoomPage() {
     hp: playerHp,
     handCount: hand.length,
     board,
+    spellTrapCount: spellTraps.length,
     ruleSet,
   });
   const opponentSnapshotRef = useRef(opponent);
+  const spellTrapsRef = useRef(spellTraps);
   const notify = useCallback((message: string) => {
     setToast(message);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -475,9 +513,10 @@ export default function BattleRoomPage() {
       hp: playerHp,
       handCount: hand.length,
       board,
+      spellTrapCount: spellTraps.length,
       ruleSet,
     };
-  }, [board, hand.length, playerHp, playerId, ruleSet]);
+  }, [board, hand.length, playerHp, playerId, ruleSet, spellTraps.length]);
 
   useEffect(() => {
     if (!deckReady || deckLoadError || !channelRef.current) return;
@@ -491,6 +530,10 @@ export default function BattleRoomPage() {
   useEffect(() => {
     opponentSnapshotRef.current = opponent;
   }, [opponent]);
+
+  useEffect(() => {
+    spellTrapsRef.current = spellTraps;
+  }, [spellTraps]);
 
   // Broadcast the public game actions over a room-specific Supabase channel.
   useEffect(() => {
@@ -539,6 +582,34 @@ export default function BattleRoomPage() {
             handCount: Math.max(0, payload.handCount),
           }));
           break;
+        case "set-trap":
+          setGameStarted(true);
+          setOpponent((current) => ({
+            ...current,
+            playerId: payload.playerId,
+            handCount: Math.max(0, payload.handCount),
+            spellTrapCount: Math.min(MAX_BOARD_CARDS, Math.max(0, payload.spellTrapCount)),
+          }));
+          break;
+        case "spell-effect":
+          setGameStarted(true);
+          setOpponent((current) => ({
+            ...current,
+            playerId: payload.playerId,
+            handCount: Math.max(0, payload.handCount),
+            hp: payload.effect === "SPELL_HEAL"
+              ? Math.min(getStartingLifePoints(current.ruleSet), current.hp + (current.ruleSet === "ocg" ? 1000 : 5))
+              : current.hp,
+          }));
+          if (payload.effect === "SPELL_DAMAGE") {
+            const damage = ruleSet === "ocg" ? 800 : 4;
+            if (playerSnapshotRef.current.hp <= damage) {
+              setWinner({ playerId: payload.playerId, reason: `${payload.cardName} hạ điểm sinh mệnh` });
+            }
+            setPlayerHp((current) => Math.max(0, current - damage));
+          }
+          notify(`${payload.cardName} đã kích hoạt.`);
+          break;
         case "draw":
           setGameStarted(true);
           setOpponent((current) => ({
@@ -550,6 +621,31 @@ export default function BattleRoomPage() {
         case "attack":
           setGameStarted(true);
           {
+            const armedTraps = spellTrapsRef.current;
+            const trapIndex = armedTraps.findIndex(({ card }) => card.battleType === "TRAP");
+            if (trapIndex >= 0) {
+              const triggeredTrap = armedTraps[trapIndex];
+              const remainingTraps = armedTraps.filter((_, index) => index !== trapIndex);
+              spellTrapsRef.current = remainingTraps;
+              setSpellTraps(remainingTraps);
+              const effect = triggeredTrap.card.specialEffect ?? "TRAP_NEGATE_ATTACK";
+              const reflectedDamage = effect === "TRAP_REFLECT_DAMAGE"
+                ? Math.max(1, Math.round(payload.damage * 0.25))
+                : 0;
+              notify(`${triggeredTrap.card.name} kích hoạt${reflectedDamage ? `, phản lại ${reflectedDamage} sát thương` : " và chặn đòn đánh"}!`);
+              void channel.send({
+                type: "broadcast",
+                event: "battle",
+                payload: {
+                  type: "trap-trigger",
+                  playerId,
+                  cardName: triggeredTrap.card.name,
+                  effect,
+                  damage: reflectedDamage,
+                } satisfies BattleMessage,
+              });
+              break;
+            }
             const defender = playerSnapshotRef.current.board.reduce<BoardCard | null>(
               (best, unit) => !best || (unit.card.evasionRate ?? 0) + (unit.card.counterRate ?? 0) > (best.card.evasionRate ?? 0) + (best.card.counterRate ?? 0) ? unit : best,
               null,
@@ -602,6 +698,21 @@ export default function BattleRoomPage() {
           setPlayerHp((current) => Math.max(0, current - payload.damage));
           notify(`Bị phản đòn! Mất ${payload.damage.toLocaleString("vi-VN")} ${ruleSet === "ocg" ? "LP" : "HP"}.`);
           break;
+        case "trap-trigger":
+          setOpponent((current) => ({
+            ...current,
+            spellTrapCount: Math.max(0, current.spellTrapCount - 1),
+          }));
+          if (payload.damage > 0) {
+            if (playerSnapshotRef.current.hp <= payload.damage) {
+              setWinner({ playerId: payload.playerId, reason: "Bị phản lại sát thương từ bẫy" });
+            }
+            setPlayerHp((current) => Math.max(0, current - payload.damage));
+            notify(`${payload.cardName} phản lại ${payload.damage.toLocaleString("vi-VN")} ${ruleSet === "ocg" ? "LP" : "HP"}!`);
+          } else {
+            notify(`${payload.cardName} đã chặn đòn tấn công.`);
+          }
+          break;
         case "end-turn":
           setGameStarted(true);
           setIsMyTurn(true);
@@ -650,8 +761,77 @@ export default function BattleRoomPage() {
       notify(opponent.playerId && opponent.ruleSet !== ruleSet ? "Hãy chọn cùng bộ luật với đối thủ." : "Chưa đến lượt của bạn.");
       return;
     }
-    if (ruleSet === "basic" && card.cost > mana) {
+    const battleType = card.battleType ?? "MONSTER";
+    const isMonster = battleType === "MONSTER";
+    const spendsMana = ruleSet === "basic" || !isMonster;
+    if (spendsMana && card.cost > mana) {
       notify("Không đủ Mana để sử dụng lá bài này.");
+      return;
+    }
+    if (!isMonster) {
+      if (battleType === "TRAP") {
+        if (spellTraps.length >= MAX_BOARD_CARDS) {
+          notify("Khu vực Phép/Bẫy đã đầy.");
+          return;
+        }
+        const nextHand = hand.filter((item) => item.id !== card.id);
+        const nextTraps = [...spellTraps, { card }];
+        setHand(nextHand);
+        setMana((current) => current - card.cost);
+        spellTrapsRef.current = nextTraps;
+        setSpellTraps(nextTraps);
+        setGameStarted(true);
+        notify(`${card.name} đã được úp xuống sân.`);
+        void publish({
+          type: "set-trap",
+          playerId,
+          handCount: nextHand.length,
+          spellTrapCount: nextTraps.length,
+        });
+        return;
+      }
+
+      const effect = card.specialEffect ?? "NONE";
+      if (!["SPELL_DRAW", "SPELL_HEAL", "SPELL_DAMAGE"].includes(effect)) {
+        notify("Hiệu ứng Phép này chưa được hỗ trợ.");
+        return;
+      }
+      const pool = getCardPool(ruleSet, deckCards);
+      if (effect === "SPELL_DRAW" && drawIndex >= pool.length) {
+        notify("Bộ bài đã hết.");
+        return;
+      }
+
+      let nextHand = hand.filter((item) => item.id !== card.id);
+      if (effect === "SPELL_DRAW") {
+        const drawnCard = { ...pool[drawIndex], id: `${playerId}-${pool[drawIndex].id}-${drawIndex}` };
+        nextHand = [...nextHand, drawnCard];
+        setDrawIndex((current) => current + 1);
+        checkExodia(nextHand);
+      }
+      setHand(nextHand);
+      setMana((current) => current - card.cost);
+      setGameStarted(true);
+      if (effect === "SPELL_HEAL") {
+        const healing = ruleSet === "ocg" ? 1000 : 5;
+        setPlayerHp((current) => Math.min(getStartingLifePoints(ruleSet), current + healing));
+      } else if (effect === "SPELL_DAMAGE") {
+        const damage = ruleSet === "ocg" ? 800 : 4;
+        if (opponentSnapshotRef.current.hp <= damage) {
+          const result = { playerId, reason: `${card.name} hạ điểm sinh mệnh` };
+          setWinner(result);
+          void publish({ type: "victory", ...result });
+        }
+        setOpponent((current) => ({ ...current, hp: Math.max(0, current.hp - damage) }));
+      }
+      void publish({
+        type: "spell-effect",
+        playerId,
+        cardName: card.name,
+        effect,
+        handCount: nextHand.length,
+      });
+      notify(`${card.name} đã kích hoạt.`);
       return;
     }
     if (ruleSet === "ocg" && hasNormalSummoned) {
@@ -694,7 +874,7 @@ export default function BattleRoomPage() {
 
     const nextHand = hand.filter((item) => item.id !== card.id);
     setHand(nextHand);
-    if (ruleSet === "basic") setMana((current) => current - card.cost);
+    if (spendsMana) setMana((current) => current - card.cost);
     if (ruleSet === "ocg") setHasNormalSummoned(true);
     if (lifePayment > 0) setPlayerHp((current) => Math.max(1, current - lifePayment));
     setGameStarted(true);
@@ -741,6 +921,8 @@ export default function BattleRoomPage() {
     setHand(startingHand);
     checkExodia(startingHand);
     setBoard([]);
+    spellTrapsRef.current = [];
+    setSpellTraps([]);
     setMana(5);
     setPlayerHp(getStartingLifePoints(nextRuleSet));
     setOpponent({ ...EMPTY_OPPONENT, hp: getStartingLifePoints(nextRuleSet), ruleSet: nextRuleSet });
@@ -921,15 +1103,24 @@ export default function BattleRoomPage() {
           Khu vực phép thuật / bẫy
         </p>
         <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
-          {Array.from({ length: MAX_BOARD_CARDS }, (_, index) => (
-            <div
-              key={`${owner}-spell-trap-${index}`}
-              aria-label={`Ô phép thuật hoặc bẫy ${index + 1}`}
-              className="grid min-h-10 place-items-center rounded-md border border-violet-200/20 bg-violet-950/20 text-[9px] font-semibold text-violet-100/35 sm:min-h-14 sm:rounded-lg"
-            >
-              S/T {index + 1}
-            </div>
-          ))}
+          {Array.from({ length: MAX_BOARD_CARDS }, (_, index) => {
+            const ownTrap = owner === "player" ? spellTraps[index] : null;
+            const opponentHasTrap = owner === "opponent" && index < opponent.spellTrapCount;
+            const occupied = Boolean(ownTrap) || opponentHasTrap;
+            return (
+              <div
+                key={`${owner}-spell-trap-${index}`}
+                aria-label={`Ô phép thuật hoặc bẫy ${index + 1}${ownTrap ? `: ${ownTrap.card.name}` : occupied ? ": có bài úp" : ": trống"}`}
+                className={`grid min-h-10 place-items-center rounded-md border p-1 text-center text-[9px] font-semibold sm:min-h-14 sm:rounded-lg ${
+                  occupied ? "border-violet-300/50 bg-violet-900/50 text-violet-100" : "border-violet-200/20 bg-violet-950/20 text-violet-100/35"
+                }`}
+              >
+                {ownTrap ? (
+                  <span title={ownTrap.card.name}>🂠<span className="block truncate text-[8px]">{ownTrap.card.name}</span></span>
+                ) : opponentHasTrap ? "🂠 Đã úp" : `S/T ${index + 1}`}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -1055,7 +1246,7 @@ export default function BattleRoomPage() {
         </div>
         {ruleSet === "ocg" && (
           <p className="mt-3 rounded-lg border border-amber-300/15 bg-amber-300/5 px-3 py-2 text-[11px] leading-5 text-amber-100/80">
-            Đây là biến thể OCG rút gọn của A2OJ (luật chính thức yêu cầu 3 hiến tế cho Thần Ai Cập): chưa có đặt úp, bài Phép/Bẫy hay Phase riêng. Thần được triệu hồi sẽ quét sân đối thủ; Slifer tăng ATK/DEF theo bài trên tay; Ra đổi LP lấy ATK.
+            Đây là biến thể OCG rút gọn của A2OJ (luật chính thức yêu cầu 3 hiến tế cho Thần Ai Cập). Bài Phép dùng ngay; Bẫy được úp và tự kích hoạt ở đòn tấn công đầu tiên. Thần có hiệu ứng riêng; Phép/Bẫy dùng Mana.
           </p>
         )}
         {opponent.playerId && opponent.ruleSet !== ruleSet && (
@@ -1174,7 +1365,8 @@ export default function BattleRoomPage() {
               <p className="text-sm font-bold">Người chơi của bạn</p>
               <p className="text-xs text-slate-400">
                 <span className="text-cyan-300">{playerHp.toLocaleString("vi-VN")} {lifeLabel}</span>
-                {ruleSet === "basic" ? <> · <span className="text-violet-300">💎 {mana}/{MAX_MANA} Mana</span></> : <> · <span className="text-amber-200">Triệu hồi thường: {hasNormalSummoned ? "đã dùng" : "còn"}</span></>}
+                <span className="text-violet-300"> · 💎 {mana}/{MAX_MANA} Mana</span>
+                {ruleSet === "ocg" && <> · <span className="text-amber-200">Triệu hồi thường: {hasNormalSummoned ? "đã dùng" : "còn"}</span></>}
               </p>
             </div>
           </div>

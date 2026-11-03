@@ -282,6 +282,7 @@ model GachaCard {
   rarity      String   @default("COMMON")
   specialOnly Boolean  @default(false)
   category    String   @default("DISPLAY")
+  battleType  String   @default("MONSTER")
   attack      Int      @default(0)
   defense     Int      @default(0)
   manaCost    Int      @default(0)

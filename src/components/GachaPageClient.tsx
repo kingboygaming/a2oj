@@ -26,6 +26,7 @@ type CardView = {
   rarity: string;
   description: string;
   category?: string;
+  battleType?: string;
   attack?: number;
   defense?: number;
   manaCost?: number;
@@ -237,7 +238,7 @@ export function GachaPageClient({
               <div className="mt-3 space-y-2">
                 {selectedBanner?.cards.map(({ card, dropRate }) => (
                   <div key={card.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
-                    <span className="min-w-0 truncate text-sm">{card.name} <span className="text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready · " : "· "}{rarityNames[card.rarity] ?? card.rarity}</span></span>
+                    <span className="min-w-0 truncate text-sm">{card.name} <span className="text-xs text-[var(--muted)]">{card.category === "BATTLE" ? `· ${card.battleType === "SPELL" ? "Phép" : card.battleType === "TRAP" ? "Bẫy" : "Quái vật"} · ` : "· "}{rarityNames[card.rarity] ?? card.rarity}</span></span>
                     <span className="shrink-0 text-sm font-semibold tabular-nums">{dropRate}%</span>
                   </div>
                 ))}
@@ -308,7 +309,7 @@ export function GachaPageClient({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-[var(--navy)]">Bộ sưu tập</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">Thẻ Battle Ready có thể đưa vào bộ bài để đấu PvP.</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Quái vật, Phép và Bẫy có thể đưa vào bộ bài để đấu PvP.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             {collection.some((card) => card.category === "BATTLE") && <Link href="/battle/deck" className="text-sm font-bold text-[var(--teal)] hover:underline">Xây bộ bài PvP →</Link>}
@@ -352,7 +353,7 @@ function CardTile({ card, revealIndex }: { card: CardView; revealIndex?: number 
         <p className="text-[10px] font-semibold uppercase tracking-wide">{rarityNames[card.rarity] ?? card.rarity}</p>
         {card.category === "BATTLE" && (
           <p className="mt-1 text-[10px] font-bold">
-            PvP · ATK {card.attack ?? 0} / DEF {card.defense ?? 0} · 💎 {card.manaCost ?? 0}
+            {card.battleType === "SPELL" ? "Phép" : card.battleType === "TRAP" ? "Bẫy" : `Quái vật · ATK ${card.attack ?? 0} / DEF ${card.defense ?? 0}`} · 💎 {card.manaCost ?? 0}
           </p>
         )}
         {card.description && <p className="mt-1 line-clamp-2 text-xs opacity-80">{card.description}</p>}

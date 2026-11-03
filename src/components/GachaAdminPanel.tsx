@@ -11,6 +11,7 @@ type CardSummary = {
   rarity: string;
   specialOnly: boolean;
   category: string;
+  battleType: string;
 };
 
 type BannerSummary = {
@@ -19,7 +20,7 @@ type BannerSummary = {
   title: string;
   type: string;
   active: boolean;
-  cards: { card: { id: string; name: string; rarity: string; category: string }; dropRate: number }[];
+  cards: { card: { id: string; name: string; rarity: string; category: string; battleType: string }; dropRate: number }[];
 };
 
 type BannerCardDraft = { cardId: string; dropRate: number };
@@ -35,6 +36,13 @@ const rarityNames: Record<string, string> = {
   LEGENDARY: "Huyền thoại",
   SPECIAL: "Đặc biệt",
 };
+
+function getCardTypeLabel(card: { category: string; battleType?: string }) {
+  if (card.category !== "BATTLE") return "Trưng bày";
+  if (card.battleType === "SPELL") return "Phép";
+  if (card.battleType === "TRAP") return "Bẫy";
+  return "Quái vật";
+}
 
 export function GachaAdminPanel({
   banners,
@@ -243,7 +251,7 @@ export function GachaAdminPanel({
             </span>
           </div>
           {cards.filter((card) => card.category === "BATTLE" || !card.specialOnly).length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">Hãy tạo thẻ trưng bày ở bên dưới hoặc thẻ Battle Ready trong Card Studio trước.</p>
+            <p className="text-sm text-[var(--muted)]">Tạo thẻ trưng bày hoặc thẻ PvP (Quái vật, Phép, Bẫy) trong Card Studio trước.</p>
           ) : (
             <div className="space-y-2">
               {selectedCardIds.map((id) => {
@@ -251,7 +259,7 @@ export function GachaAdminPanel({
                 if (!card) return null;
                 return (
                   <div key={id} className="grid grid-cols-[1fr_110px_auto] items-center gap-2 rounded-lg bg-[var(--navy)]/[0.03] p-2">
-                    <span className="truncate text-sm font-medium">{card.name} <span className="text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready · " : "· "}{rarityNames[card.rarity] ?? card.rarity}</span></span>
+                    <span className="truncate text-sm font-medium">{card.name} <span className="text-xs text-[var(--muted)]">· {getCardTypeLabel(card)} · {rarityNames[card.rarity] ?? card.rarity}</span></span>
                     <label className="text-xs">Tỉ lệ %
                       <input type="number" min="0.0001" max="100" step="0.0001" value={dropRates[id] ?? 0} onChange={(event) => setDropRates((current) => ({ ...current, [id]: Number(event.target.value) }))} className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1 text-sm" />
                     </label>
@@ -262,7 +270,7 @@ export function GachaAdminPanel({
               <div className="flex flex-wrap gap-2">
                 <select value={cardToAdd} onChange={(event) => setCardToAdd(event.target.value)} className={`${inputClass} max-w-sm`}>
                   <option value="">Chọn thẻ banner để thêm</option>
-                  {cards.filter((card) => (card.category === "BATTLE" || !card.specialOnly) && !selectedCardIds.includes(card.id)).map((card) => <option key={card.id} value={card.id}>{card.name} · {card.category === "BATTLE" ? "Battle Ready" : "Trưng bày"} · {card.rarity}</option>)}
+                  {cards.filter((card) => (card.category === "BATTLE" || !card.specialOnly) && !selectedCardIds.includes(card.id)).map((card) => <option key={card.id} value={card.id}>{card.name} · {getCardTypeLabel(card)} · {card.rarity}</option>)}
                 </select>
                 <button type="button" disabled={!cardToAdd || selectedCardIds.length >= 20} onClick={() => {
                   setSelectedCardIds((current) => [...current, cardToAdd]);
@@ -282,7 +290,7 @@ export function GachaAdminPanel({
       <form onSubmit={submitCard} className="space-y-4 rounded-xl border border-fuchsia-200 bg-[var(--paper)] p-5">
         <div>
           <h2 className="text-lg font-semibold text-[var(--navy)]">Tạo thẻ</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">Thẻ trưng bày dùng để sưu tầm; thẻ Battle Ready có thể đưa vào banner để người chơi quay và xây deck PvP.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Thẻ trưng bày dùng để sưu tầm; thẻ Quái vật, Phép và Bẫy có thể đưa vào banner Gacha.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Tên thẻ"><input name="name" required maxLength={100} className={inputClass} /></Field>
@@ -309,7 +317,7 @@ export function GachaAdminPanel({
               <div className="min-w-0 flex-1">
                 <h3 className="font-semibold text-[var(--navy)]">{banner.title} <span className="ml-1 rounded-full bg-[var(--navy)]/5 px-2 py-0.5 text-xs">{banner.type === "LIMITED" ? "Giới hạn" : "Thường"}</span></h3>
                 <p className="mt-1 font-mono text-xs text-[var(--muted)]">{banner.slug}</p>
-                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{banner.cards.map(({ card, dropRate }) => `${card.name} (${card.category === "BATTLE" ? "Battle Ready · " : ""}${rarityNames[card.rarity] ?? card.rarity} · ${dropRate}%)`).join(" · ")}</p>
+                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{banner.cards.map(({ card, dropRate }) => `${card.name} (${getCardTypeLabel(card)} · ${rarityNames[card.rarity] ?? card.rarity} · ${dropRate}%)`).join(" · ")}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" aria-pressed={banner.active} onClick={() => setBannerActive(banner.id, !banner.active)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${banner.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>
@@ -348,7 +356,7 @@ export function GachaAdminPanel({
                     if (!card) return null;
                     return (
                       <div key={item.cardId} className="grid grid-cols-[minmax(0,1fr)_130px_auto] items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-2">
-                        <span className="truncate text-sm font-medium">{card.name}<span className="ml-1 text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready" : ""} · {rarityNames[card.rarity] ?? card.rarity}</span></span>
+                        <span className="truncate text-sm font-medium">{card.name}<span className="ml-1 text-xs text-[var(--muted)]">· {getCardTypeLabel(card)} · {rarityNames[card.rarity] ?? card.rarity}</span></span>
                         <label className="text-xs">Tỉ lệ %
                           <input
                             type="number"
@@ -385,7 +393,7 @@ export function GachaAdminPanel({
                       (card.category === "BATTLE" || !card.specialOnly) &&
                       !(bannerCardDrafts[banner.id] ?? []).some((item) => item.cardId === card.id),
                     ).map((card) => (
-                      <option key={card.id} value={card.id}>{card.name} · {card.category === "BATTLE" ? "Battle Ready" : "Trưng bày"} · {card.rarity}</option>
+                      <option key={card.id} value={card.id}>{card.name} · {getCardTypeLabel(card)} · {card.rarity}</option>
                     ))}
                   </select>
                   <button
