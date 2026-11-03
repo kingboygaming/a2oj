@@ -406,7 +406,7 @@ function CardArt({ card, compact = false }: { card: BattleCard; compact?: boolea
   const showImage = Boolean(card.imageUrl) && !failed;
 
   return (
-    <div className={`relative w-full overflow-hidden rounded-md bg-slate-950/70 ${compact ? "aspect-[3/4]" : "aspect-[3/4] min-h-28"}`}>
+    <div className={`relative w-full shrink-0 overflow-hidden rounded-md bg-slate-950/70 ${compact ? "aspect-[3/4]" : "aspect-[3/4] min-h-28"}`}>
       {showImage ? (
         // API binary routes are more reliable as a plain img than next/image fill in tight grid cells.
         // eslint-disable-next-line @next/next/no-img-element
@@ -477,7 +477,7 @@ function CardFace({
           </span>
         )}
       </div>
-      <div className={`relative ${inDefense ? "origin-center py-1" : ""}`}>
+      <div className={`relative shrink-0 ${inDefense ? "origin-center py-1" : ""}`}>
         <div className={inDefense ? "rotate-90 scale-90" : ""}>
           <CardArt card={card} compact={compact} />
         </div>
@@ -1647,6 +1647,12 @@ export default function BattleRoomPage() {
     }, 350);
   }
 
+  function selectAttackTarget(target: BoardCard) {
+    if (!pendingAttackCardId) return;
+    const attacker = board.find((unit) => unit.card.id === pendingAttackCardId);
+    if (attacker) attack(attacker, target);
+  }
+
   function endTurn() {
     if (!playerCanAct || pendingRaDestroyCardId || pendingStoneWardenCardId || attackingCardId || pendingAttackCardId) return;
     setGameStarted(true);
@@ -1704,16 +1710,47 @@ export default function BattleRoomPage() {
                         : { y: 0, scale: 1 }
                     }
                     transition={{ duration: 0.35 }}
-                    className="h-full"
+                    className={`h-full ${owner === "opponent" && pendingAttackCardId ? "cursor-crosshair" : ""}`}
+                    role={owner === "opponent" && pendingAttackCardId ? "button" : undefined}
+                    tabIndex={owner === "opponent" && pendingAttackCardId ? 0 : undefined}
+                    aria-label={owner === "opponent" && pendingAttackCardId ? `Tấn công ${unit.card.name}` : undefined}
+                    onClick={owner === "opponent" && pendingAttackCardId ? () => selectAttackTarget(unit) : undefined}
+                    onKeyDown={owner === "opponent" && pendingAttackCardId
+                      ? (event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            selectAttackTarget(unit);
+                          }
+                        }
+                      : undefined}
                   >
-                    <CardFace
-                      card={unit.card}
-                      compact
-                      ruleSet={ruleSet}
-                      handCount={owner === "player" ? hand.length : opponent.handCount}
-                      raBonus={unit.raBonus}
-                      position={unit.position}
-                    />
+                    {owner === "player" && ruleSet === "ocg" && (pendingSummonCardId || pendingStoneWardenCardId) ? (
+                      <button
+                        type="button"
+                        aria-pressed={selectedTributeIds.includes(unit.card.id)}
+                        disabled={pendingStoneWardenCardId === unit.card.id}
+                        onClick={() => toggleTribute(unit.card.id)}
+                        className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <CardFace
+                          card={unit.card}
+                          compact
+                          ruleSet={ruleSet}
+                          handCount={hand.length}
+                          raBonus={unit.raBonus}
+                          position={unit.position}
+                        />
+                      </button>
+                    ) : (
+                      <CardFace
+                        card={unit.card}
+                        compact
+                        ruleSet={ruleSet}
+                        handCount={owner === "player" ? hand.length : opponent.handCount}
+                        raBonus={unit.raBonus}
+                        position={unit.position}
+                      />
+                    )}
                     {pendingRaDestroyCardId && ruleSet === "ocg" && !isStoneWarden(unit.card) && (
                       <button
                         type="button"
@@ -1721,18 +1758,6 @@ export default function BattleRoomPage() {
                         className="mt-1 w-full rounded-md bg-rose-500 px-1 py-1 text-[10px] font-black text-white"
                       >
                         Chọn làm mục tiêu của Ra
-                      </button>
-                    )}
-                    {owner === "opponent" && pendingAttackCardId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const attacker = board.find((item) => item.card.id === pendingAttackCardId);
-                          if (attacker) attack(attacker, unit);
-                        }}
-                        className="mt-1 w-full rounded-md bg-rose-500 px-1 py-1 text-[10px] font-black text-white"
-                      >
-                        Chọn làm mục tiêu
                       </button>
                     )}
                     {owner === "player" && (
@@ -1957,7 +1982,7 @@ export default function BattleRoomPage() {
           </p>
         )}
         <p className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/5 px-3 py-2 text-[11px] leading-5 text-cyan-100/80">
-          Hướng dẫn: triệu hồi quái ở thế công hoặc thủ. Quái vừa triệu hồi chưa thể đổi thế; mỗi quái chỉ đổi thế một lần trong lượt và không thể đổi sau khi đã tấn công. Khi đối thủ có quái, bấm “Chọn mục tiêu” trên quái của bạn rồi chọn một quái trên sân đối thủ. Chỉ tấn công trực tiếp khi sân đối thủ trống.
+          Hướng dẫn: triệu hồi quái ở thế công hoặc thủ. Quái vừa triệu hồi chưa thể đổi thế; mỗi quái chỉ đổi thế một lần trong lượt và không thể đổi sau khi đã tấn công. Khi đối thủ có quái, bấm “Chọn mục tiêu” trên quái của bạn rồi bấm vào thẻ quái đối thủ. Chỉ tấn công trực tiếp khi sân đối thủ trống.
         </p>
         {opponent.playerId && opponent.ruleSet !== ruleSet && (
           <p role="alert" className="mt-3 rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
