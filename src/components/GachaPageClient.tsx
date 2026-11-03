@@ -1,7 +1,23 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+const ANNOUNCE_CARD_NAMES_KEY = "gacha-announce-card-names";
+const ANNOUNCE_CARD_NAMES_EVENT = "gacha-announce-card-names-change";
+
+function subscribeToCardNameAnnouncement(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(ANNOUNCE_CARD_NAMES_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(ANNOUNCE_CARD_NAMES_EVENT, callback);
+  };
+}
+
+function getCardNameAnnouncementSetting() {
+  return window.localStorage.getItem(ANNOUNCE_CARD_NAMES_KEY) !== "0";
+}
 
 type CardView = {
   id: string;
@@ -60,15 +76,50 @@ export function GachaPageClient({
   const [bannerId, setBannerId] = useState(banners[0]?.id ?? "");
   const [pulling, setPulling] = useState(false);
   const [revealed, setRevealed] = useState<CardView[]>([]);
+  const [revealSkipped, setRevealSkipped] = useState(false);
+  const announceCardNames = useSyncExternalStore(
+    subscribeToCardNameAnnouncement,
+    getCardNameAnnouncementSetting,
+    () => true,
+  );
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
   const selectedBanner = banners.find((banner) => banner.id === bannerId);
+
+  useEffect(() => {
+    if (revealed.length === 0) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setRevealed([]);
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [revealed.length]);
+
+  function toggleCardNameAnnouncement() {
+    const nextSetting = !announceCardNames;
+    try {
+      window.localStorage.setItem(ANNOUNCE_CARD_NAMES_KEY, nextSetting ? "1" : "0");
+      window.dispatchEvent(new Event(ANNOUNCE_CARD_NAMES_EVENT));
+    } catch {
+      setError(true);
+      setMessage("Không thể lưu cài đặt thông báo tên thẻ.");
+    }
+  }
 
   async function pull(quantity: 1 | 10) {
     if (!selectedBanner || tickets < quantity) return;
     setPulling(true);
     setMessage("");
+    setError(false);
     setRevealed([]);
+    setRevealSkipped(false);
     try {
       const response = await fetch("/api/gacha/pull", {
         method: "POST",
@@ -156,6 +207,15 @@ export function GachaPageClient({
                   <button type="button" disabled={!signedIn || pulling || tickets < 1} onClick={() => pull(1)} className="rounded-xl bg-[var(--teal)] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">{pulling ? "Đang quay..." : "Quay 1 lần · 1 🎟"}</button>
                   <button type="button" disabled={!signedIn || pulling || tickets < 10} onClick={() => pull(10)} className="rounded-xl bg-[var(--navy)] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-50">{pulling ? "Đang quay..." : "Quay 10 lần · 10 🎟"}</button>
                 </div>
+                <label className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-sm text-[var(--muted)]">
+                  <input
+                    type="checkbox"
+                    checked={announceCardNames}
+                    onChange={toggleCardNameAnnouncement}
+                    className="size-4 accent-[var(--teal)]"
+                  />
+                  Thông báo tên thẻ sau khi quay
+                </label>
               </>}
             </div>
             <aside className="border-t border-[var(--line)] bg-[var(--navy)]/[0.025] p-5 lg:border-l lg:border-t-0">
@@ -187,12 +247,47 @@ export function GachaPageClient({
       {message && <p role={error ? "alert" : "status"} className={`rounded-lg px-4 py-3 text-sm ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>{message}</p>}
 
       {revealed.length > 0 && (
-        <section aria-live="polite" className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
-          <h2 className="text-xl font-bold text-[var(--navy)]">Thẻ vừa nhận!</h2>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-            {revealed.map((card, index) => <CardTile key={`${card.id}-${index}`} card={card} revealIndex={index} />)}
-          </div>
-        </section>
+        <div
+          className="gacha-reveal-backdrop fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/70 p-4 sm:p-8"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setRevealed([]);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gacha-reveal-title"
+            className="gacha-reveal-dialog my-auto max-h-full w-full max-w-5xl overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 shadow-2xl sm:p-7"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="gacha-reveal-title" className="text-xl font-bold text-[var(--navy)]">Thẻ vừa nhận!</h2>
+              <div className="flex items-center gap-2">
+                {!revealSkipped && (
+                  <button type="button" onClick={() => setRevealSkipped(true)} className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:border-[var(--teal)]">
+                    Bỏ qua hiệu ứng
+                  </button>
+                )}
+                <button type="button" autoFocus onClick={() => setRevealed([])} aria-label="Đóng kết quả quay" className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:border-[var(--teal)]">
+                  Đóng
+                </button>
+              </div>
+            </div>
+            {announceCardNames && (
+              <p role="status" aria-live="polite" className="mt-4 rounded-lg bg-[var(--teal)]/10 px-4 py-3 text-sm font-medium text-[var(--ink)]">
+                Bạn nhận được: {revealed.map((card) => card.name).join(", ")}
+              </p>
+            )}
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+              {revealed.map((card, index) => (
+                <CardTile
+                  key={`${card.id}-${index}`}
+                  card={card}
+                  revealIndex={revealSkipped ? undefined : index}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
       )}
 
       <section className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
