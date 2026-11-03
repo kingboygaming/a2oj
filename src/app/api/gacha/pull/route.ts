@@ -18,16 +18,27 @@ export async function POST(request: Request) {
   const result = await prisma.$transaction(async (transaction) => {
     const banner = await transaction.gachaBanner.findUnique({
       where: { id: parsed.data.bannerId },
-      include: { cards: { select: { cardId: true, dropRate: true } } },
+      include: { cards: { select: { cardId: true, dropRate: true, card: { select: { rarity: true } } } } },
     });
     if (!banner || !isBannerAvailable(banner)) return { error: "Banner hiện không mở." as const };
     if (banner.cards.length === 0) return { error: "Banner chưa có thẻ để quay." as const };
+    const legendaryCards = banner.cards.filter(({ card }) => card.rarity === "LEGENDARY");
+    if (banner.legendaryPity > 0 && legendaryCards.length === 0) {
+      return { error: "Banner chưa có thẻ Huyền thoại để kích hoạt pity." as const };
+    }
 
     const spent = await transaction.user.updateMany({
       where: { id: user.id, gachaTickets: { gte: parsed.data.quantity } },
       data: { gachaTickets: { decrement: parsed.data.quantity } },
     });
     if (!spent.count) return { error: "Bạn không đủ lượt quay." as const };
+    const pityState = banner.legendaryPity > 0
+      ? await transaction.userGachaBannerPity.findUnique({
+          where: { userId_bannerId: { userId: user.id, bannerId: banner.id } },
+          select: { failedPulls: true },
+        })
+      : null;
+    let failedPulls = pityState?.failedPulls ?? 0;
 
     const pulledCards: {
       id: string;
@@ -44,9 +55,11 @@ export async function POST(request: Request) {
       icon: string;
       imageUrl: string | null;
       dropRate: number;
+      pityGuaranteed: boolean;
     }[] = [];
     for (let index = 0; index < parsed.data.quantity; index += 1) {
-      const cardId = chooseBannerCard(banner.cards);
+      const pityGuaranteed = banner.legendaryPity > 0 && failedPulls + 1 >= banner.legendaryPity;
+      const cardId = chooseBannerCard(pityGuaranteed ? legendaryCards : banner.cards, !pityGuaranteed);
       const bannerCard = banner.cards.find((item) => item.cardId === cardId);
       const card = await transaction.gachaCard.findUnique({
         where: { id: cardId },
@@ -79,6 +92,15 @@ export async function POST(request: Request) {
         ...card,
         imageUrl: card.imageMimeType ? `/api/gacha/cards/${card.id}/image` : null,
         dropRate: bannerCard.dropRate,
+        pityGuaranteed,
+      });
+      failedPulls = card.rarity === "LEGENDARY" ? 0 : failedPulls + 1;
+    }
+    if (banner.legendaryPity > 0) {
+      await transaction.userGachaBannerPity.upsert({
+        where: { userId_bannerId: { userId: user.id, bannerId: banner.id } },
+        create: { userId: user.id, bannerId: banner.id, failedPulls },
+        update: { failedPulls },
       });
     }
 
@@ -86,7 +108,11 @@ export async function POST(request: Request) {
       where: { id: user.id },
       select: { gachaTickets: true },
     });
-    return { cards: pulledCards, tickets: balance.gachaTickets };
+    return {
+      cards: pulledCards,
+      tickets: balance.gachaTickets,
+      pity: { failedPulls, threshold: banner.legendaryPity },
+    };
   });
 
   if ("error" in result) {

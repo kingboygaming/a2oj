@@ -21,6 +21,7 @@ type BannerSummary = {
   title: string;
   type: string;
   active: boolean;
+  legendaryPity: number;
   cards: { card: { id: string; name: string; rarity: string; category: string; battleType: string }; dropRate: number }[];
 };
 
@@ -61,6 +62,7 @@ export function GachaAdminPanel({
   const [bannerType, setBannerType] = useState("NORMAL");
   const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
   const [bannerCardDrafts, setBannerCardDrafts] = useState<Record<string, BannerCardDraft[]>>({});
+  const [bannerPityDrafts, setBannerPityDrafts] = useState<Record<string, number>>({});
   const [bannerCardToAdd, setBannerCardToAdd] = useState("");
   const [bannerSaving, setBannerSaving] = useState(false);
   const [bannerDeletingId, setBannerDeletingId] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export function GachaAdminPanel({
       title: String(form.get("title")),
       description: String(form.get("description") ?? ""),
       type: String(form.get("type")),
+      legendaryPity: Number(form.get("legendaryPity") ?? 0),
       startsAt: form.get("startsAt") ? new Date(String(form.get("startsAt"))).toISOString() : null,
       endsAt: form.get("endsAt") ? new Date(String(form.get("endsAt"))).toISOString() : null,
       cards: selectedCardIds.map((cardId) => ({ cardId, dropRate: Number(dropRates[cardId]) })),
@@ -149,6 +152,29 @@ export function GachaAdminPanel({
       }
       setError(false);
       setMessage("");
+      router.refresh();
+    } catch {
+      setError(true);
+      setMessage("Không thể kết nối máy chủ.");
+    }
+  }
+
+  async function saveBannerPity(bannerId: string, legendaryPity: number) {
+    setMessage("");
+    try {
+      const response = await fetch(`/api/admin/gacha/banners/${bannerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ legendaryPity }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setError(true);
+        setMessage(result.error ?? "Không thể cập nhật pity banner.");
+        return;
+      }
+      setError(false);
+      setMessage("Đã cập nhật pity Huyền thoại.");
       router.refresh();
     } catch {
       setError(true);
@@ -240,6 +266,10 @@ export function GachaAdminPanel({
             </select>
           </Field>
           <Field label="Mô tả"><input name="description" maxLength={500} className={inputClass} /></Field>
+          <Field label="Pity Huyền thoại (0 = tắt)">
+            <input name="legendaryPity" type="number" min={0} max={10000} step={1} defaultValue={0} className={inputClass} />
+          </Field>
+          <p className="self-end text-xs text-[var(--muted)]">Đặt số lượt tối đa chưa ra Huyền thoại; lượt thứ N được bảo đảm ra thẻ Huyền thoại. Banner phải có ít nhất một thẻ Huyền thoại.</p>
           <Field label={`Bắt đầu${bannerType === "LIMITED" ? "" : " (tùy chọn)"}`}><input name="startsAt" required={bannerType === "LIMITED"} type="datetime-local" className={inputClass} /></Field>
           <Field label={`Kết thúc${bannerType === "LIMITED" ? "" : " (tùy chọn)"}`}><input name="endsAt" required={bannerType === "LIMITED"} type="datetime-local" className={inputClass} /></Field>
         </div>
@@ -320,6 +350,27 @@ export function GachaAdminPanel({
                 <h3 className="font-semibold text-[var(--navy)]">{banner.title} <span className="ml-1 rounded-full bg-[var(--navy)]/5 px-2 py-0.5 text-xs">{banner.type === "LIMITED" ? "Giới hạn" : "Thường"}</span></h3>
                 <p className="mt-1 font-mono text-xs text-[var(--muted)]">{banner.slug}</p>
                 <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{banner.cards.map(({ card, dropRate }) => `${card.name} (${getCardTypeLabel(card)} · ${rarityNames[card.rarity] ?? card.rarity} · ${dropRate}%)`).join(" · ")}</p>
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                  <label className="text-xs font-medium text-[var(--ink)]">Pity Huyền thoại · 0 = tắt
+                    <input
+                      type="number"
+                      min={0}
+                      max={10000}
+                      step={1}
+                      value={bannerPityDrafts[banner.id] ?? banner.legendaryPity}
+                      onChange={(event) => setBannerPityDrafts((current) => ({ ...current, [banner.id]: Number(event.target.value) }))}
+                      className="mt-1 block w-40 rounded border border-[var(--line)] px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={(bannerPityDrafts[banner.id] ?? banner.legendaryPity) === banner.legendaryPity}
+                    onClick={() => void saveBannerPity(banner.id, bannerPityDrafts[banner.id] ?? banner.legendaryPity)}
+                    className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold hover:border-[var(--teal)] disabled:opacity-40"
+                  >
+                    Lưu pity
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" aria-pressed={banner.active} onClick={() => setBannerActive(banner.id, !banner.active)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${banner.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>

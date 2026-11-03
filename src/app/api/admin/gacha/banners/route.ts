@@ -11,6 +11,7 @@ const bannerSchema = z.object({
   title: z.string().trim().min(2).max(100),
   description: z.string().trim().max(500).default(""),
   type: z.enum(["NORMAL", "LIMITED"]),
+  legendaryPity: z.number().int().min(0).max(10000).default(0),
   startsAt: z.string().datetime().nullable(),
   endsAt: z.string().datetime().nullable(),
   cards: z.array(z.object({
@@ -51,10 +52,13 @@ export async function POST(request: Request) {
         { category: "DISPLAY", specialOnly: false },
       ],
     },
-    select: { id: true },
+    select: { id: true, rarity: true },
   });
   if (selectedCards.length !== parsed.data.cards.length) {
     return NextResponse.json({ error: "Một hoặc nhiều thẻ banner không tồn tại hoặc không thể đưa vào banner." }, { status: 400 });
+  }
+  if (parsed.data.legendaryPity > 0 && !selectedCards.some((card) => card.rarity === "LEGENDARY")) {
+    return NextResponse.json({ error: "Banner cần có ít nhất một thẻ Huyền thoại để bật pity." }, { status: 400 });
   }
 
   try {
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
           title: parsed.data.title,
           description: parsed.data.description,
           type: parsed.data.type,
+          legendaryPity: parsed.data.legendaryPity,
           startsAt: parsed.data.startsAt ? new Date(parsed.data.startsAt) : null,
           endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
         },

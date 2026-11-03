@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function GachaPage() {
   const user = await getCurrentUser();
   const now = new Date();
-  const [banners, account, ownedCards] = await Promise.all([
+  const [banners, account, ownedCards, pityProgress] = await Promise.all([
     prisma.gachaBanner.findMany({
       where: { active: true },
       orderBy: [{ type: "asc" }, { createdAt: "desc" }],
@@ -68,6 +68,12 @@ export default async function GachaPage() {
           },
         })
       : [],
+    user
+      ? prisma.userGachaBannerPity.findMany({
+          where: { userId: user.id },
+          select: { bannerId: true, failedPulls: true },
+        })
+      : [],
   ]);
   const availableBanners = banners.filter((banner) => isBannerAvailable(banner, now));
   const featuredCardId = account?.featuredGachaCardId ?? null;
@@ -85,6 +91,7 @@ export default async function GachaPage() {
           title: banner.title,
           description: banner.description,
           type: banner.type,
+          legendaryPity: banner.legendaryPity,
           startsAt: banner.startsAt?.toISOString() ?? null,
           endsAt: banner.endsAt?.toISOString() ?? null,
           cards: banner.cards.map(({ card, dropRate }) => {
@@ -95,6 +102,7 @@ export default async function GachaPage() {
             };
           }),
         }))}
+        initialPityProgress={Object.fromEntries(pityProgress.map(({ bannerId, failedPulls }) => [bannerId, failedPulls]))}
         initialTickets={account?.gachaTickets ?? 0}
         initialCollection={ownedCards.map(({ card, count }) => {
           const { imageMimeType, ...cardData } = card;

@@ -24,10 +24,12 @@ export function isBannerAvailable(
   return banner.active && (!banner.startsAt || banner.startsAt <= now) && (!banner.endsAt || banner.endsAt > now);
 }
 
-export function chooseBannerCard(cards: BannerCardOdds[]) {
+export function chooseBannerCard(cards: BannerCardOdds[], requireFullRate = true) {
   const rateUnits = cards.map(({ dropRate }) => Math.round(dropRate * 10_000));
   const total = rateUnits.reduce((sum, rate) => sum + rate, 0);
-  if (total !== 1_000_000) throw new Error("Tỉ lệ thẻ trong banner phải có tổng bằng 100%.");
+  if (total <= 0 || (requireFullRate && total !== 1_000_000)) {
+    throw new Error(requireFullRate ? "Tỉ lệ thẻ trong banner phải có tổng bằng 100%." : "Không có thẻ hợp lệ để chọn.");
+  }
   let roll = randomInt(total);
   for (let index = 0; index < cards.length; index += 1) {
     roll -= rateUnits[index];

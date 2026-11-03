@@ -70,6 +70,7 @@ model User {
   achievementUnlocks AchievementUnlock[]
   gachaCards UserGachaCard[]
   gachaPulls GachaPull[]
+  gachaBannerPity UserGachaBannerPity[]
   gachaRewardClaims GachaRewardClaim[]
   battleDeck UserBattleDeck?
   featuredGachaCard GachaCard? @relation("FeaturedGachaCard", fields: [featuredGachaCardId], references: [id], onDelete: SetNull)
@@ -268,8 +269,10 @@ model GachaBanner {
   startsAt    DateTime?
   endsAt      DateTime?
   createdAt   DateTime @default(now())
+  legendaryPity Int     @default(0)
   cards       GachaBannerCard[]
   pulls       GachaPull[]
+  pityProgress UserGachaBannerPity[]
 
   @@index([active, type, startsAt, endsAt])
 }
@@ -327,6 +330,16 @@ model UserGachaCard {
   card   GachaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@id([userId, cardId])
+}
+
+model UserGachaBannerPity {
+  userId     String
+  bannerId   String
+  failedPulls Int      @default(0)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  banner     GachaBanner @relation(fields: [bannerId], references: [id], onDelete: Cascade)
+
+  @@id([userId, bannerId])
 }
 
 model UserBattleDeck {

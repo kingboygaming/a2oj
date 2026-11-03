@@ -36,6 +36,7 @@ type CardView = {
   imageUrl: string | null;
   count?: number;
   dropRate?: number;
+  pityGuaranteed?: boolean;
 };
 
 type BannerView = {
@@ -43,6 +44,7 @@ type BannerView = {
   title: string;
   description: string;
   type: string;
+  legendaryPity: number;
   startsAt: string | null;
   endsAt: string | null;
   cards: { card: CardView; dropRate: number }[];
@@ -76,17 +78,20 @@ export function GachaPageClient({
   banners,
   initialTickets,
   initialCollection,
+  initialPityProgress,
   initialFeaturedCardId,
   signedIn,
 }: {
   banners: BannerView[];
   initialTickets: number;
   initialCollection: CardView[];
+  initialPityProgress: Record<string, number>;
   initialFeaturedCardId: string | null;
   signedIn: boolean;
 }) {
   const [tickets, setTickets] = useState(initialTickets);
   const [collection, setCollection] = useState(initialCollection);
+  const [pityProgress, setPityProgress] = useState(initialPityProgress);
   const [featuredCardId, setFeaturedCardId] = useState(initialFeaturedCardId);
   const [bannerId, setBannerId] = useState(banners[0]?.id ?? "");
   const [pulling, setPulling] = useState(false);
@@ -149,6 +154,7 @@ export function GachaPageClient({
       }
       setTickets(result.tickets);
       setRevealed(result.cards);
+      setPityProgress((current) => ({ ...current, [selectedBanner.id]: result.pity.failedPulls }));
       setCollection((current) => {
         const next = new Map(current.map((card) => [card.id, card]));
         for (const card of result.cards as CardView[]) {
@@ -217,6 +223,7 @@ export function GachaPageClient({
                   <h2 className="mt-2 text-3xl font-bold text-[var(--navy)]">{selectedBanner.title}</h2>
                   <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--ink)]">{selectedBanner.description || "Thu thập những thẻ yêu thích của bạn."}</p>
                   {selectedBanner.endsAt && <p className="mt-3 text-xs font-medium text-rose-800">Kết thúc: {new Date(selectedBanner.endsAt).toLocaleString("vi-VN")}</p>}
+                  {selectedBanner.legendaryPity > 0 && <p className="mt-3 text-sm font-semibold text-amber-900">Pity Huyền thoại: {pityProgress[selectedBanner.id] ?? 0}/{selectedBanner.legendaryPity} lượt chưa ra Huyền thoại · còn {Math.max(0, selectedBanner.legendaryPity - (pityProgress[selectedBanner.id] ?? 0))} lượt đến lần bảo đảm.</p>}
                 </div>
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button type="button" disabled={!signedIn || pulling || tickets < 1} onClick={() => pull(1)} className="rounded-xl bg-[var(--teal)] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">{pulling ? "Đang quay..." : "Quay 1 lần · 1 🎟"}</button>
@@ -347,6 +354,7 @@ function CardTile({ card, revealIndex }: { card: CardView; revealIndex?: number 
           <div className="grid size-full place-items-center text-5xl" aria-label={card.name}>{card.icon || "🃏"}</div>
         )}
         {card.count && card.count > 1 && <span className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-white">×{card.count}</span>}
+        {card.pityGuaranteed && <span className="absolute bottom-2 left-2 rounded-full bg-amber-500 px-2 py-1 text-[10px] font-bold text-white shadow">Pity bảo đảm</span>}
       </div>
       <div className="p-2.5">
         <p className="truncate text-sm font-bold">{card.name}</p>

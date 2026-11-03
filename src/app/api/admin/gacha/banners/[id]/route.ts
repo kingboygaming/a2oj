@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 const updateSchema = z.union([
   z.object({ active: z.boolean() }),
+  z.object({ legendaryPity: z.number().int().min(0).max(10000) }),
   z.object({
     cards: z.array(z.object({
       cardId: z.string().min(1),
@@ -34,12 +35,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   if (!("cards" in parsed.data)) {
-    const updated = await prisma.gachaBanner.updateMany({ where: { id }, data: { active: parsed.data.active } });
+    if ("legendaryPity" in parsed.data && parsed.data.legendaryPity > 0) {
+      const legendaryCard = await prisma.gachaBannerCard.findFirst({
+        where: { bannerId: id, card: { rarity: "LEGENDARY" } },
+        select: { cardId: true },
+      });
+      if (!legendaryCard) {
+        return NextResponse.json({ error: "Banner cần có ít nhất một thẻ Huyền thoại để bật pity." }, { status: 400 });
+      }
+    }
+    const data = "legendaryPity" in parsed.data
+      ? { legendaryPity: parsed.data.legendaryPity }
+      : { active: parsed.data.active };
+    const updated = await prisma.gachaBanner.updateMany({ where: { id }, data });
     if (!updated.count) return NextResponse.json({ error: "Không tìm thấy banner." }, { status: 404 });
     return NextResponse.json({ success: true });
   }
   const cards = parsed.data.cards;
-  const banner = await prisma.gachaBanner.findUnique({ where: { id }, select: { id: true } });
+  const banner = await prisma.gachaBanner.findUnique({ where: { id }, select: { id: true, legendaryPity: true } });
   if (!banner) return NextResponse.json({ error: "Không tìm thấy banner." }, { status: 404 });
   const selectedCards = await prisma.gachaCard.findMany({
     where: {
@@ -49,10 +62,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         { category: "DISPLAY", specialOnly: false },
       ],
     },
-    select: { id: true },
+    select: { id: true, rarity: true },
   });
   if (selectedCards.length !== cards.length) {
     return NextResponse.json({ error: "Một hoặc nhiều thẻ không tồn tại hoặc không thể đưa vào banner." }, { status: 400 });
+  }
+  if (banner.legendaryPity > 0 && !selectedCards.some((card) => card.rarity === "LEGENDARY")) {
+    return NextResponse.json({ error: "Banner cần có ít nhất một thẻ Huyền thoại khi pity đang bật." }, { status: 400 });
   }
 
   await prisma.$transaction(async (transaction) => {
