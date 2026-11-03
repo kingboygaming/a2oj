@@ -49,6 +49,22 @@ export async function Header() {
                 {link.label}
               </Link>
             ))}
+            <details className="group relative">
+              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2.5 py-1.5 text-[var(--cream)]/90 hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+                Giải trí
+                <span aria-hidden="true" className="text-[10px] transition-transform group-open:rotate-180">⌄</span>
+              </summary>
+              <div className="absolute left-0 top-full z-[120] mt-1 min-w-48 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] p-1.5 text-[var(--cream)] shadow-xl">
+                <Link
+                  href="/battle"
+                  prefetch={true}
+                  className="block rounded-md px-3 py-2.5 hover:bg-white/10"
+                >
+                  <span className="block font-medium">🎴 Đấu bài PvP</span>
+                  <span className="mt-0.5 block text-xs text-[var(--cream)]/65">Tạo phòng hoặc nhập mã tham gia</span>
+                </Link>
+              </div>
+            </details>
           </nav>
         </div>
         <div className="flex items-center gap-2 text-sm">
