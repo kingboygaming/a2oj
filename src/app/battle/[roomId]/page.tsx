@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion, type PanInfo } from "framer-motion";
+import { AnimatePresence, motion, useDragControls, type PanInfo } from "framer-motion";
 import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -286,6 +286,56 @@ function CardFace({
         </p>
       </div>
     </div>
+  );
+}
+
+function HandCard({
+  card,
+  ruleSet,
+  canAct,
+  onPlay,
+  onDragEnd,
+}: {
+  card: BattleCard;
+  ruleSet: RuleSet;
+  canAct: boolean;
+  onPlay: () => void;
+  onDragEnd: (info: PanInfo) => void;
+}) {
+  const dragControls = useDragControls();
+
+  return (
+    <motion.div
+      drag
+      dragControls={dragControls}
+      dragListener={false}
+      dragMomentum={false}
+      initial={{ opacity: 0, x: 90, y: -70, scale: 0.65, rotate: 8 }}
+      animate={{ opacity: 1, x: 0, y: 0, scale: 1, rotate: 0 }}
+      exit={{ opacity: 0, y: -24, scale: 0.85 }}
+      transition={{ type: "spring", stiffness: 260, damping: 22 }}
+      whileDrag={{ scale: 1.1, zIndex: 20, rotate: -3 }}
+      className="w-32 shrink-0 sm:w-36"
+      onDragEnd={(_, info) => onDragEnd(info)}
+    >
+      <div
+        onPointerDown={(event) => dragControls.start(event)}
+        className="relative cursor-grab touch-none rounded-xl text-left active:cursor-grabbing"
+      >
+        <CardFace card={card} ruleSet={ruleSet} />
+        <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-slate-950/80 px-1.5 py-1 text-[10px] text-cyan-200">
+          Kéo thẻ
+        </span>
+      </div>
+      <button
+        type="button"
+        disabled={!canAct}
+        onClick={onPlay}
+        className="mt-1.5 w-full rounded-lg bg-cyan-500 px-2 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {ruleSet === "ocg" ? "Triệu hồi" : "Dùng bài"}
+      </button>
+    </motion.div>
   );
 }
 
@@ -749,74 +799,150 @@ export default function BattleRoomPage() {
   const renderBoard = (
     units: BoardCard[],
     owner: "opponent" | "player",
-  ) => (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-      {Array.from({ length: MAX_BOARD_CARDS }, (_, index) => {
-        const unit = units[index];
-        return (
-          <div
-            key={`${owner}-slot-${index}`}
-            data-tribute-id={owner === "player" && unit ? unit.card.id : undefined}
-            className={`relative min-h-28 rounded-xl border border-dashed p-1.5 transition-colors sm:min-h-36 ${
-              unit && selectedTributeIds.includes(unit.card.id)
-                ? "border-amber-300 bg-amber-400/10"
-                : "border-slate-700/80 bg-slate-950/50"
-            }`}
-          >
-            {unit ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.72 }}
-                animate={
-                  attackingCardId === unit.card.id
-                    ? { y: [-8, -38, 0], scale: [1, 1.08, 1] }
-                    : { y: 0, scale: 1 }
-                }
-                transition={{ duration: 0.35 }}
-                className="h-full"
+  ) => {
+    const renderMonsterZones = () => (
+      <div>
+        <p className="mb-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-cyan-100/55">
+          Khu vực quái thú
+        </p>
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+          {Array.from({ length: MAX_BOARD_CARDS }, (_, index) => {
+            const unit = units[index];
+            return (
+              <div
+                key={`${owner}-slot-${index}`}
+                data-tribute-id={owner === "player" && unit ? unit.card.id : undefined}
+                aria-label={`Ô quái thú ${index + 1}${unit ? `: ${unit.card.name}` : ": trống"}`}
+                className={`relative min-h-24 rounded-md border p-1 transition-colors sm:min-h-36 sm:rounded-lg sm:p-1.5 ${
+                  unit && selectedTributeIds.includes(unit.card.id)
+                    ? "border-amber-300 bg-amber-400/15 ring-1 ring-amber-300/50"
+                    : "border-cyan-100/20 bg-slate-950/35"
+                }`}
               >
-                <CardFace
-                  card={unit.card}
-                  compact
-                  ruleSet={ruleSet}
-                  handCount={owner === "player" ? hand.length : opponent.handCount}
-                  raBonus={unit.raBonus}
-                />
-                {owner === "player" && (
-                  <div className="mt-1 grid gap-1">
-                    {pendingSummonCardId && ruleSet === "ocg" && (
-                      <button
-                        type="button"
-                        onClick={() => toggleTribute(unit.card.id)}
-                        className={`w-full rounded-md px-1 py-1 text-[10px] font-bold ${
-                          selectedTributeIds.includes(unit.card.id)
-                            ? "bg-amber-300 text-slate-950"
-                            : "bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
-                        }`}
-                      >
-                        {selectedTributeIds.includes(unit.card.id) ? "Đã chọn hiến tế" : "Chọn hiến tế"}
-                      </button>
+                {unit ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.72 }}
+                    animate={
+                      attackingCardId === unit.card.id
+                        ? { y: [-8, -38, 0], scale: [1, 1.08, 1] }
+                        : { y: 0, scale: 1 }
+                    }
+                    transition={{ duration: 0.35 }}
+                    className="h-full"
+                  >
+                    <CardFace
+                      card={unit.card}
+                      compact
+                      ruleSet={ruleSet}
+                      handCount={owner === "player" ? hand.length : opponent.handCount}
+                      raBonus={unit.raBonus}
+                    />
+                    {owner === "player" && (
+                      <div className="mt-1 grid gap-1">
+                        {pendingSummonCardId && ruleSet === "ocg" && (
+                          <button
+                            type="button"
+                            onClick={() => toggleTribute(unit.card.id)}
+                            className={`w-full rounded-md px-1 py-1 text-[10px] font-bold ${
+                              selectedTributeIds.includes(unit.card.id)
+                                ? "bg-amber-300 text-slate-950"
+                                : "bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
+                            }`}
+                          >
+                            {selectedTributeIds.includes(unit.card.id) ? "Đã chọn hiến tế" : "Chọn hiến tế"}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={!playerCanAct || unit.hasAttacked}
+                          onClick={() => attack(unit)}
+                          className="w-full rounded-md bg-rose-500/15 px-1 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {unit.hasAttacked ? "Đã tấn công" : "⚔ Tấn công"}
+                        </button>
+                      </div>
                     )}
-                    <button
-                      type="button"
-                      disabled={!playerCanAct || unit.hasAttacked}
-                      onClick={() => attack(unit)}
-                      className="w-full rounded-md bg-rose-500/15 px-1 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {unit.hasAttacked ? "Đã tấn công" : "⚔ Tấn công"}
-                    </button>
+                  </motion.div>
+                ) : (
+                  <div className="grid min-h-[5.5rem] place-items-center text-center text-[9px] font-semibold text-cyan-100/35 sm:min-h-32 sm:text-[10px]">
+                    <span>{index + 1}</span>
                   </div>
                 )}
-              </motion.div>
-            ) : (
-              <div className="grid h-full min-h-24 place-items-center text-[10px] text-slate-600">
-                Ô {index + 1}
               </div>
-            )}
+            );
+          })}
+        </div>
+      </div>
+    );
+
+    const renderSpellTrapZones = () => (
+      <div>
+        <p className="mb-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-violet-100/55">
+          Khu vực phép thuật / bẫy
+        </p>
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+          {Array.from({ length: MAX_BOARD_CARDS }, (_, index) => (
+            <div
+              key={`${owner}-spell-trap-${index}`}
+              aria-label={`Ô phép thuật hoặc bẫy ${index + 1}`}
+              className="grid min-h-10 place-items-center rounded-md border border-violet-200/20 bg-violet-950/20 text-[9px] font-semibold text-violet-100/35 sm:min-h-14 sm:rounded-lg"
+            >
+              S/T {index + 1}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+
+    const renderAuxiliaryZones = () => (
+      <div className="grid grid-cols-4 gap-1.5 border-t border-white/10 pt-2 sm:gap-2">
+        {[
+          ["✦", "Extra Deck"],
+          ["◇", "Khu vực sân"],
+          ["墓", "Mộ bài"],
+          ["▤", "Bộ bài"],
+        ].map(([icon, label]) => (
+          <div
+            key={`${owner}-${label}`}
+            className="flex min-h-9 items-center justify-center gap-1 rounded-md border border-white/10 bg-slate-950/25 px-1 text-[8px] font-bold text-slate-300/65 sm:min-h-10 sm:gap-1.5 sm:text-[10px]"
+          >
+            <span className="text-cyan-200/70">{icon}</span>
+            <span>{label}</span>
           </div>
-        );
-      })}
-    </div>
-  );
+        ))}
+      </div>
+    );
+
+    return (
+      <div
+        className={`relative overflow-hidden rounded-xl border p-2 sm:rounded-2xl sm:p-4 ${
+          owner === "opponent"
+            ? "border-rose-200/20 bg-[radial-gradient(ellipse_at_top,rgba(244,63,94,0.12),transparent_65%),linear-gradient(145deg,#172033,#101827_55%,#111827)]"
+            : "border-cyan-200/25 bg-[radial-gradient(ellipse_at_bottom,rgba(6,182,212,0.15),transparent_65%),linear-gradient(145deg,#112532,#101d2a_55%,#111827)]"
+        }`}
+      >
+        <div className={`pointer-events-none absolute inset-0 opacity-30 ${
+          owner === "opponent"
+            ? "bg-[radial-gradient(circle_at_15%_25%,rgba(251,113,133,0.45)_1px,transparent_1.5px),radial-gradient(circle_at_75%_70%,rgba(255,255,255,0.35)_1px,transparent_1.5px)]"
+            : "bg-[radial-gradient(circle_at_25%_70%,rgba(34,211,238,0.45)_1px,transparent_1.5px),radial-gradient(circle_at_85%_25%,rgba(255,255,255,0.35)_1px,transparent_1.5px)]"
+        }`} />
+        <div className="relative space-y-2 sm:space-y-3">
+          {owner === "opponent" ? (
+            <>
+              {renderSpellTrapZones()}
+              {renderMonsterZones()}
+            </>
+          ) : (
+            <>
+              {renderMonsterZones()}
+              {renderSpellTrapZones()}
+            </>
+          )}
+          {renderAuxiliaryZones()}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto max-w-6xl rounded-3xl border border-slate-800 bg-slate-950 p-3 text-slate-100 shadow-2xl shadow-cyan-950/20 sm:p-6">
@@ -1021,28 +1147,14 @@ export default function BattleRoomPage() {
           <div className="flex gap-2 overflow-x-auto px-1 pb-2">
             <AnimatePresence initial={false}>
               {hand.map((card) => (
-                <motion.button
+                <HandCard
                   key={card.id}
-                  type="button"
-                  drag
-                  dragMomentum={false}
-                  initial={{ opacity: 0, x: 90, y: -70, scale: 0.65, rotate: 8 }}
-                  animate={{ opacity: 1, x: 0, y: 0, scale: 1, rotate: 0 }}
-                  exit={{ opacity: 0, y: -24, scale: 0.85 }}
-                  transition={{ type: "spring", stiffness: 260, damping: 22 }}
-                  whileDrag={{ scale: 1.1, zIndex: 20, rotate: -3 }}
-                  whileHover={{ y: -5 }}
-                  onDragEnd={(_, info) => handleCardDragEnd(card, info)}
-                  onClick={() => playCard(card)}
-                  aria-label={
-                    ruleSet === "basic"
-                      ? `Sử dụng ${card.name}, tốn ${card.cost} Mana`
-                      : `Triệu hồi ${card.name}, cấp ${card.level}`
-                  }
-                  className="shrink-0 cursor-grab touch-none rounded-xl text-left active:cursor-grabbing"
-                >
-                  <CardFace card={card} ruleSet={ruleSet} />
-                </motion.button>
+                  card={card}
+                  ruleSet={ruleSet}
+                  canAct={playerCanAct}
+                  onPlay={() => playCard(card)}
+                  onDragEnd={(info) => handleCardDragEnd(card, info)}
+                />
               ))}
             </AnimatePresence>
           </div>
