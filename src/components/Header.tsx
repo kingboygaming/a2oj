@@ -40,19 +40,21 @@ export async function Header() {
           </Link>
           <nav
             aria-label="Điều hướng chính"
-            className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 whitespace-nowrap text-sm"
           >
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                prefetch={true}
-                className="rounded-md px-2.5 py-1.5 text-[var(--cream)]/90 hover:bg-white/10"
-              >
-                {link.label}
-              </Link>
-            ))}
-            <details className="group relative">
+            <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {links.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  prefetch={true}
+                  className="rounded-md px-2.5 py-1.5 text-[var(--cream)]/90 hover:bg-white/10"
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+            <details className="group relative shrink-0">
               <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2.5 py-1.5 text-[var(--cream)]/90 hover:bg-white/10 [&::-webkit-details-marker]:hidden">
                 Giải trí
                 <span aria-hidden="true" className="text-[10px] transition-transform group-open:rotate-180">⌄</span>
