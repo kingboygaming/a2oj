@@ -12,7 +12,7 @@ export default async function AdminGachaPage() {
   const [banners, specialCards, cards] = await Promise.all([
     prisma.gachaBanner.findMany({
       orderBy: { createdAt: "desc" },
-      include: { cards: { include: { card: { select: { name: true, rarity: true } } } } },
+      include: { cards: { include: { card: { select: { id: true, name: true, rarity: true, category: true } } } } },
     }),
     prisma.gachaCard.findMany({
       where: { specialOnly: true, category: "DISPLAY" },

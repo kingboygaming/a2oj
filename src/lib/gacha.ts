@@ -25,9 +25,9 @@ export function isBannerAvailable(
 }
 
 export function chooseBannerCard(cards: BannerCardOdds[]) {
-  const rateUnits = cards.map(({ dropRate }) => Math.round(dropRate * 100));
+  const rateUnits = cards.map(({ dropRate }) => Math.round(dropRate * 10_000));
   const total = rateUnits.reduce((sum, rate) => sum + rate, 0);
-  if (total !== 10_000) throw new Error("Tỉ lệ thẻ trong banner phải có tổng bằng 100%.");
+  if (total !== 1_000_000) throw new Error("Tỉ lệ thẻ trong banner phải có tổng bằng 100%.");
   let roll = randomInt(total);
   for (let index = 0; index < cards.length; index += 1) {
     roll -= rateUnits[index];

@@ -15,11 +15,14 @@ type CardSummary = {
 
 type BannerSummary = {
   id: string;
+  slug: string;
   title: string;
   type: string;
   active: boolean;
-  cards: { card: { name: string; rarity: string }; dropRate: number }[];
+  cards: { card: { id: string; name: string; rarity: string; category: string }; dropRate: number }[];
 };
+
+type BannerCardDraft = { cardId: string; dropRate: number };
 
 const rarityNames: Record<string, string> = {
   COMMON: "Thường",
@@ -47,6 +50,11 @@ export function GachaAdminPanel({
   const [dropRates, setDropRates] = useState<Record<string, number>>({});
   const [cardToAdd, setCardToAdd] = useState("");
   const [bannerType, setBannerType] = useState("NORMAL");
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
+  const [bannerCardDrafts, setBannerCardDrafts] = useState<Record<string, BannerCardDraft[]>>({});
+  const [bannerCardToAdd, setBannerCardToAdd] = useState("");
+  const [bannerSaving, setBannerSaving] = useState(false);
+  const [bannerDeletingId, setBannerDeletingId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [cardPending, setCardPending] = useState(false);
   const [message, setMessage] = useState("");
@@ -139,12 +147,79 @@ export function GachaAdminPanel({
     }
   }
 
+  function startEditingBanner(banner: BannerSummary) {
+    setEditingBannerId(banner.id);
+    setBannerCardToAdd("");
+    setBannerCardDrafts((current) => ({
+      ...current,
+      [banner.id]: banner.cards.map(({ card, dropRate }) => ({ cardId: card.id, dropRate })),
+    }));
+  }
+
+  async function saveBannerCards(bannerId: string) {
+    const bannerCards = bannerCardDrafts[bannerId] ?? [];
+    const total = bannerCards.reduce((sum, item) => sum + (Number(item.dropRate) || 0), 0);
+    if (Math.round(total * 10_000) !== 1_000_000) {
+      setError(true);
+      setMessage("Tổng tỉ lệ các thẻ trong banner phải bằng đúng 100%.");
+      return;
+    }
+
+    setBannerSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/admin/gacha/banners/${bannerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cards: bannerCards }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setError(true);
+        setMessage(result.error ?? "Không thể cập nhật thẻ trong banner.");
+        return;
+      }
+      setError(false);
+      setMessage("Đã cập nhật thẻ và tỉ lệ banner.");
+      setEditingBannerId(null);
+      router.refresh();
+    } catch {
+      setError(true);
+      setMessage("Không thể kết nối máy chủ.");
+    } finally {
+      setBannerSaving(false);
+    }
+  }
+
+  async function deleteBanner(banner: BannerSummary) {
+    if (!window.confirm(`Xóa banner "${banner.title}"? Banner có lịch sử quay sẽ không thể xóa; bạn có thể tắt banner để ẩn nó.`)) return;
+    setBannerDeletingId(banner.id);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/admin/gacha/banners/${banner.id}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) {
+        setError(true);
+        setMessage(result.error ?? "Không thể xóa banner.");
+        return;
+      }
+      setError(false);
+      setMessage(`Đã xóa banner "${banner.title}".`);
+      router.refresh();
+    } catch {
+      setError(true);
+      setMessage("Không thể kết nối máy chủ.");
+    } finally {
+      setBannerDeletingId(null);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <form onSubmit={submitBanner} className="space-y-5 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
         <div>
           <h2 className="text-lg font-semibold text-[var(--navy)]">Tạo banner</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">Tổng tỉ lệ các thẻ trong banner phải bằng đúng 100%.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Tổng tỉ lệ phải bằng 100%. Mỗi thẻ hỗ trợ tối đa 4 chữ số thập phân.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Tên banner"><input name="title" required maxLength={100} className={inputClass} /></Field>
@@ -163,8 +238,8 @@ export function GachaAdminPanel({
         <section className="space-y-3 rounded-lg border border-[var(--line)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-semibold text-[var(--navy)]">Thẻ trong banner</h3>
-            <span className={`text-sm font-semibold ${Math.round(totalRate * 100) === 10_000 ? "text-emerald-700" : "text-rose-700"}`}>
-              Tổng: {totalRate.toFixed(2)}%
+            <span className={`text-sm font-semibold ${Math.round(totalRate * 10_000) === 1_000_000 ? "text-emerald-700" : "text-rose-700"}`}>
+              Tổng: {totalRate.toFixed(4)}%
             </span>
           </div>
           {cards.filter((card) => card.category === "BATTLE" || !card.specialOnly).length === 0 ? (
@@ -178,7 +253,7 @@ export function GachaAdminPanel({
                   <div key={id} className="grid grid-cols-[1fr_110px_auto] items-center gap-2 rounded-lg bg-[var(--navy)]/[0.03] p-2">
                     <span className="truncate text-sm font-medium">{card.name} <span className="text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready · " : "· "}{rarityNames[card.rarity] ?? card.rarity}</span></span>
                     <label className="text-xs">Tỉ lệ %
-                      <input type="number" min="0.01" max="100" step="0.01" value={dropRates[id] ?? 0} onChange={(event) => setDropRates((current) => ({ ...current, [id]: Number(event.target.value) }))} className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1 text-sm" />
+                      <input type="number" min="0.0001" max="100" step="0.0001" value={dropRates[id] ?? 0} onChange={(event) => setDropRates((current) => ({ ...current, [id]: Number(event.target.value) }))} className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1 text-sm" />
                     </label>
                     <button type="button" onClick={() => setSelectedCardIds((current) => current.filter((cardId) => cardId !== id))} className="text-sm text-rose-700 hover:underline">Bỏ</button>
                   </div>
@@ -199,7 +274,7 @@ export function GachaAdminPanel({
           )}
         </section>
         {message && <p role={error ? "alert" : "status"} className={`text-sm ${error ? "text-rose-700" : "text-emerald-700"}`}>{message}</p>}
-        <button disabled={pending || Math.round(totalRate * 100) !== 10_000} className="rounded-lg bg-[var(--teal)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+        <button disabled={pending || Math.round(totalRate * 10_000) !== 1_000_000} className="rounded-lg bg-[var(--teal)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
           {pending ? "Đang tạo..." : "Tạo banner"}
         </button>
       </form>
@@ -229,16 +304,119 @@ export function GachaAdminPanel({
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-[var(--navy)]">Banner hiện có ({banners.length})</h2>
         {banners.map((banner) => (
-          <article key={banner.id} className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4">
-            <div>
-              <h3 className="font-semibold text-[var(--navy)]">{banner.title} <span className="ml-1 rounded-full bg-[var(--navy)]/5 px-2 py-0.5 text-xs">{banner.type === "LIMITED" ? "Giới hạn" : "Thường"}</span></h3>
-              <p className="mt-2 text-sm text-[var(--muted)]">{banner.cards.map(({ card, dropRate }) => `${card.name} (${rarityNames[card.rarity] ?? card.rarity} · ${dropRate}%)`).join(" · ")}</p>
+          <article key={banner.id} className="space-y-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-[var(--navy)]">{banner.title} <span className="ml-1 rounded-full bg-[var(--navy)]/5 px-2 py-0.5 text-xs">{banner.type === "LIMITED" ? "Giới hạn" : "Thường"}</span></h3>
+                <p className="mt-1 font-mono text-xs text-[var(--muted)]">{banner.slug}</p>
+                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{banner.cards.map(({ card, dropRate }) => `${card.name} (${card.category === "BATTLE" ? "Battle Ready · " : ""}${rarityNames[card.rarity] ?? card.rarity} · ${dropRate}%)`).join(" · ")}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" aria-pressed={banner.active} onClick={() => setBannerActive(banner.id, !banner.active)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${banner.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>
+                  {banner.active ? "Đang bật · Tắt" : "Đang tắt · Bật"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => editingBannerId === banner.id ? setEditingBannerId(null) : startEditingBanner(banner)}
+                  className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--ink)] hover:border-[var(--teal)]"
+                >
+                  {editingBannerId === banner.id ? "Đóng quản lý" : "Quản lý thẻ"}
+                </button>
+                <button
+                  type="button"
+                  disabled={bannerDeletingId === banner.id}
+                  onClick={() => void deleteBanner(banner)}
+                  className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                >
+                  {bannerDeletingId === banner.id ? "Đang xóa..." : "Xóa banner"}
+                </button>
+              </div>
             </div>
-            <button type="button" aria-pressed={banner.active} onClick={() => setBannerActive(banner.id, !banner.active)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${banner.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>
-              {banner.active ? "Đang bật · Tắt banner" : "Đang tắt · Bật banner"}
-            </button>
+            {editingBannerId === banner.id && (
+              <div className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--background)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-sm font-bold text-[var(--navy)]">Thẻ và tỉ lệ rơi</h4>
+                  {(() => {
+                    const draft = bannerCardDrafts[banner.id] ?? [];
+                    const total = draft.reduce((sum, item) => sum + (Number(item.dropRate) || 0), 0);
+                    return <span className={`text-sm font-bold ${Math.round(total * 10_000) === 1_000_000 ? "text-emerald-700" : "text-rose-700"}`}>Tổng: {total.toFixed(4)}%</span>;
+                  })()}
+                </div>
+                <div className="space-y-2">
+                  {(bannerCardDrafts[banner.id] ?? []).map((item) => {
+                    const card = cards.find((candidate) => candidate.id === item.cardId);
+                    if (!card) return null;
+                    return (
+                      <div key={item.cardId} className="grid grid-cols-[minmax(0,1fr)_130px_auto] items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-2">
+                        <span className="truncate text-sm font-medium">{card.name}<span className="ml-1 text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready" : ""} · {rarityNames[card.rarity] ?? card.rarity}</span></span>
+                        <label className="text-xs">Tỉ lệ %
+                          <input
+                            type="number"
+                            min="0.0001"
+                            max="100"
+                            step="0.0001"
+                            value={item.dropRate}
+                            onChange={(event) => setBannerCardDrafts((current) => ({
+                              ...current,
+                              [banner.id]: (current[banner.id] ?? []).map((draft) => draft.cardId === item.cardId ? { ...draft, dropRate: Number(event.target.value) } : draft),
+                            }))}
+                            className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1 text-sm"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={(bannerCardDrafts[banner.id] ?? []).length <= 1}
+                          onClick={() => setBannerCardDrafts((current) => ({
+                            ...current,
+                            [banner.id]: (current[banner.id] ?? []).filter((draft) => draft.cardId !== item.cardId),
+                          }))}
+                          className="text-sm font-medium text-rose-700 hover:underline disabled:opacity-30"
+                        >
+                          Bỏ thẻ
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <select value={bannerCardToAdd} onChange={(event) => setBannerCardToAdd(event.target.value)} className={`${inputClass} max-w-md`}>
+                    <option value="">Chọn thẻ để thêm</option>
+                    {cards.filter((card) =>
+                      (card.category === "BATTLE" || !card.specialOnly) &&
+                      !(bannerCardDrafts[banner.id] ?? []).some((item) => item.cardId === card.id),
+                    ).map((card) => (
+                      <option key={card.id} value={card.id}>{card.name} · {card.category === "BATTLE" ? "Battle Ready" : "Trưng bày"} · {card.rarity}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!bannerCardToAdd || (bannerCardDrafts[banner.id] ?? []).length >= 20}
+                    onClick={() => {
+                      setBannerCardDrafts((current) => ({
+                        ...current,
+                        [banner.id]: [...(current[banner.id] ?? []), { cardId: bannerCardToAdd, dropRate: 0.0001 }],
+                      }));
+                      setBannerCardToAdd("");
+                    }}
+                    className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold hover:border-[var(--teal)] disabled:opacity-50"
+                  >
+                    Thêm thẻ
+                  </button>
+                </div>
+                <p className="text-xs text-[var(--muted)]">Điều chỉnh các tỉ lệ để tổng đúng 100% (tối đa 4 số thập phân) trước khi lưu.</p>
+                <button
+                  type="button"
+                  disabled={bannerSaving || Math.round((bannerCardDrafts[banner.id] ?? []).reduce((sum, item) => sum + (Number(item.dropRate) || 0), 0) * 10_000) !== 1_000_000}
+                  onClick={() => void saveBannerCards(banner.id)}
+                  className="rounded-lg bg-[var(--teal)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {bannerSaving ? "Đang lưu..." : "Lưu thay đổi"}
+                </button>
+              </div>
+            )}
           </article>
         ))}
+        {message && <p role={error ? "alert" : "status"} className={`rounded-lg px-3 py-2 text-sm ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>{message}</p>}
       </section>
     </div>
   );

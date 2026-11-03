@@ -262,7 +262,7 @@ export function GachaPageClient({
 
       {revealed.length > 0 && (
         <div
-          className="gacha-reveal-backdrop fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/70 p-4 sm:p-8"
+          className="gacha-reveal-backdrop fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-3 sm:p-6"
           onClick={(event) => {
             if (event.target === event.currentTarget) setRevealed([]);
           }}
@@ -271,7 +271,7 @@ export function GachaPageClient({
             role="dialog"
             aria-modal="true"
             aria-labelledby="gacha-reveal-title"
-            className="gacha-reveal-dialog my-auto max-h-full w-full max-w-5xl overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 shadow-2xl sm:p-7"
+            className="gacha-reveal-dialog my-auto max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overscroll-contain overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-6"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 id="gacha-reveal-title" className="text-xl font-bold text-[var(--navy)]">Thẻ vừa nhận!</h2>
