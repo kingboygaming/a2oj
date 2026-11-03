@@ -267,7 +267,7 @@ export function CardStudio() {
             <input value={draft.element} maxLength={30} onChange={(event) => update("element", event.target.value)} className={inputClass} />
           </Field>
           <Field label="Icon (emoji)">
-            <input value={draft.icon} maxLength={12} onChange={(event) => update("icon", event.target.value)} className={inputClass} />
+            <input value={draft.icon} maxLength={12} placeholder="Để trống sẽ dùng 🃏" onChange={(event) => update("icon", event.target.value)} className={inputClass} />
           </Field>
           <Field label="Ảnh minh họa (tùy chọn, tối đa 3 MB)">
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => selectImage(event.target.files?.[0] ?? null)} className="w-full text-xs" />

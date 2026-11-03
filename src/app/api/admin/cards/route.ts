@@ -18,8 +18,14 @@ const cardSchema = z.object({
   defense: z.coerce.number().int().min(0).max(3000).default(0),
   manaCost: z.coerce.number().int().min(0).max(5).default(0),
   level: z.coerce.number().int().min(1).max(12).default(1),
-  element: z.string().trim().min(1).max(30).default("Tin học"),
-  icon: z.string().trim().min(1).max(12).default("🃏"),
+  element: z.preprocess(
+    (value) => value == null || (typeof value === "string" && !value.trim()) ? "Tin học" : value,
+    z.string().trim().min(1).max(30),
+  ),
+  icon: z.preprocess(
+    (value) => value == null || (typeof value === "string" && !value.trim()) ? "🃏" : value,
+    z.string().trim().min(1).max(12),
+  ),
   critRate: z.coerce.number().int().min(0).max(100).default(0),
   evasionRate: z.coerce.number().int().min(0).max(100).default(0),
   counterRate: z.coerce.number().int().min(0).max(100).default(0),
