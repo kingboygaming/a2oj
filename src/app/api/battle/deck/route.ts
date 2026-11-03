@@ -2,16 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { MAX_BATTLE_DECK_SIZE, MIN_BATTLE_DECK_SIZE } from "@/lib/battle-deck";
 
 const deckSchema = z.object({
   cards: z.array(z.object({
     cardId: z.string().min(1),
-    count: z.number().int().min(1).max(20),
-  })).min(1).max(20),
+    count: z.number().int().min(1).max(MAX_BATTLE_DECK_SIZE),
+  })).min(1).max(MAX_BATTLE_DECK_SIZE),
 }).superRefine(({ cards }, context) => {
   const total = cards.reduce((sum, item) => sum + item.count, 0);
-  if (total < 5 || total > 20) {
-    context.addIssue({ code: "custom", path: ["cards"], message: "Bộ bài cần từ 5 đến 20 lá." });
+  if (total < MIN_BATTLE_DECK_SIZE || total > MAX_BATTLE_DECK_SIZE) {
+    context.addIssue({ code: "custom", path: ["cards"], message: `Bộ bài cần từ ${MIN_BATTLE_DECK_SIZE} đến ${MAX_BATTLE_DECK_SIZE} lá.` });
   }
   if (new Set(cards.map(({ cardId }) => cardId)).size !== cards.length) {
     context.addIssue({ code: "custom", path: ["cards"], message: "Không chọn trùng một dòng thẻ." });

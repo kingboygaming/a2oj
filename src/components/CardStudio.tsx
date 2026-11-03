@@ -32,6 +32,11 @@ type CardDraft = {
   specialOnly: boolean;
 };
 
+export type EditableCard = CardDraft & {
+  id: string;
+  imageUrl: string | null;
+};
+
 const INITIAL_DRAFT: CardDraft = {
   name: "",
   slug: "",
@@ -107,36 +112,34 @@ function randomPassives(): Pick<CardDraft, PassiveKey> {
   };
 }
 
-export function CardStudio() {
+export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
   const router = useRouter();
-  const [draft, setDraft] = useState<CardDraft>(INITIAL_DRAFT);
+  const [draft, setDraft] = useState<CardDraft>(() => initialCard ?? INITIAL_DRAFT);
   const [image, setImage] = useState<File | null>(null);
-  const [imageUrl, setImageUrl] = useState("");
+  const [imageUrl, setImageUrl] = useState(initialCard?.imageUrl ?? "");
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
 
   useEffect(() => {
     return () => {
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      if (imageUrl.startsWith("blob:")) URL.revokeObjectURL(imageUrl);
     };
   }, [imageUrl]);
 
   function selectImage(file: File | null) {
     setImage(file);
     setImageUrl(file ? URL.createObjectURL(file) : "");
+    setRemoveExistingImage(false);
   }
 
   const activePassives = useMemo(
     () => passiveOptions.filter(({ key }) => draft[key] > 0),
     [draft],
   );
-  const previewAttack = ["SLIFER", "RA", "OBELISK"].includes(draft.specialEffect)
-    ? 4000
-    : draft.attack;
-  const previewDefense = ["SLIFER", "RA", "OBELISK"].includes(draft.specialEffect)
-    ? 4000
-    : draft.defense;
+  const previewAttack = draft.attack;
+  const previewDefense = draft.defense;
 
   function update<K extends keyof CardDraft>(key: K, value: CardDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -164,8 +167,8 @@ export function CardStudio() {
         }));
         return;
       }
-      const attack = randomInt(500, 3000);
-      const defense = randomInt(500, 3000);
+      const attack = randomInt(500, 5000);
+      const defense = randomInt(500, 5000);
       const manaCost = randomInt(1, 5);
       const algorithmLines = [
         `Tối ưu hóa O(N log N), ${draft.name || "thực thể"} sắp xếp mọi trạng thái hỗn loạn.`,
@@ -216,16 +219,25 @@ export function CardStudio() {
       formData.set(key, String(value));
     });
     if (image) formData.set("image", image);
+    if (removeExistingImage) formData.set("removeImage", "true");
 
     try {
-      const response = await fetch("/api/admin/cards", { method: "POST", body: formData });
+      const response = await fetch(
+        initialCard ? `/api/admin/cards/${initialCard.id}` : "/api/admin/cards",
+        { method: initialCard ? "PATCH" : "POST", body: formData },
+      );
       const result = await response.json();
       if (!response.ok) {
         setError(true);
         setMessage(result.error ?? "Không thể tạo thẻ.");
         return;
       }
-      setMessage(`Đã tạo ${draft.category === "BATTLE" ? `thẻ ${draft.battleType === "MONSTER" ? "quái vật" : draft.battleType === "SPELL" ? "Phép" : "Bẫy"}` : "thẻ trưng bày"} "${result.card.name}".`);
+      setMessage(`${initialCard ? "Đã cập nhật" : "Đã tạo"} ${draft.category === "BATTLE" ? `thẻ ${draft.battleType === "MONSTER" ? "quái vật" : draft.battleType === "SPELL" ? "Phép" : "Bẫy"}` : "thẻ trưng bày"} "${result.card.name}".`);
+      if (initialCard) {
+        router.push("/admin/cards");
+        router.refresh();
+        return;
+      }
       setDraft(INITIAL_DRAFT);
       selectImage(null);
       form.reset();
@@ -245,7 +257,7 @@ export function CardStudio() {
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
       <form onSubmit={submitCard} className="space-y-5 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
         <div>
-          <h2 className="text-xl font-bold text-[var(--navy)]">Tạo thẻ mới</h2>
+          <h2 className="text-xl font-bold text-[var(--navy)]">{initialCard ? "Chỉnh sửa thẻ" : "Tạo thẻ mới"}</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">Tạo thẻ sưu tầm hoặc thẻ dùng được trong phòng PvP.</p>
         </div>
 
@@ -305,9 +317,15 @@ export function CardStudio() {
           <Field label="Icon (emoji)">
             <input value={draft.icon} maxLength={12} placeholder="Để trống sẽ dùng 🃏" onChange={(event) => update("icon", event.target.value)} className={inputClass} />
           </Field>
-          <Field label="Ảnh minh họa (tùy chọn, tối đa 3 MB)">
+          <Field label={initialCard && imageUrl ? "Thay ảnh minh họa (tối đa 3 MB)" : "Ảnh minh họa (tùy chọn, tối đa 3 MB)"}>
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => selectImage(event.target.files?.[0] ?? null)} className="w-full text-xs" />
           </Field>
+          {initialCard?.imageUrl && !image && (
+            <label className="flex items-center gap-2 text-sm text-[var(--ink)]">
+              <input type="checkbox" checked={removeExistingImage} onChange={(event) => setRemoveExistingImage(event.target.checked)} className="accent-[var(--teal)]" />
+              Xóa ảnh hiện tại
+            </label>
+          )}
           <div className="sm:col-span-2">
             <Field label="Mô tả / hiệu ứng">
               <textarea rows={3} maxLength={500} value={draft.description} onChange={(event) => update("description", event.target.value)} className={inputClass} />
@@ -348,8 +366,8 @@ export function CardStudio() {
           {draft.battleType === "MONSTER" ? (
             <>
               <div className="grid gap-3 sm:grid-cols-4">
-                <NumberField label="ATK" min={500} max={3000} value={draft.attack} onChange={(value) => update("attack", value)} />
-                <NumberField label="DEF" min={500} max={3000} value={draft.defense} onChange={(value) => update("defense", value)} />
+                <NumberField label="ATK (tối đa 5000)" min={500} max={5000} value={draft.attack} onChange={(value) => update("attack", value)} />
+                <NumberField label="DEF (tối đa 5000)" min={500} max={5000} value={draft.defense} onChange={(value) => update("defense", value)} />
                 <NumberField label="Mana Cost" min={1} max={5} value={draft.manaCost} onChange={(value) => update("manaCost", value)} />
                 <NumberField label="Cấp" min={1} max={12} value={draft.level} onChange={(value) => update("level", value)} />
               </div>
@@ -408,7 +426,7 @@ export function CardStudio() {
             ⚡ Tự động tạo thông minh
           </button>
           <button disabled={pending} className="rounded-lg bg-[var(--teal)] px-5 py-2 text-sm font-bold text-white disabled:opacity-50">
-            {pending ? "Đang lưu..." : "Tạo thẻ"}
+            {pending ? "Đang lưu..." : initialCard ? "Lưu thay đổi" : "Tạo thẻ"}
           </button>
         </div>
         {message && <p role={error ? "alert" : "status"} className={`text-sm ${error ? "text-rose-400" : "text-emerald-400"}`}>{message}</p>}
@@ -429,7 +447,7 @@ export function CardStudio() {
             <span className="rounded-full bg-black/30 px-2 py-1 text-xs font-bold">{rarityLabel[draft.rarity] ?? draft.rarity}</span>
           </div>
           <div className="relative mt-4 grid aspect-[4/3] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60">
-            {imageUrl ? (
+            {imageUrl && !removeExistingImage ? (
               <Image src={imageUrl} alt="Xem trước thẻ" fill unoptimized className="object-cover" />
             ) : <span className="text-7xl">{draft.icon || "🃏"}</span>}
           </div>

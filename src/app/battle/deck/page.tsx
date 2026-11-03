@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { MAX_BATTLE_DECK_SIZE, MIN_BATTLE_DECK_SIZE } from "@/lib/battle-deck";
 
 type OwnedBattleCard = {
   id: string;
@@ -93,7 +94,7 @@ export default function BattleDeckPage() {
           <Link href="/battle" className="text-sm font-semibold text-cyan-300 hover:underline">← Quay lại PvP</Link>
           <h1 className="mt-3 text-2xl font-black">Bộ bài PvP</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-            Thẻ Quái vật, Phép và Bẫy nhận từ Gacha có thể dùng trong PvP. Chọn từ 5 đến 20 lá; số bản sao không vượt quá số đang sở hữu.
+            Thẻ Quái vật, Phép và Bẫy nhận từ Gacha có thể dùng trong PvP. Chọn từ {MIN_BATTLE_DECK_SIZE} đến {MAX_BATTLE_DECK_SIZE} lá; số bản sao không vượt quá số đang sở hữu.
           </p>
         </div>
         <Link href="/gacha" className="rounded-lg border border-cyan-300/30 px-3 py-2 text-sm font-bold text-cyan-200 hover:bg-cyan-300/10">
@@ -102,11 +103,11 @@ export default function BattleDeckPage() {
       </header>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-300/20 bg-cyan-300/5 p-3">
-        <p className="text-sm font-bold">Đã chọn: <span className={total >= 5 && total <= 20 ? "text-emerald-300" : "text-amber-200"}>{total}/20</span></p>
+        <p className="text-sm font-bold">Đã chọn: <span className={total >= MIN_BATTLE_DECK_SIZE && total <= MAX_BATTLE_DECK_SIZE ? "text-emerald-300" : "text-amber-200"}>{total}/{MAX_BATTLE_DECK_SIZE}</span></p>
         <button
           type="button"
           onClick={saveDeck}
-          disabled={loading || saving || total < 5 || total > 20}
+          disabled={loading || saving || total < MIN_BATTLE_DECK_SIZE || total > MAX_BATTLE_DECK_SIZE}
           className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-black text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? "Đang lưu..." : "Lưu bộ bài"}
@@ -150,7 +151,7 @@ export default function BattleDeckPage() {
                   <div className="mt-2 flex items-center gap-2">
                     <button type="button" onClick={() => changeCount(card, -1)} disabled={count === 0} aria-label={`Bỏ ${card.name} khỏi bộ bài`} className="grid size-7 place-items-center rounded-md border border-slate-700 disabled:opacity-30">−</button>
                     <span className="w-6 text-center text-sm font-bold tabular-nums">{count}</span>
-                    <button type="button" onClick={() => changeCount(card, 1)} disabled={count >= card.ownedCount || total >= 20} aria-label={`Thêm ${card.name} vào bộ bài`} className="grid size-7 place-items-center rounded-md border border-slate-700 disabled:opacity-30">+</button>
+                    <button type="button" onClick={() => changeCount(card, 1)} disabled={count >= card.ownedCount || total >= MAX_BATTLE_DECK_SIZE} aria-label={`Thêm ${card.name} vào bộ bài`} className="grid size-7 place-items-center rounded-md border border-slate-700 disabled:opacity-30">+</button>
                   </div>
                 </div>
               </article>
@@ -159,7 +160,7 @@ export default function BattleDeckPage() {
         </section>
       )}
 
-      {total >= 5 && total <= 20 && (
+      {total >= MIN_BATTLE_DECK_SIZE && total <= MAX_BATTLE_DECK_SIZE && (
         <Link href="/battle" className="mt-5 inline-flex rounded-lg border border-cyan-300/30 px-4 py-2 text-sm font-bold text-cyan-200 hover:bg-cyan-300/10">Vào sảnh đấu →</Link>
       )}
     </main>

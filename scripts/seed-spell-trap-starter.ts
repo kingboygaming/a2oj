@@ -4,6 +4,34 @@ const prisma = new PrismaClient();
 
 const starterCards = [
   {
+    id: "a2oj_starter_tribute_five",
+    slug: "a2oj-nguoi-gac-kho-du-lieu",
+    name: "Người Gác Kho Dữ Liệu",
+    description: "Quái vật cấp 5. Cần hiến tế 1 quái vật đang có trên sân để triệu hồi theo luật OCG.",
+    battleType: "MONSTER",
+    attack: 1800,
+    defense: 2000,
+    manaCost: 2,
+    level: 5,
+    element: "Tin học",
+    icon: "🛡️",
+    specialEffect: "NONE",
+  },
+  {
+    id: "a2oj_starter_tribute_seven",
+    slug: "a2oj-nguoi-giu-vong-lap",
+    name: "Người Giữ Vòng Lặp",
+    description: "Quái vật cấp 7. Cần hiến tế 2 quái vật đang có trên sân để triệu hồi theo luật OCG.",
+    battleType: "MONSTER",
+    attack: 2500,
+    defense: 2200,
+    manaCost: 3,
+    level: 7,
+    element: "Tin học",
+    icon: "🔱",
+    specialEffect: "NONE",
+  },
+  {
     id: "a2oj_starter_spell_draw",
     slug: "a2oj-menh-de-tiep-te",
     name: "Mệnh Đề Tiếp Tế",
@@ -75,30 +103,67 @@ async function seedSpellTrapStarter() {
     select: { id: true },
   });
 
+  const tributeBanner = await prisma.gachaBanner.upsert({
+    where: { slug: "a2oj-tribute-monsters" },
+    create: {
+      id: "a2oj_tribute_monsters_banner",
+      slug: "a2oj-tribute-monsters",
+      title: "Quái vật cần hiến tế",
+      description: "Quái vật cấp cao nguyên bản, cần hiến tế quái vật trên sân theo luật OCG.",
+      type: "NORMAL",
+      active: true,
+    },
+    update: {},
+    select: { id: true },
+  });
+
   for (const card of starterCards) {
-    const savedCard = await prisma.gachaCard.upsert({
+    await prisma.gachaCard.upsert({
       where: { slug: card.slug },
       create: {
         ...card,
         category: "BATTLE",
         rarity: "COMMON",
         specialOnly: false,
-        attack: 0,
-        defense: 0,
-        level: 1,
+        attack: "attack" in card ? card.attack : 0,
+        defense: "defense" in card ? card.defense : 0,
+        level: "level" in card ? card.level : 1,
       },
-      update: {},
-      select: { id: true },
-    });
-
-    await prisma.gachaBannerCard.upsert({
-      where: { bannerId_cardId: { bannerId: banner.id, cardId: savedCard.id } },
-      create: { bannerId: banner.id, cardId: savedCard.id, dropRate: 20 },
       update: {},
     });
   }
 
-  console.info("Spell/trap starter banner is ready.");
+  for (const slug of [
+    "a2oj-menh-de-tiep-te",
+    "a2oj-vong-hoi-phuc",
+    "a2oj-xung-dot-bit",
+    "a2oj-luoi-chan-tin-hieu",
+    "a2oj-guong-doi-xung",
+  ]) {
+    const card = await prisma.gachaCard.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    });
+    await prisma.gachaBannerCard.upsert({
+      where: { bannerId_cardId: { bannerId: banner.id, cardId: card.id } },
+      create: { bannerId: banner.id, cardId: card.id, dropRate: 20 },
+      update: {},
+    });
+  }
+
+  for (const slug of ["a2oj-nguoi-gac-kho-du-lieu", "a2oj-nguoi-giu-vong-lap"]) {
+    const card = await prisma.gachaCard.findUniqueOrThrow({
+      where: { slug },
+      select: { id: true },
+    });
+    await prisma.gachaBannerCard.upsert({
+      where: { bannerId_cardId: { bannerId: tributeBanner.id, cardId: card.id } },
+      create: { bannerId: tributeBanner.id, cardId: card.id, dropRate: 50 },
+      update: {},
+    });
+  }
+
+  console.info("Spell/trap and tribute-monster starter banners are ready.");
 }
 
 seedSpellTrapStarter()

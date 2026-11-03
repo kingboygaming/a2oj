@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GACHA_RARITIES } from "@/lib/gacha";
 
@@ -291,6 +292,7 @@ export function GachaAdminPanel({
         <div>
           <h2 className="text-lg font-semibold text-[var(--navy)]">Tạo thẻ</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">Thẻ trưng bày dùng để sưu tầm; thẻ Quái vật, Phép và Bẫy có thể đưa vào banner Gacha.</p>
+          <Link href="/admin/cards" className="mt-2 inline-flex text-sm font-semibold text-[var(--teal)] hover:underline">Quản lý / chỉnh sửa thẻ đã tạo →</Link>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Tên thẻ"><input name="name" required maxLength={100} className={inputClass} /></Field>

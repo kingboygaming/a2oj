@@ -1197,7 +1197,7 @@ export default function BattleRoomPage() {
         <section className="mb-4 rounded-xl border border-amber-300/25 bg-amber-300/5 p-4">
           <p className="font-bold text-amber-100">{deckLoadError || "Bộ bài chưa đủ 5 lá hợp lệ theo luật đang chọn."}</p>
           <p className="mt-1 text-sm text-slate-300">
-            Quay Gacha để nhận thẻ Battle Ready, sau đó chọn từ 5–20 lá trong bộ bài.
+            Quay Gacha để nhận thẻ PvP, sau đó chọn từ 5–60 lá trong bộ bài.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link href="/battle/deck" className="rounded-lg bg-cyan-400 px-3 py-2 text-xs font-black text-slate-950">Quản lý bộ bài</Link>
