@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MAX_BATTLE_DECK_SIZE, MIN_BATTLE_DECK_SIZE } from "@/lib/battle-deck";
@@ -132,11 +133,19 @@ export default function BattleDeckPage() {
             return (
               <article key={card.id} className={`flex gap-3 rounded-xl border p-3 ${count > 0 ? "border-cyan-300/40 bg-cyan-300/5" : "border-slate-800 bg-slate-900/60"}`}>
                 <div
-                  className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-slate-950 bg-cover bg-center text-3xl"
-                  style={card.imageUrl ? { backgroundImage: `url("${card.imageUrl}")` } : undefined}
-                  aria-label={card.name}
+                  className="relative grid size-20 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-slate-950 text-3xl"
                 >
-                  <span className="rounded-full bg-slate-950/65 px-1" aria-hidden="true">{card.icon || "🃏"}</span>
+                  {card.imageUrl && (
+                    <Image
+                      src={card.imageUrl}
+                      alt={card.name}
+                      fill
+                      unoptimized
+                      sizes="80px"
+                      className="object-cover"
+                    />
+                  )}
+                  <span className={`absolute ${card.imageUrl ? "left-1 top-1 text-sm" : "inset-0 grid place-items-center"} rounded-full bg-slate-950/65 px-1`} aria-hidden="true">{card.icon || "🃏"}</span>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">

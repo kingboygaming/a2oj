@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion, useDragControls, type PanInfo } from "framer-motion";
 import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -325,21 +326,35 @@ function CardFace({
       </div>
       {compact ? (
         <div
-          className="grid min-h-10 flex-1 place-items-center overflow-hidden rounded-md bg-slate-950/60 bg-cover bg-center"
-          style={card.imageUrl ? { backgroundImage: `url("${card.imageUrl}")` } : undefined}
+          className="relative min-h-10 flex-1 overflow-hidden rounded-md bg-slate-950/60"
         >
-          <span className="rounded-full bg-slate-950/70 px-1.5 text-2xl" aria-hidden="true">
+          {card.imageUrl && (
+            <Image
+              src={card.imageUrl}
+              alt={card.name}
+              fill
+              unoptimized
+              sizes="(max-width: 640px) 18vw, 140px"
+              className="object-cover"
+            />
+          )}
+          <span className={`absolute ${card.imageUrl ? "left-1 top-1 text-sm" : "inset-0 grid place-items-center text-2xl"} rounded-full bg-slate-950/70 px-1.5`} aria-hidden="true">
             {card.icon}
           </span>
         </div>
       ) : card.imageUrl ? (
         <div
-          className="grid h-full min-h-8 place-items-center overflow-hidden rounded-lg bg-slate-950/60 bg-cover bg-center"
-          style={{ backgroundImage: `url("${card.imageUrl}")` }}
-          role="img"
-          aria-label={card.name}
+          className="relative h-full min-h-8 overflow-hidden rounded-lg bg-slate-950/60"
         >
-          <span className="rounded-full bg-slate-950/60 px-1 text-xl" aria-hidden="true">{card.icon}</span>
+          <Image
+            src={card.imageUrl}
+            alt={card.name}
+            fill
+            unoptimized
+            sizes="144px"
+            className="object-cover"
+          />
+          <span className="absolute left-1 top-1 rounded-full bg-slate-950/70 px-1 text-sm" aria-hidden="true">{card.icon}</span>
         </div>
       ) : (
         <span className="grid h-full min-h-8 place-items-center rounded-lg bg-slate-950/40 text-3xl" aria-hidden="true">
