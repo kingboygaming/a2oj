@@ -33,7 +33,7 @@ export const gachaCardSchema = z.object({
   counterRate: z.coerce.number().int().min(0).max(100).default(0),
   lifeStealRate: z.coerce.number().int().min(0).max(100).default(0),
   specialEffect: z.enum([
-    "NONE", "SLIFER", "RA", "OBELISK",
+    "NONE", "SLIFER", "RA", "OBELISK", "STONE_WARDEN",
     "SPELL_DRAW", "SPELL_HEAL", "SPELL_DAMAGE",
     "TRAP_NEGATE_ATTACK", "TRAP_REFLECT_DAMAGE",
   ]).default("NONE"),
@@ -48,7 +48,7 @@ export const gachaCardSchema = z.object({
   if (data.category === "BATTLE" && data.battleType === "TRAP" && (!["TRAP_NEGATE_ATTACK", "TRAP_REFLECT_DAMAGE"].includes(data.specialEffect) || data.manaCost < 1)) {
     context.addIssue({ code: "custom", path: ["specialEffect"], message: "Thẻ Bẫy cần hiệu ứng Bẫy hợp lệ và Mana Cost từ 1." });
   }
-  if (data.category === "BATTLE" && data.battleType === "MONSTER" && !["NONE", "SLIFER", "RA", "OBELISK"].includes(data.specialEffect)) {
+  if (data.category === "BATTLE" && data.battleType === "MONSTER" && !["NONE", "SLIFER", "RA", "OBELISK", "STONE_WARDEN"].includes(data.specialEffect)) {
     context.addIssue({ code: "custom", path: ["specialEffect"], message: "Quái vật chỉ được dùng nội tại quái vật." });
   }
   if (data.battleType !== "MONSTER" && data.category === "BATTLE" && data.bugPart) {
@@ -91,7 +91,8 @@ export function parseGachaCardForm(formData: FormData) {
 export function normalizeGachaCardData(data: z.output<typeof gachaCardSchema>) {
   const isBattle = data.category === "BATTLE";
   const isMonster = isBattle && data.battleType === "MONSTER";
-  const isGod = ["SLIFER", "RA", "OBELISK"].includes(data.specialEffect);
+  const isGod = ["SLIFER", "RA", "OBELISK", "STONE_WARDEN"].includes(data.specialEffect);
+  const specialEffect = data.specialEffect === "OBELISK" ? "STONE_WARDEN" : data.specialEffect;
 
   return {
     ...data,
@@ -101,12 +102,14 @@ export function normalizeGachaCardData(data: z.output<typeof gachaCardSchema>) {
     defense: isMonster ? data.defense : 0,
     manaCost: isBattle ? data.manaCost : 0,
     level: isMonster ? (isGod ? 10 : data.level) : 1,
-    requiredTributes: isMonster ? (data.specialEffect === "RA" ? 3 : data.requiredTributes) : null,
+    requiredTributes: isMonster
+      ? specialEffect === "RA" ? 3 : specialEffect === "STONE_WARDEN" ? 2 : data.requiredTributes
+      : null,
     critRate: isMonster ? data.critRate : 0,
     evasionRate: isMonster ? data.evasionRate : 0,
     counterRate: isMonster ? data.counterRate : 0,
     lifeStealRate: isMonster ? data.lifeStealRate : 0,
-    specialEffect: isBattle ? data.specialEffect : "NONE",
+    specialEffect: isBattle ? specialEffect : "NONE",
     bugPart: isMonster ? data.bugPart || null : null,
   };
 }

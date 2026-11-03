@@ -30,7 +30,7 @@ type BattleCard = {
   lifeStealRate?: number;
   bugPart?: string | null;
   specialEffect?: string;
-  isEgyptianGod?: boolean;
+  isHighTributeMonster?: boolean;
 };
 
 type BoardCard = {
@@ -38,6 +38,7 @@ type BoardCard = {
   hasAttacked: boolean;
   raBonus?: number;
   raDestroyUsed?: boolean;
+  stoneWardenEffectUsed?: boolean;
 };
 
 type BoardSpellTrap = { card: BattleCard };
@@ -55,8 +56,9 @@ type PlayerSnapshot = {
 
 type BattleMessage =
   | { type: "join" | "welcome"; playerId: string; player: PlayerSnapshot }
-  | { type: "play-card"; playerId: string; card: BattleCard; handCount: number; tributeIds: string[]; clearsEnemyBoard: boolean; raPayment: number }
+  | { type: "play-card"; playerId: string; card: BattleCard; handCount: number; tributeIds: string[]; raPayment: number }
   | { type: "ra-destroy"; playerId: string; cardId: string; targetId: string; targetOwner: "player" | "opponent" }
+  | { type: "stone-warden-wipe"; playerId: string; cardId: string; tributeIds: string[] }
   | { type: "set-trap"; playerId: string; handCount: number; spellTrapCount: number }
   | { type: "spell-effect"; playerId: string; cardName: string; effect: string; handCount: number }
   | { type: "trap-trigger"; playerId: string; cardName: string; effect: string; damage: number }
@@ -91,19 +93,24 @@ function getStartingLifePoints(ruleSet: RuleSet) {
 
 function getRequiredTributes(card: BattleCard) {
   if (card.specialEffect === "RA") return 3;
+  if (isStoneWarden(card)) return 2;
   if (card.requiredTributes != null) return card.requiredTributes;
-  if (isEgyptianGod(card)) return 2;
+  if (isHighTributeMonster(card)) return 2;
   if (card.level >= 7) return 2;
   if (card.level >= 5) return 1;
   return 0;
 }
 
-function isEgyptianGod(card: BattleCard) {
-  return card.isEgyptianGod || ["SLIFER", "RA", "OBELISK"].includes(card.specialEffect ?? "");
+function isHighTributeMonster(card: BattleCard) {
+  return card.isHighTributeMonster || ["SLIFER", "RA", "OBELISK", "STONE_WARDEN"].includes(card.specialEffect ?? "");
+}
+
+function isStoneWarden(card: BattleCard) {
+  return card.specialEffect === "STONE_WARDEN" || card.specialEffect === "OBELISK";
 }
 
 function getCardPool(ruleSet: RuleSet, customCards: BattleCard[] = []) {
-  return ruleSet === "ocg" ? customCards : customCards.filter((card) => !isEgyptianGod(card));
+  return ruleSet === "ocg" ? customCards : customCards.filter((card) => !isHighTributeMonster(card));
 }
 
 function createStartingHand(playerId: string, ruleSet: RuleSet, customCards: BattleCard[] = []) {
@@ -160,7 +167,7 @@ function mapServerCard(card: {
     cost: card.manaCost,
     power: Math.max(1, Math.round(card.attack / 1000)),
     requiredTributes: card.requiredTributes,
-    isEgyptianGod: ["SLIFER", "RA", "OBELISK"].includes(card.specialEffect),
+    isHighTributeMonster: ["SLIFER", "RA", "OBELISK", "STONE_WARDEN"].includes(card.specialEffect),
   };
 }
 
@@ -187,7 +194,7 @@ function isBattleCard(value: unknown): value is BattleCard {
     (card.lifeStealRate === undefined || typeof card.lifeStealRate === "number") &&
     (card.bugPart === undefined || card.bugPart === null || typeof card.bugPart === "string") &&
     (card.specialEffect === undefined || typeof card.specialEffect === "string") &&
-    (card.isEgyptianGod === undefined || typeof card.isEgyptianGod === "boolean")
+    (card.isHighTributeMonster === undefined || typeof card.isHighTributeMonster === "boolean")
   );
 }
 
@@ -213,7 +220,8 @@ function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
         isBattleCard((unit as Record<string, unknown>).card) &&
         typeof (unit as Record<string, unknown>).hasAttacked === "boolean" &&
         ((unit as Record<string, unknown>).raBonus === undefined || typeof (unit as Record<string, unknown>).raBonus === "number") &&
-        ((unit as Record<string, unknown>).raDestroyUsed === undefined || typeof (unit as Record<string, unknown>).raDestroyUsed === "boolean"),
+        ((unit as Record<string, unknown>).raDestroyUsed === undefined || typeof (unit as Record<string, unknown>).raDestroyUsed === "boolean") &&
+        ((unit as Record<string, unknown>).stoneWardenEffectUsed === undefined || typeof (unit as Record<string, unknown>).stoneWardenEffectUsed === "boolean"),
     )
   );
 }
@@ -231,7 +239,6 @@ function isBattleMessage(value: unknown): value is BattleMessage {
       return (
         isBattleCard(message.card) &&
         typeof message.handCount === "number" &&
-        typeof message.clearsEnemyBoard === "boolean" &&
         typeof message.raPayment === "number" &&
         Array.isArray(message.tributeIds) &&
         message.tributeIds.every((id) => typeof id === "string")
@@ -240,6 +247,11 @@ function isBattleMessage(value: unknown): value is BattleMessage {
       return typeof message.cardId === "string" &&
         typeof message.targetId === "string" &&
         (message.targetOwner === "player" || message.targetOwner === "opponent");
+    case "stone-warden-wipe":
+      return typeof message.cardId === "string" &&
+        Array.isArray(message.tributeIds) &&
+        message.tributeIds.length === 2 &&
+        message.tributeIds.every((id) => typeof id === "string");
     case "set-trap":
       return typeof message.handCount === "number" && typeof message.spellTrapCount === "number";
     case "spell-effect":
@@ -286,6 +298,8 @@ function CardFace({
     ? "ATK/DEF theo số bài trên tay; quái đối thủ vừa triệu hồi giảm 2000 chỉ số."
     : card.specialEffect === "RA"
       ? "3 hiến tế; trả LP tăng ATK/DEF; trả 1000 LP phá hủy quái thú (1 lần/lượt)."
+      : isStoneWarden(card)
+        ? "Không thể bị chọn làm mục tiêu; hiến tế 2 quái vật để quét sân đối thủ. Không thể tấn công lượt kích hoạt."
       : undefined;
   return (
     <div
@@ -294,7 +308,7 @@ function CardFace({
         ? "flex min-h-28 w-full flex-col gap-1 overflow-hidden rounded-lg p-1.5"
         : "grid h-full min-h-48 w-32 grid-rows-[auto_minmax(2rem,1fr)_auto] gap-2 overflow-hidden rounded-xl p-2 sm:w-36"
       } border ${
-        card.isEgyptianGod ? "border-amber-300/70 shadow-amber-400/20" : "border-cyan-400/30"
+        card.isHighTributeMonster ? "border-amber-300/70 shadow-amber-400/20" : "border-cyan-400/30"
       } bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 text-left shadow-lg shadow-black/30`}
     >
       <div className="flex min-w-0 items-center justify-between gap-1">
@@ -422,6 +436,7 @@ export default function BattleRoomPage() {
   const [selectedTributeIds, setSelectedTributeIds] = useState<string[]>([]);
   const [raLifePayment, setRaLifePayment] = useState(0);
   const [pendingRaDestroyCardId, setPendingRaDestroyCardId] = useState<string | null>(null);
+  const [pendingStoneWardenCardId, setPendingStoneWardenCardId] = useState<string | null>(null);
   const [winner, setWinner] = useState<{ playerId: string; reason: string } | null>(null);
   const [drawIndex, setDrawIndex] = useState(5);
   const [attackingCardId, setAttackingCardId] = useState<string | null>(null);
@@ -594,7 +609,6 @@ export default function BattleRoomPage() {
           break;
         case "play-card":
           setGameStarted(true);
-          if (payload.clearsEnemyBoard) setBoard([]);
           {
             const summonedCard = payload.card.battleType === "MONSTER" &&
               payload.card.specialEffect !== "RA" &&
@@ -620,6 +634,15 @@ export default function BattleRoomPage() {
           }
           break;
         case "ra-destroy":
+          {
+            const target = payload.targetOwner === "player"
+              ? opponentSnapshotRef.current.board.find((unit) => unit.card.id === payload.targetId)
+              : playerSnapshotRef.current.board.find((unit) => unit.card.id === payload.targetId);
+            if (target && isStoneWarden(target.card)) {
+              notify("Hộ Vệ Cổ Thạch không thể bị chọn làm mục tiêu của hiệu ứng.");
+              break;
+            }
+          }
           setGameStarted(true);
           setOpponent((current) => ({
             ...current,
@@ -632,6 +655,19 @@ export default function BattleRoomPage() {
             setBoard((current) => current.filter((unit) => unit.card.id !== payload.targetId));
           }
           notify("Thần Ra trả 1000 LP và phá hủy quái thú được chọn.");
+          break;
+        case "stone-warden-wipe":
+          setGameStarted(true);
+          setOpponent((current) => ({
+            ...current,
+            board: current.board
+              .filter((unit) => !payload.tributeIds.includes(unit.card.id))
+              .map((unit) => unit.card.id === payload.cardId
+                ? { ...unit, hasAttacked: true, stoneWardenEffectUsed: true }
+                : unit),
+          }));
+          setBoard([]);
+          notify("Hộ Vệ Cổ Thạch hiến tế 2 quái vật và quét sân của bạn.");
           break;
         case "set-trap":
           setGameStarted(true);
@@ -770,7 +806,12 @@ export default function BattleRoomPage() {
           setMana(MAX_MANA);
           setHasDrawn(false);
           setHasNormalSummoned(false);
-          setBoard((current) => current.map((unit) => ({ ...unit, hasAttacked: false, raDestroyUsed: false })));
+          setBoard((current) => current.map((unit) => ({
+            ...unit,
+            hasAttacked: false,
+            raDestroyUsed: false,
+            stoneWardenEffectUsed: false,
+          })));
           setPendingRaDestroyCardId(null);
           break;
         case "victory":
@@ -809,8 +850,8 @@ export default function BattleRoomPage() {
   }, [notify, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
 
   function playCard(card: BattleCard, tributeIds: string[] = [], raPayment: number | null = null) {
-    if (pendingRaDestroyCardId) {
-      notify("Hãy chọn mục tiêu cho hiệu ứng của Ra hoặc hủy thao tác trước.");
+    if (pendingRaDestroyCardId || pendingStoneWardenCardId) {
+      notify("Hãy hoàn tất hoặc hủy hiệu ứng đang chọn trước.");
       return;
     }
     if (!playerCanAct) {
@@ -901,6 +942,7 @@ export default function BattleRoomPage() {
         return;
       }
       setPendingSummonCardId(card.id);
+      setPendingStoneWardenCardId(null);
       setSelectedTributeIds([]);
       setRaLifePayment(0);
       notify(`Chọn ${requiredTributes} quái vật làm vật hiến tế.`);
@@ -940,6 +982,7 @@ export default function BattleRoomPage() {
     if (lifePayment > 0) setPlayerHp((current) => Math.max(1, current - lifePayment));
     setGameStarted(true);
     setPendingSummonCardId(null);
+    setPendingStoneWardenCardId(null);
     setSelectedTributeIds([]);
     const isProtectedNormalSummon = card.specialEffect === "RA";
     const summonedCard = isMonster &&
@@ -951,7 +994,6 @@ export default function BattleRoomPage() {
           defense: Math.max(0, (card.defense ?? card.power * 1000) - 2000),
         }
       : card;
-    const clearsEnemyBoard = ruleSet === "ocg" && card.specialEffect === "OBELISK";
     setBoard((current) => [
       ...current.filter((unit) => !tributeIds.includes(unit.card.id)),
       { card: summonedCard, hasAttacked: false, raBonus: lifePayment },
@@ -959,22 +1001,26 @@ export default function BattleRoomPage() {
     if (summonedCard !== card) {
       notify(`${card.name} bị giảm 2000 ATK/DEF bởi Slifer và giữ mức giảm khi còn trên sân.`);
     }
-    if (clearsEnemyBoard) {
-      setOpponent((current) => ({ ...current, board: [] }));
-      notify(`${card.name} được triệu hồi và quét sạch sân đối thủ!`);
-    }
     void publish({
       type: "play-card",
       playerId,
       card,
       handCount: nextHand.length,
       tributeIds,
-      clearsEnemyBoard,
       raPayment: lifePayment,
     });
   }
 
   function toggleTribute(cardId: string) {
+    if (pendingStoneWardenCardId) {
+      if (cardId === pendingStoneWardenCardId) return;
+      setSelectedTributeIds((current) => {
+        if (current.includes(cardId)) return current.filter((id) => id !== cardId);
+        if (current.length >= 2) return current;
+        return [...current, cardId];
+      });
+      return;
+    }
     if (!pendingSummonCardId) return;
     const pendingCard = hand.find((card) => card.id === pendingSummonCardId);
     if (!pendingCard) return;
@@ -999,6 +1045,7 @@ export default function BattleRoomPage() {
     }
     setPendingRaDestroyCardId(cardId);
     setPendingSummonCardId(null);
+    setPendingStoneWardenCardId(null);
     setSelectedTributeIds([]);
     notify("Chọn 1 quái thú bất kỳ trên sân để Thần Ra phá hủy.");
   }
@@ -1008,6 +1055,13 @@ export default function BattleRoomPage() {
     const targetExists = targetOwner === "player"
       ? board.some((unit) => unit.card.id === targetId)
       : opponent.board.some((unit) => unit.card.id === targetId);
+    const target = targetOwner === "player"
+      ? board.find((unit) => unit.card.id === targetId)
+      : opponent.board.find((unit) => unit.card.id === targetId);
+    if (target && isStoneWarden(target.card)) {
+      notify("Hộ Vệ Cổ Thạch không thể bị chọn làm mục tiêu của hiệu ứng.");
+      return;
+    }
     if (!playerCanAct || ruleSet !== "ocg" || !ra || ra.card.specialEffect !== "RA" ||
       ra.raDestroyUsed || playerHp <= 1000 || !targetExists) {
       setPendingRaDestroyCardId(null);
@@ -1026,6 +1080,53 @@ export default function BattleRoomPage() {
     setGameStarted(true);
     void publish({ type: "ra-destroy", playerId, cardId: ra.card.id, targetId, targetOwner });
     notify("Thần Ra trả 1000 LP và phá hủy quái thú được chọn.");
+  }
+
+  function startStoneWardenEffect(cardId: string) {
+    const guardian = board.find((unit) => unit.card.id === cardId);
+    if (!playerCanAct || ruleSet !== "ocg" || !guardian || !isStoneWarden(guardian.card)) return;
+    if (guardian.stoneWardenEffectUsed) {
+      notify("Hộ Vệ Cổ Thạch đã dùng hiệu ứng này trong lượt hiện tại.");
+      return;
+    }
+    if (board.length < 3) {
+      notify("Cần Hộ Vệ Cổ Thạch và 2 quái vật khác để kích hoạt hiệu ứng.");
+      return;
+    }
+    if (opponent.board.length === 0) {
+      notify("Đối thủ không có quái vật trên sân để phá hủy.");
+      return;
+    }
+    setPendingStoneWardenCardId(cardId);
+    setPendingSummonCardId(null);
+    setPendingRaDestroyCardId(null);
+    setSelectedTributeIds([]);
+    notify("Chọn 2 quái vật khác trên sân làm vật hiến tế.");
+  }
+
+  function activateStoneWardenEffect() {
+    const guardian = board.find((unit) => unit.card.id === pendingStoneWardenCardId);
+    const validTributes = selectedTributeIds.length === 2 &&
+      new Set(selectedTributeIds).size === 2 &&
+      selectedTributeIds.every((id) => id !== pendingStoneWardenCardId && board.some((unit) => unit.card.id === id));
+    if (!playerCanAct || ruleSet !== "ocg" || !guardian || !isStoneWarden(guardian.card) ||
+      guardian.stoneWardenEffectUsed || !validTributes || opponent.board.length === 0) {
+      notify("Chọn đúng 2 quái vật khác và đảm bảo đối thủ có quái vật trên sân.");
+      return;
+    }
+
+    const tributeIds = [...selectedTributeIds];
+    setBoard((current) => current
+      .filter((unit) => !tributeIds.includes(unit.card.id))
+      .map((unit) => unit.card.id === guardian.card.id
+        ? { ...unit, hasAttacked: true, stoneWardenEffectUsed: true }
+        : unit));
+    setOpponent((current) => ({ ...current, board: [] }));
+    setPendingStoneWardenCardId(null);
+    setSelectedTributeIds([]);
+    setGameStarted(true);
+    void publish({ type: "stone-warden-wipe", playerId, cardId: guardian.card.id, tributeIds });
+    notify("Hộ Vệ Cổ Thạch hiến tế 2 quái vật và quét sân đối thủ; không thể tấn công lượt này.");
   }
 
   function changeRuleSet(nextRuleSet: RuleSet) {
@@ -1047,6 +1148,7 @@ export default function BattleRoomPage() {
     setHasNormalSummoned(false);
     setPendingSummonCardId(null);
     setPendingRaDestroyCardId(null);
+    setPendingStoneWardenCardId(null);
     setSelectedTributeIds([]);
     setRaLifePayment(0);
     setWinner(null);
@@ -1080,7 +1182,7 @@ export default function BattleRoomPage() {
   }
 
   function drawCard() {
-    if (!playerCanAct || pendingRaDestroyCardId || hasDrawn) return;
+    if (!playerCanAct || pendingRaDestroyCardId || pendingStoneWardenCardId || hasDrawn) return;
     if (hand.length >= 8) {
       notify("Tay bài đã đủ 8 lá.");
       return;
@@ -1103,7 +1205,7 @@ export default function BattleRoomPage() {
   }
 
   function attack(unit: BoardCard) {
-    if (!playerCanAct || pendingRaDestroyCardId || unit.hasAttacked || attackingCardId) return;
+    if (!playerCanAct || pendingRaDestroyCardId || pendingStoneWardenCardId || unit.hasAttacked || attackingCardId) return;
     const rawAttack = ruleSet === "ocg"
       ? getAttackStat(unit.card, hand.length, unit.raBonus)
       : unit.card.power;
@@ -1129,7 +1231,7 @@ export default function BattleRoomPage() {
   }
 
   function endTurn() {
-    if (!playerCanAct || pendingRaDestroyCardId || attackingCardId) return;
+    if (!playerCanAct || pendingRaDestroyCardId || pendingStoneWardenCardId || attackingCardId) return;
     setGameStarted(true);
     setIsMyTurn(false);
     void publish({ type: "end-turn", playerId });
@@ -1176,7 +1278,7 @@ export default function BattleRoomPage() {
                       handCount={owner === "player" ? hand.length : opponent.handCount}
                       raBonus={unit.raBonus}
                     />
-                    {pendingRaDestroyCardId && ruleSet === "ocg" && (
+                    {pendingRaDestroyCardId && ruleSet === "ocg" && !isStoneWarden(unit.card) && (
                       <button
                         type="button"
                         onClick={() => destroyRaTarget(owner, unit.card.id)}
@@ -1197,9 +1299,20 @@ export default function BattleRoomPage() {
                             {unit.raDestroyUsed ? "Ra đã phá hủy trong lượt" : "Ra: trả 1000 LP, phá hủy"}
                           </button>
                         )}
-                        {pendingSummonCardId && ruleSet === "ocg" && (
+                        {isStoneWarden(unit.card) && ruleSet === "ocg" && (
                           <button
                             type="button"
+                            disabled={!playerCanAct || pendingStoneWardenCardId !== null || unit.stoneWardenEffectUsed || opponent.board.length === 0}
+                            onClick={() => startStoneWardenEffect(unit.card.id)}
+                            className="w-full rounded-md bg-cyan-400/15 px-1 py-1 text-[10px] font-bold text-cyan-100 hover:bg-cyan-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {unit.stoneWardenEffectUsed ? "Đã dùng hiệu ứng lượt này" : "Hiến tế 2: quét sân"}
+                          </button>
+                        )}
+                        {(pendingSummonCardId || pendingStoneWardenCardId) && ruleSet === "ocg" && (
+                          <button
+                            type="button"
+                            disabled={pendingStoneWardenCardId === unit.card.id}
                             onClick={() => toggleTribute(unit.card.id)}
                             className={`w-full rounded-md px-1 py-1 text-[10px] font-bold ${
                               selectedTributeIds.includes(unit.card.id)
@@ -1207,12 +1320,14 @@ export default function BattleRoomPage() {
                                 : "bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
                             }`}
                           >
-                            {selectedTributeIds.includes(unit.card.id) ? "Đã chọn hiến tế" : "Chọn hiến tế"}
+                            {pendingStoneWardenCardId === unit.card.id
+                              ? "Không thể hiến tế thẻ này"
+                              : selectedTributeIds.includes(unit.card.id) ? "Đã chọn hiến tế" : "Chọn hiến tế"}
                           </button>
                         )}
                         <button
                           type="button"
-                          disabled={!playerCanAct || pendingRaDestroyCardId !== null || unit.hasAttacked}
+                          disabled={!playerCanAct || pendingRaDestroyCardId !== null || pendingStoneWardenCardId !== null || unit.hasAttacked}
                           onClick={() => attack(unit)}
                           className="w-full rounded-md bg-rose-500/15 px-1 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -1458,7 +1573,7 @@ export default function BattleRoomPage() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => { setPendingSummonCardId(null); setSelectedTributeIds([]); setRaLifePayment(0); }}
+              onClick={() => { setPendingSummonCardId(null); setPendingStoneWardenCardId(null); setSelectedTributeIds([]); setRaLifePayment(0); }}
               className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300"
             >
               Hủy
@@ -1485,6 +1600,31 @@ export default function BattleRoomPage() {
           >
             Hủy chọn mục tiêu
           </button>
+        </section>
+      )}
+
+      {pendingStoneWardenCardId && ruleSet === "ocg" && (
+        <section className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-300/25 bg-cyan-300/5 p-3">
+          <p className="text-xs text-cyan-100">
+            Hộ Vệ Cổ Thạch: chọn 2 quái vật khác ({selectedTributeIds.length}/2). Kích hoạt sẽ phá hủy toàn bộ quái thú đối thủ và Hộ Vệ không thể tấn công lượt này.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setPendingStoneWardenCardId(null); setSelectedTributeIds([]); }}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              disabled={!playerCanAct || selectedTributeIds.length !== 2}
+              onClick={activateStoneWardenEffect}
+              className="rounded-lg bg-cyan-300 px-3 py-2 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Hiến tế và kích hoạt
+            </button>
+          </div>
         </section>
       )}
 
@@ -1519,10 +1659,10 @@ export default function BattleRoomPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={drawCard} disabled={!playerCanAct || Boolean(pendingRaDestroyCardId) || hasDrawn} className="rounded-lg border border-cyan-400/30 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
+            <button type="button" onClick={drawCard} disabled={!playerCanAct || Boolean(pendingRaDestroyCardId) || Boolean(pendingStoneWardenCardId) || hasDrawn} className="rounded-lg border border-cyan-400/30 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
               {hasDrawn ? "Đã bốc bài" : "🂠 Bốc bài"}
             </button>
-            <button type="button" onClick={endTurn} disabled={!playerCanAct || Boolean(pendingRaDestroyCardId) || Boolean(attackingCardId)} className="rounded-lg bg-cyan-500 px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40">
+            <button type="button" onClick={endTurn} disabled={!playerCanAct || Boolean(pendingRaDestroyCardId) || Boolean(pendingStoneWardenCardId) || Boolean(attackingCardId)} className="rounded-lg bg-cyan-500 px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40">
               Kết thúc lượt →
             </button>
           </div>
@@ -1550,7 +1690,7 @@ export default function BattleRoomPage() {
                   key={card.id}
                   card={card}
                   ruleSet={ruleSet}
-                  canAct={playerCanAct && !pendingRaDestroyCardId}
+                  canAct={playerCanAct && !pendingRaDestroyCardId && !pendingStoneWardenCardId}
                   onPlay={() => playCard(card)}
                   onDragEnd={(info) => handleCardDragEnd(card, info)}
                 />

@@ -45,6 +45,7 @@ export default async function EditAdminCardPage({
 
   const initialCard: EditableCard = {
     ...card,
+    specialEffect: card.specialEffect === "OBELISK" ? "STONE_WARDEN" : card.specialEffect,
     category: card.category === "BATTLE" ? "BATTLE" : "DISPLAY",
     battleType: card.battleType === "SPELL" || card.battleType === "TRAP" ? card.battleType : "MONSTER",
     bugPart: card.bugPart === "CE" || card.bugPart === "TLE" || card.bugPart === "MLE" || card.bugPart === "WA" || card.bugPart === "PE"
