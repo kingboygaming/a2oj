@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       data: {
         ...parsed.data,
         category: parsed.data.category,
-        specialOnly: parsed.data.specialOnly || battle,
+        specialOnly: battle ? false : parsed.data.specialOnly,
         attack: battle ? (isGod ? 4000 : parsed.data.attack) : 0,
         defense: battle ? (isGod ? 4000 : parsed.data.defense) : 0,
         manaCost: battle ? parsed.data.manaCost : 0,

@@ -42,6 +42,7 @@ export async function POST(request: Request) {
         displayName: parsed.data.displayName,
         passwordHash,
         role: "STUDENT",
+        gachaTickets: 15,
       },
       select: {
         id: true,

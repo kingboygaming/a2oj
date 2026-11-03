@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 const ANNOUNCE_CARD_NAMES_KEY = "gacha-announce-card-names";
@@ -24,7 +25,14 @@ type CardView = {
   name: string;
   rarity: string;
   description: string;
-  imageUrl: string;
+  category?: string;
+  attack?: number;
+  defense?: number;
+  manaCost?: number;
+  level?: number;
+  element?: string;
+  icon?: string;
+  imageUrl: string | null;
   count?: number;
   dropRate?: number;
 };
@@ -229,7 +237,7 @@ export function GachaPageClient({
               <div className="mt-3 space-y-2">
                 {selectedBanner?.cards.map(({ card, dropRate }) => (
                   <div key={card.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
-                    <span className="min-w-0 truncate text-sm">{card.name} <span className="text-xs text-[var(--muted)]">{rarityNames[card.rarity] ?? card.rarity}</span></span>
+                    <span className="min-w-0 truncate text-sm">{card.name} <span className="text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready · " : "· "}{rarityNames[card.rarity] ?? card.rarity}</span></span>
                     <span className="shrink-0 text-sm font-semibold tabular-nums">{dropRate}%</span>
                   </div>
                 ))}
@@ -300,9 +308,12 @@ export function GachaPageClient({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-[var(--navy)]">Bộ sưu tập</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">Chọn một thẻ để trưng bày trên hồ sơ cá nhân.</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Thẻ Battle Ready có thể đưa vào bộ bài để đấu PvP.</p>
           </div>
-          {featuredCardId && <button type="button" onClick={() => featureCard(null)} className="text-sm font-medium text-[var(--teal)] hover:underline">Bỏ thẻ nổi bật</button>}
+          <div className="flex flex-wrap gap-3">
+            {collection.some((card) => card.category === "BATTLE") && <Link href="/battle/deck" className="text-sm font-bold text-[var(--teal)] hover:underline">Xây bộ bài PvP →</Link>}
+            {featuredCardId && <button type="button" onClick={() => featureCard(null)} className="text-sm font-medium text-[var(--teal)] hover:underline">Bỏ thẻ nổi bật</button>}
+          </div>
         </div>
         {collection.length === 0 ? (
           <p className="mt-5 rounded-xl border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--muted)]">Bạn chưa có thẻ nào. Hoàn thành bài tập hoặc quay banner để bắt đầu sưu tập.</p>
@@ -311,9 +322,11 @@ export function GachaPageClient({
             {collection.map((card) => (
               <div key={card.id} className="space-y-2">
                 <CardTile card={card} />
-                <button type="button" onClick={() => featureCard(card.id)} className={`w-full rounded-lg px-2 py-2 text-xs font-semibold ${featuredCardId === card.id ? "bg-[var(--teal)] text-white" : "border border-[var(--line)] text-[var(--ink)] hover:border-[var(--teal)]"}`}>
-                  {featuredCardId === card.id ? "Đang trưng bày" : "Trưng bày trên hồ sơ"}
-                </button>
+                {card.category !== "BATTLE" && (
+                  <button type="button" onClick={() => featureCard(card.id)} className={`w-full rounded-lg px-2 py-2 text-xs font-semibold ${featuredCardId === card.id ? "bg-[var(--teal)] text-white" : "border border-[var(--line)] text-[var(--ink)] hover:border-[var(--teal)]"}`}>
+                    {featuredCardId === card.id ? "Đang trưng bày" : "Trưng bày trên hồ sơ"}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -327,12 +340,21 @@ function CardTile({ card, revealIndex }: { card: CardView; revealIndex?: number 
   const tile = (
     <article className={`overflow-hidden rounded-xl border-2 ${rarityStyles[card.rarity] ?? rarityStyles.COMMON} ${revealIndex !== undefined && ["EPIC", "LEGENDARY", "SPECIAL"].includes(card.rarity) ? "gacha-card-rare" : ""}`}>
       <div className="relative aspect-[3/4] bg-[var(--navy)]/5">
-        <Image src={card.imageUrl} alt={card.name} fill unoptimized sizes="(max-width: 640px) 45vw, 180px" className="object-cover" />
+        {card.imageUrl ? (
+          <Image src={card.imageUrl} alt={card.name} fill unoptimized sizes="(max-width: 640px) 45vw, 180px" className="object-cover" />
+        ) : (
+          <div className="grid size-full place-items-center text-5xl" aria-label={card.name}>{card.icon || "🃏"}</div>
+        )}
         {card.count && card.count > 1 && <span className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-white">×{card.count}</span>}
       </div>
       <div className="p-2.5">
         <p className="truncate text-sm font-bold">{card.name}</p>
         <p className="text-[10px] font-semibold uppercase tracking-wide">{rarityNames[card.rarity] ?? card.rarity}</p>
+        {card.category === "BATTLE" && (
+          <p className="mt-1 text-[10px] font-bold">
+            PvP · ATK {card.attack ?? 0} / DEF {card.defense ?? 0} · 💎 {card.manaCost ?? 0}
+          </p>
+        )}
         {card.description && <p className="mt-1 line-clamp-2 text-xs opacity-80">{card.description}</p>}
       </div>
     </article>

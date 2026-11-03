@@ -15,7 +15,24 @@ export default async function GachaPage() {
       include: {
         cards: {
           orderBy: { dropRate: "asc" },
-          include: { card: { select: { id: true, name: true, rarity: true, description: true } } },
+          include: {
+            card: {
+              select: {
+                id: true,
+                name: true,
+                rarity: true,
+                description: true,
+                category: true,
+                attack: true,
+                defense: true,
+                manaCost: true,
+                level: true,
+                element: true,
+                icon: true,
+                imageMimeType: true,
+              },
+            },
+          },
         },
       },
     }),
@@ -29,7 +46,24 @@ export default async function GachaPage() {
       ? prisma.userGachaCard.findMany({
           where: { userId: user.id },
           orderBy: { card: { name: "asc" } },
-          include: { card: { select: { id: true, name: true, rarity: true, description: true } } },
+          include: {
+            card: {
+              select: {
+                id: true,
+                name: true,
+                rarity: true,
+                description: true,
+                category: true,
+                attack: true,
+                defense: true,
+                manaCost: true,
+                level: true,
+                element: true,
+                icon: true,
+                imageMimeType: true,
+              },
+            },
+          },
         })
       : [],
   ]);
@@ -51,17 +85,23 @@ export default async function GachaPage() {
           type: banner.type,
           startsAt: banner.startsAt?.toISOString() ?? null,
           endsAt: banner.endsAt?.toISOString() ?? null,
-          cards: banner.cards.map(({ card, dropRate }) => ({
-            card: { ...card, imageUrl: `/api/gacha/cards/${card.id}/image` },
-            dropRate,
-          })),
+          cards: banner.cards.map(({ card, dropRate }) => {
+            const { imageMimeType, ...cardData } = card;
+            return {
+              card: { ...cardData, imageUrl: imageMimeType ? `/api/gacha/cards/${card.id}/image` : null },
+              dropRate,
+            };
+          }),
         }))}
         initialTickets={account?.gachaTickets ?? 0}
-        initialCollection={ownedCards.map(({ card, count }) => ({
-          ...card,
-          imageUrl: `/api/gacha/cards/${card.id}/image`,
-          count,
-        }))}
+        initialCollection={ownedCards.map(({ card, count }) => {
+          const { imageMimeType, ...cardData } = card;
+          return {
+            ...cardData,
+            imageUrl: imageMimeType ? `/api/gacha/cards/${card.id}/image` : null,
+            count,
+          };
+        })}
         initialFeaturedCardId={featuredCardId}
         signedIn={Boolean(user)}
       />

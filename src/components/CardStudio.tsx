@@ -217,7 +217,7 @@ export function CardStudio() {
         <fieldset className="grid gap-3 sm:grid-cols-2">
           {([
             ["DISPLAY", "Thẻ trưng bày", "Sưu tầm, dùng trên profile; không có chỉ số chiến đấu."],
-            ["BATTLE", "Thẻ chiến đấu", "Có ATK/DEF, kỹ năng ẩn và có thể đưa vào phòng đấu."],
+            ["BATTLE", "Thẻ chiến đấu", "Có ATK/DEF, dùng trong PvP và có thể thêm vào banner Gacha."],
           ] as const).map(([category, title, detail]) => (
             <label key={category} className={`cursor-pointer rounded-xl border p-4 ${draft.category === category ? "border-[var(--teal)] bg-[var(--teal)]/10" : "border-[var(--line)]"}`}>
               <input

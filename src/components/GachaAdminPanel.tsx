@@ -167,8 +167,8 @@ export function GachaAdminPanel({
               Tổng: {totalRate.toFixed(2)}%
             </span>
           </div>
-          {cards.filter((card) => card.category === "DISPLAY" && !card.specialOnly).length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">Hãy tạo thẻ banner ở phần bên dưới trước.</p>
+          {cards.filter((card) => card.category === "BATTLE" || !card.specialOnly).length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Hãy tạo thẻ trưng bày ở bên dưới hoặc thẻ Battle Ready trong Card Studio trước.</p>
           ) : (
             <div className="space-y-2">
               {selectedCardIds.map((id) => {
@@ -176,7 +176,7 @@ export function GachaAdminPanel({
                 if (!card) return null;
                 return (
                   <div key={id} className="grid grid-cols-[1fr_110px_auto] items-center gap-2 rounded-lg bg-[var(--navy)]/[0.03] p-2">
-                    <span className="truncate text-sm font-medium">{card.name} <span className="text-xs text-[var(--muted)]">{rarityNames[card.rarity] ?? card.rarity}</span></span>
+                    <span className="truncate text-sm font-medium">{card.name} <span className="text-xs text-[var(--muted)]">{card.category === "BATTLE" ? "· Battle Ready · " : "· "}{rarityNames[card.rarity] ?? card.rarity}</span></span>
                     <label className="text-xs">Tỉ lệ %
                       <input type="number" min="0.01" max="100" step="0.01" value={dropRates[id] ?? 0} onChange={(event) => setDropRates((current) => ({ ...current, [id]: Number(event.target.value) }))} className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1 text-sm" />
                     </label>
@@ -187,7 +187,7 @@ export function GachaAdminPanel({
               <div className="flex flex-wrap gap-2">
                 <select value={cardToAdd} onChange={(event) => setCardToAdd(event.target.value)} className={`${inputClass} max-w-sm`}>
                   <option value="">Chọn thẻ banner để thêm</option>
-                  {cards.filter((card) => card.category === "DISPLAY" && !card.specialOnly && !selectedCardIds.includes(card.id)).map((card) => <option key={card.id} value={card.id}>{card.name} · {card.rarity}</option>)}
+                  {cards.filter((card) => (card.category === "BATTLE" || !card.specialOnly) && !selectedCardIds.includes(card.id)).map((card) => <option key={card.id} value={card.id}>{card.name} · {card.category === "BATTLE" ? "Battle Ready" : "Trưng bày"} · {card.rarity}</option>)}
                 </select>
                 <button type="button" disabled={!cardToAdd || selectedCardIds.length >= 20} onClick={() => {
                   setSelectedCardIds((current) => [...current, cardToAdd]);
@@ -207,7 +207,7 @@ export function GachaAdminPanel({
       <form onSubmit={submitCard} className="space-y-4 rounded-xl border border-fuchsia-200 bg-[var(--paper)] p-5">
         <div>
           <h2 className="text-lg font-semibold text-[var(--navy)]">Tạo thẻ</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">Thẻ banner có thể nằm trong banner quay; thẻ đặc biệt chỉ rơi từ bài tập/contest.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Thẻ trưng bày dùng để sưu tầm; thẻ Battle Ready có thể đưa vào banner để người chơi quay và xây deck PvP.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Tên thẻ"><input name="name" required maxLength={100} className={inputClass} /></Field>

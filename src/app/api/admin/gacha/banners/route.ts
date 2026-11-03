@@ -44,11 +44,17 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Dữ liệu banner không hợp lệ." }, { status: 400 });
 
   const selectedCards = await prisma.gachaCard.findMany({
-    where: { id: { in: parsed.data.cards.map((card) => card.cardId) }, specialOnly: false, category: "DISPLAY" },
+    where: {
+      id: { in: parsed.data.cards.map((card) => card.cardId) },
+      OR: [
+        { category: "BATTLE" },
+        { category: "DISPLAY", specialOnly: false },
+      ],
+    },
     select: { id: true },
   });
   if (selectedCards.length !== parsed.data.cards.length) {
-    return NextResponse.json({ error: "Một hoặc nhiều thẻ banner không tồn tại hoặc là thẻ đặc biệt." }, { status: 400 });
+    return NextResponse.json({ error: "Một hoặc nhiều thẻ banner không tồn tại hoặc không thể đưa vào banner." }, { status: 400 });
   }
 
   try {

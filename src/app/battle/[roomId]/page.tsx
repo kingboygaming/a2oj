@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion, useDragControls, type PanInfo } from "framer-motion";
 import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -63,20 +64,6 @@ const MAX_MANA = 10;
 const MAX_BOARD_CARDS = 5;
 const EXODIA_PARTS = new Set(["CE", "TLE", "MLE", "WA", "PE"]);
 
-const CARD_POOL: BattleCard[] = [
-  { id: "ember-fox", name: "Cáo Lửa", cost: 2, power: 3, level: 3, element: "Hỏa", icon: "🦊" },
-  { id: "tide-keeper", name: "Người Gác Triều", cost: 3, power: 4, level: 4, element: "Thủy", icon: "🌊" },
-  { id: "iron-golem", name: "Khổng Lồ Sắt", cost: 5, power: 7, level: 7, element: "Kim", icon: "🗿" },
-  { id: "mist-raven", name: "Quạ Sương", cost: 1, power: 2, level: 2, element: "Phong", icon: "🐦‍⬛" },
-  { id: "crystal-mage", name: "Pháp Sư Pha Lê", cost: 4, power: 5, level: 5, element: "Tinh Thể", icon: "🔮" },
-  { id: "moss-guardian", name: "Hộ Vệ Rêu", cost: 2, power: 2, level: 4, element: "Mộc", icon: "🌿" },
-  { id: "storm-drake", name: "Long Ưng Bão Tố", cost: 6, power: 8, level: 8, element: "Lôi", icon: "🐉" },
-  { id: "sun-oracle", name: "Nhà Tiên Tri Mặt Trời", cost: 3, power: 3, level: 6, element: "Quang", icon: "☀️" },
-  { id: "obelisk", name: "Obelisk Kẻ Hủy Diệt", cost: 0, power: 4, level: 10, element: "Thần", icon: "🗿", isEgyptianGod: true },
-  { id: "slifer", name: "Rồng Bầu Trời Slifer", cost: 0, power: 3, level: 10, element: "Thần", icon: "🐉", isEgyptianGod: true },
-  { id: "ra", name: "Rồng Có Cánh Ra", cost: 0, power: 5, level: 10, element: "Thần", icon: "🐲", isEgyptianGod: true },
-];
-
 const EMPTY_OPPONENT: PlayerSnapshot = {
   playerId: "",
   name: "Đang tìm đối thủ...",
@@ -103,8 +90,7 @@ function isEgyptianGod(card: BattleCard) {
 }
 
 function getCardPool(ruleSet: RuleSet, customCards: BattleCard[] = []) {
-  const cards = [...customCards, ...CARD_POOL];
-  return ruleSet === "ocg" ? cards : cards.filter((card) => !isEgyptianGod(card));
+  return ruleSet === "ocg" ? customCards : customCards.filter((card) => !isEgyptianGod(card));
 }
 
 function createStartingHand(playerId: string, ruleSet: RuleSet, customCards: BattleCard[] = []) {
@@ -112,6 +98,15 @@ function createStartingHand(playerId: string, ruleSet: RuleSet, customCards: Bat
     ...card,
     id: `${playerId}-${card.id}-${index}`,
   }));
+}
+
+function shuffleCards(cards: BattleCard[]) {
+  const shuffled = [...cards];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
 }
 
 function getAttackStat(card: BattleCard, handCount: number, raBonus = 0) {
@@ -353,8 +348,10 @@ export default function BattleRoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [playerId] = useState(() => crypto.randomUUID());
   const [ruleSet, setRuleSet] = useState<RuleSet>("basic");
-  const [hand, setHand] = useState<BattleCard[]>(() => createStartingHand(playerId, "basic"));
-  const [customCards, setCustomCards] = useState<BattleCard[]>([]);
+  const [hand, setHand] = useState<BattleCard[]>([]);
+  const [deckCards, setDeckCards] = useState<BattleCard[]>([]);
+  const [deckReady, setDeckReady] = useState(false);
+  const [deckLoadError, setDeckLoadError] = useState("");
   const [board, setBoard] = useState<BoardCard[]>([]);
   const [mana, setMana] = useState(5);
   const [playerHp, setPlayerHp] = useState(BASIC_HP);
@@ -385,7 +382,7 @@ export default function BattleRoomPage() {
   const boardDropRef = useRef<HTMLDivElement>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifeLabel = ruleSet === "ocg" ? "LP" : "HP";
-  const playerCanAct = isMyTurn && !winner && (!opponent.playerId || opponent.ruleSet === ruleSet);
+  const playerCanAct = deckReady && getCardPool(ruleSet, deckCards).length >= 5 && isMyTurn && !winner && (!opponent.playerId || opponent.ruleSet === ruleSet);
   const pendingSummonCard = hand.find((card) => card.id === pendingSummonCardId);
   const requiredTributes = pendingSummonCard ? getRequiredTributes(pendingSummonCard) : 0;
   const playerSnapshotRef = useRef<PlayerSnapshot>({
@@ -438,20 +435,37 @@ export default function BattleRoomPage() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/battle/cards")
+    fetch("/api/battle/deck")
       .then(async (response) => {
-        if (!response.ok) throw new Error("Không tải được bộ thẻ chiến đấu.");
-        const result: { cards: Parameters<typeof mapServerCard>[0][] } = await response.json();
-        return result.cards.map(mapServerCard);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "Không tải được bộ bài PvP.");
+        return result as {
+          cards: Parameters<typeof mapServerCard>[0][];
+          deck: { cardId: string; count: number }[];
+        };
       })
-      .then((cards) => {
-        if (active) setCustomCards(cards);
+      .then((result) => {
+        if (!active) return;
+        const ownedCards = new Map(result.cards.map((card) => [card.id, mapServerCard(card)]));
+        const selectedDeck = result.deck.flatMap(({ cardId, count }) => {
+          const card = ownedCards.get(cardId);
+          return card ? Array.from({ length: count }, () => card) : [];
+        });
+        const shuffledDeck = shuffleCards(selectedDeck);
+        setDeckCards(shuffledDeck);
+        const startingHand = createStartingHand(playerId, "basic", shuffledDeck);
+        setHand(startingHand);
+        setDrawIndex(5);
+        setDeckReady(true);
       })
-      .catch(() => {
-        if (active) notify("Không tải được thẻ Battle Ready từ Card Studio.");
+      .catch((cause: unknown) => {
+        if (active) {
+          setDeckLoadError(cause instanceof Error ? cause.message : "Không tải được bộ bài PvP.");
+          setDeckReady(true);
+        }
       });
     return () => { active = false; };
-  }, [notify]);
+  }, [playerId]);
 
   useEffect(() => {
     playerSnapshotRef.current = {
@@ -464,6 +478,15 @@ export default function BattleRoomPage() {
       ruleSet,
     };
   }, [board, hand.length, playerHp, playerId, ruleSet]);
+
+  useEffect(() => {
+    if (!deckReady || deckLoadError || !channelRef.current) return;
+    void publish({
+      type: "join",
+      playerId,
+      player: playerSnapshotRef.current,
+    });
+  }, [deckLoadError, deckReady, playerId, publish]);
 
   useEffect(() => {
     opponentSnapshotRef.current = opponent;
@@ -712,8 +735,11 @@ export default function BattleRoomPage() {
   function changeRuleSet(nextRuleSet: RuleSet) {
     if (gameStarted || nextRuleSet === ruleSet) return;
     setRuleSet(nextRuleSet);
-    setHand(createStartingHand(playerId, nextRuleSet, customCards));
-    checkExodia(createStartingHand(playerId, nextRuleSet, customCards));
+    const shuffledDeck = shuffleCards(deckCards);
+    setDeckCards(shuffledDeck);
+    const startingHand = createStartingHand(playerId, nextRuleSet, shuffledDeck);
+    setHand(startingHand);
+    checkExodia(startingHand);
     setBoard([]);
     setMana(5);
     setPlayerHp(getStartingLifePoints(nextRuleSet));
@@ -761,8 +787,12 @@ export default function BattleRoomPage() {
       return;
     }
 
-    const pool = getCardPool(ruleSet, customCards);
-    const drawnFromPool = pool[drawIndex % pool.length];
+    const pool = getCardPool(ruleSet, deckCards);
+    if (drawIndex >= pool.length) {
+      notify("Bộ bài đã hết.");
+      return;
+    }
+    const drawnFromPool = pool[drawIndex];
     const drawnCard = { ...drawnFromPool, id: `${playerId}-${drawnFromPool.id}-${drawIndex}` };
     const nextHand = [...hand, drawnCard];
     setHand(nextHand);
@@ -966,6 +996,25 @@ export default function BattleRoomPage() {
           {realtimeStatus}
         </p>
       </header>
+
+      {!deckReady && (
+        <p role="status" className="mb-4 rounded-xl border border-cyan-300/20 bg-cyan-300/5 p-3 text-sm text-cyan-100">
+          Đang tải bộ bài PvP của bạn...
+        </p>
+      )}
+      {deckReady && (deckLoadError || getCardPool(ruleSet, deckCards).length < 5) && (
+        <section className="mb-4 rounded-xl border border-amber-300/25 bg-amber-300/5 p-4">
+          <p className="font-bold text-amber-100">{deckLoadError || "Bộ bài chưa đủ 5 lá hợp lệ theo luật đang chọn."}</p>
+          <p className="mt-1 text-sm text-slate-300">
+            Quay Gacha để nhận thẻ Battle Ready, sau đó chọn từ 5–20 lá trong bộ bài.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href="/battle/deck" className="rounded-lg bg-cyan-400 px-3 py-2 text-xs font-black text-slate-950">Quản lý bộ bài</Link>
+            <Link href="/gacha" className="rounded-lg border border-amber-200/30 px-3 py-2 text-xs font-bold text-amber-100">Đi Gacha</Link>
+            {deckLoadError.includes("đăng nhập") && <Link href="/login" className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-bold text-slate-200">Đăng nhập</Link>}
+          </div>
+        </section>
+      )}
 
       <section aria-label="Chọn luật đấu" className="mb-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

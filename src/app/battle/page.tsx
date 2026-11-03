@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function BattleLobbyPage() {
@@ -77,6 +78,20 @@ export default function BattleLobbyPage() {
               Vào phòng
             </button>
           </form>
+        </article>
+
+        <article className="rounded-2xl border border-violet-400/25 bg-slate-950 p-5 text-slate-100 shadow-lg shadow-violet-950/10 sm:col-span-2">
+          <div className="text-3xl" aria-hidden="true">🃏</div>
+          <h2 className="mt-3 text-lg font-bold">Bộ bài của bạn</h2>
+          <p className="mt-1 text-sm leading-5 text-slate-400">
+            Dùng thẻ Battle Ready đã quay được trong Gacha để xây và lưu deck PvP của riêng bạn.
+          </p>
+          <Link
+            href="/battle/deck"
+            className="mt-4 inline-flex w-full justify-center rounded-lg border border-violet-300/30 px-4 py-2.5 text-sm font-bold text-violet-200 transition hover:bg-violet-300/10"
+          >
+            Quản lý bộ bài
+          </Link>
         </article>
       </section>
 

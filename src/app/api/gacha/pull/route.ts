@@ -29,13 +29,40 @@ export async function POST(request: Request) {
     });
     if (!spent.count) return { error: "Bạn không đủ lượt quay." as const };
 
-    const pulledCards: { id: string; name: string; rarity: string; description: string; imageUrl: string; dropRate: number }[] = [];
+    const pulledCards: {
+      id: string;
+      name: string;
+      rarity: string;
+      description: string;
+      category: string;
+      attack: number;
+      defense: number;
+      manaCost: number;
+      level: number;
+      element: string;
+      icon: string;
+      imageUrl: string | null;
+      dropRate: number;
+    }[] = [];
     for (let index = 0; index < parsed.data.quantity; index += 1) {
       const cardId = chooseBannerCard(banner.cards);
       const bannerCard = banner.cards.find((item) => item.cardId === cardId);
       const card = await transaction.gachaCard.findUnique({
         where: { id: cardId },
-        select: { id: true, name: true, rarity: true, description: true },
+        select: {
+          id: true,
+          name: true,
+          rarity: true,
+          description: true,
+          category: true,
+          attack: true,
+          defense: true,
+          manaCost: true,
+          level: true,
+          element: true,
+          icon: true,
+          imageMimeType: true,
+        },
       });
       if (!bannerCard || !card) throw new Error("Banner chứa thẻ không hợp lệ.");
       await transaction.gachaPull.create({
@@ -48,7 +75,7 @@ export async function POST(request: Request) {
       });
       pulledCards.push({
         ...card,
-        imageUrl: `/api/gacha/cards/${card.id}/image`,
+        imageUrl: card.imageMimeType ? `/api/gacha/cards/${card.id}/image` : null,
         dropRate: bannerCard.dropRate,
       });
     }

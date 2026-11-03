@@ -20,8 +20,13 @@ export default async function AdminGachaPage() {
       select: { id: true, name: true, rarity: true },
     }),
     prisma.gachaCard.findMany({
-      orderBy: { name: "asc" },
-      where: { category: "DISPLAY" },
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+      where: {
+        OR: [
+          { category: "BATTLE" },
+          { category: "DISPLAY", specialOnly: false },
+        ],
+      },
       select: { id: true, slug: true, name: true, rarity: true, specialOnly: true, category: true },
     }),
   ]);
