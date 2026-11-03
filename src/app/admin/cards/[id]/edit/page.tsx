@@ -28,6 +28,7 @@ export default async function EditAdminCardPage({
       defense: true,
       manaCost: true,
       level: true,
+      requiredTributes: true,
       element: true,
       icon: true,
       critRate: true,

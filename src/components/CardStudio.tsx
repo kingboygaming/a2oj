@@ -21,6 +21,7 @@ type CardDraft = {
   defense: number;
   manaCost: number;
   level: number;
+  requiredTributes: number | null;
   element: string;
   icon: string;
   critRate: number;
@@ -48,6 +49,7 @@ const INITIAL_DRAFT: CardDraft = {
   defense: 1200,
   manaCost: 3,
   level: 4,
+  requiredTributes: null,
   element: "Tin học",
   icon: "🃏",
   critRate: 0,
@@ -216,7 +218,7 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
     setMessage("");
     const formData = new FormData();
     Object.entries(draft).forEach(([key, value]) => {
-      formData.set(key, String(value));
+      formData.set(key, value == null ? "" : String(value));
     });
     if (image) formData.set("image", image);
     if (removeExistingImage) formData.set("removeImage", "true");
@@ -371,6 +373,18 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
                 <NumberField label="Mana Cost" min={1} max={5} value={draft.manaCost} onChange={(value) => update("manaCost", value)} />
                 <NumberField label="Cấp" min={1} max={12} value={draft.level} onChange={(value) => update("level", value)} />
               </div>
+              <Field label="Số quái vật cần hiến tế">
+                <select
+                  value={draft.requiredTributes ?? ""}
+                  onChange={(event) => update("requiredTributes", event.target.value === "" ? null : Number(event.target.value))}
+                  className={inputClass}
+                >
+                  <option value="">Tự động theo cấp (cấp 1–4: 0, cấp 5–6: 1, cấp 7+: 2)</option>
+                  <option value="0">Không cần hiến tế</option>
+                  <option value="1">Hiến tế 1 quái vật</option>
+                  <option value="2">Hiến tế 2 quái vật</option>
+                </select>
+              </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Nội tại đặc biệt">
                   <select value={draft.specialEffect} onChange={(event) => update("specialEffect", event.target.value)} className={inputClass}>

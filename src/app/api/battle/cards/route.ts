@@ -16,6 +16,7 @@ export async function GET() {
       defense: true,
       manaCost: true,
       level: true,
+      requiredTributes: true,
       element: true,
       icon: true,
       critRate: true,

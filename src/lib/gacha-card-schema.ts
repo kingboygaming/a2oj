@@ -16,6 +16,10 @@ export const gachaCardSchema = z.object({
   defense: z.coerce.number().int().min(0).max(5000).default(0),
   manaCost: z.coerce.number().int().min(0).max(5).default(0),
   level: z.coerce.number().int().min(1).max(12).default(1),
+  requiredTributes: z.preprocess(
+    (value) => value == null || value === "" ? null : value,
+    z.union([z.null(), z.coerce.number().int().min(0).max(2)]),
+  ).default(null),
   element: z.preprocess(
     (value) => value == null || (typeof value === "string" && !value.trim()) ? "Tin học" : value,
     z.string().trim().min(1).max(30),
@@ -72,6 +76,7 @@ export function parseGachaCardForm(formData: FormData) {
     defense: formData.get("defense") ?? 0,
     manaCost: formData.get("manaCost") ?? 0,
     level: formData.get("level") ?? 1,
+    requiredTributes: formData.get("requiredTributes"),
     element: formData.get("element") ?? "Tin học",
     icon: formData.get("icon") ?? "🃏",
     critRate: formData.get("critRate") ?? 0,
@@ -96,6 +101,7 @@ export function normalizeGachaCardData(data: z.output<typeof gachaCardSchema>) {
     defense: isMonster ? data.defense : 0,
     manaCost: isBattle ? data.manaCost : 0,
     level: isMonster ? (isGod ? 10 : data.level) : 1,
+    requiredTributes: isMonster ? data.requiredTributes : null,
     critRate: isMonster ? data.critRate : 0,
     evasionRate: isMonster ? data.evasionRate : 0,
     counterRate: isMonster ? data.counterRate : 0,

@@ -27,6 +27,7 @@ export default async function AdminCardsPage() {
       attack: true,
       defense: true,
       manaCost: true,
+      requiredTributes: true,
       imageMimeType: true,
     },
   });
@@ -70,7 +71,7 @@ export default async function AdminCardsPage() {
                   <p className="text-xs text-[var(--muted)]">{cardTypeLabels[type] ?? type} · {card.rarity}</p>
                   {card.category === "BATTLE" && (
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      {card.battleType === "MONSTER" ? `ATK ${card.attack} · DEF ${card.defense} · ` : ""}💎 {card.manaCost}
+                      {card.battleType === "MONSTER" ? `ATK ${card.attack} · DEF ${card.defense}${card.requiredTributes != null ? ` · Hiến tế ${card.requiredTributes}` : ""} · ` : ""}💎 {card.manaCost}
                     </p>
                   )}
                 </div>

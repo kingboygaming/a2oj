@@ -16,6 +16,7 @@ type BattleCard = {
   cost: number;
   power: number;
   level: number;
+  requiredTributes?: number | null;
   element: string;
   icon: string;
   imageUrl?: string | null;
@@ -87,6 +88,7 @@ function getStartingLifePoints(ruleSet: RuleSet) {
 }
 
 function getRequiredTributes(card: BattleCard) {
+  if (card.requiredTributes != null) return card.requiredTributes;
   if (isEgyptianGod(card)) return 2;
   if (card.level >= 7) return 2;
   if (card.level >= 5) return 1;
@@ -138,6 +140,7 @@ function mapServerCard(card: {
   defense: number;
   manaCost: number;
   level: number;
+  requiredTributes: number | null;
   element: string;
   icon: string;
   critRate: number;
@@ -153,6 +156,7 @@ function mapServerCard(card: {
     battleType: card.battleType,
     cost: card.manaCost,
     power: Math.max(1, Math.round(card.attack / 1000)),
+    requiredTributes: card.requiredTributes,
     isEgyptianGod: ["SLIFER", "RA", "OBELISK"].includes(card.specialEffect),
   };
 }
@@ -167,6 +171,9 @@ function isBattleCard(value: unknown): value is BattleCard {
     typeof card.cost === "number" &&
     typeof card.power === "number" &&
     typeof card.level === "number" &&
+    (card.requiredTributes === undefined || card.requiredTributes === null ||
+      (typeof card.requiredTributes === "number" &&
+        Number.isInteger(card.requiredTributes) && card.requiredTributes >= 0 && card.requiredTributes <= 2)) &&
     typeof card.element === "string" &&
     typeof card.icon === "string" &&
     (card.attack === undefined || typeof card.attack === "number") &&
