@@ -1,6 +1,35 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const currentUser = await getCurrentUser();
+  if (currentUser?.role !== "ADMIN") {
+    return NextResponse.json({ error: "Bạn không có quyền quản trị." }, { status: 403 });
+  }
+
+  const parsed = z.object({
+    gachaTickets: z.number().int().min(0).max(1_000_000),
+  }).safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Số lượt quay phải là số nguyên từ 0 đến 1.000.000." }, { status: 400 });
+  }
+
+  const { id } = await context.params;
+  const result = await prisma.user.updateMany({
+    where: { id },
+    data: { gachaTickets: parsed.data.gachaTickets },
+  });
+  if (result.count === 0) {
+    return NextResponse.json({ error: "Không tìm thấy tài khoản." }, { status: 404 });
+  }
+
+  return NextResponse.json({ success: true, gachaTickets: parsed.data.gachaTickets });
+}
 
 export async function DELETE(
   _request: Request,

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AdminGachaTickets } from "@/components/AdminGachaTickets";
 import { AdminDeleteButton } from "@/components/AdminDeleteButton";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +25,7 @@ export default async function AdminUsersPage() {
       displayName: true,
       role: true,
       createdAt: true,
+      gachaTickets: true,
       _count: {
         select: {
           submissions: true,
@@ -58,12 +60,13 @@ export default async function AdminUsersPage() {
       </header>
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
-        <table className="w-full min-w-[760px] text-left text-sm">
+        <table className="w-full min-w-[1100px] text-left text-sm">
           <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
             <tr>
               <th className="px-4 py-3 font-medium">Tài khoản</th>
               <th className="px-4 py-3 font-medium">Vai trò</th>
               <th className="px-4 py-3 font-medium">Dữ liệu</th>
+              <th className="px-4 py-3 font-medium">Lượt quay</th>
               <th className="px-4 py-3 font-medium">Ngày tạo</th>
               <th className="px-4 py-3 text-right font-medium">Thao tác</th>
             </tr>
@@ -95,6 +98,9 @@ export default async function AdminUsersPage() {
                     {user._count.submissions} bài nộp · {user._count.problems} bài ·{" "}
                     {user._count.contests} contest · {user._count.registrations} lượt đăng ký ·{" "}
                     {user._count.news} tin
+                  </td>
+                  <td className="px-4 py-3">
+                    <AdminGachaTickets userId={user.id} initialTickets={user.gachaTickets} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-[var(--muted)]">
                     {user.createdAt.toLocaleDateString("vi-VN")}
