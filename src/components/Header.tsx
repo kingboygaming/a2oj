@@ -31,14 +31,17 @@ export async function Header() {
     <>
     <header className="site-header border-b border-white/10 text-[var(--cream)]">
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-x-6">
           <Link href="/" prefetch={true} className="flex shrink-0 items-baseline gap-1.5">
             <span className="text-2xl font-semibold tracking-tight">A2OJ</span>
             <span className="hidden text-[11px] text-[var(--cream)]/70 sm:inline">
               Sân chơi cho khối chuyên Tin
             </span>
           </Link>
-          <nav aria-label="Điều hướng chính" className="flex flex-wrap items-center gap-1 text-sm">
+          <nav
+            aria-label="Điều hướng chính"
+            className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {links.map((link) => (
               <Link
                 key={link.href}
