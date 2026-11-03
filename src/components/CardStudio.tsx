@@ -375,7 +375,8 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
               </div>
               <Field label="Số quái vật cần hiến tế">
                 <select
-                  value={draft.requiredTributes ?? ""}
+                  value={draft.specialEffect === "RA" ? 3 : draft.requiredTributes ?? ""}
+                  disabled={draft.specialEffect === "RA"}
                   onChange={(event) => update("requiredTributes", event.target.value === "" ? null : Number(event.target.value))}
                   className={inputClass}
                 >
@@ -385,13 +386,14 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
                   <option value="2">Hiến tế 2 quái vật</option>
                   <option value="3">Hiến tế 3 quái vật</option>
                 </select>
+                {draft.specialEffect === "RA" && <p className="mt-1 text-xs text-amber-200">Thần Ra luôn cần đúng 3 quái vật để Triệu hồi Thường.</p>}
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Nội tại đặc biệt">
                   <select value={draft.specialEffect} onChange={(event) => update("specialEffect", event.target.value)} className={inputClass}>
                     <option value="NONE">Không có</option>
-                    <option value="SLIFER">Tăng ATK/DEF theo số bài trên tay</option>
-                    <option value="RA">Hiến tế LP để tăng ATK</option>
+                    <option value="SLIFER">Tăng ATK/DEF theo số bài trên tay và giảm 2000 chỉ số quái thú đối thủ vừa triệu hồi</option>
+                    <option value="RA">Thần Ra: 3 hiến tế, trả LP tăng ATK/DEF, phá hủy quái thú</option>
                     <option value="OBELISK">Quét sân đối thủ khi triệu hồi</option>
                   </select>
                 </Field>

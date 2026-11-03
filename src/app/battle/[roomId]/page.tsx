@@ -37,6 +37,7 @@ type BoardCard = {
   card: BattleCard;
   hasAttacked: boolean;
   raBonus?: number;
+  raDestroyUsed?: boolean;
 };
 
 type BoardSpellTrap = { card: BattleCard };
@@ -55,6 +56,7 @@ type PlayerSnapshot = {
 type BattleMessage =
   | { type: "join" | "welcome"; playerId: string; player: PlayerSnapshot }
   | { type: "play-card"; playerId: string; card: BattleCard; handCount: number; tributeIds: string[]; clearsEnemyBoard: boolean; raPayment: number }
+  | { type: "ra-destroy"; playerId: string; cardId: string; targetId: string; targetOwner: "player" | "opponent" }
   | { type: "set-trap"; playerId: string; handCount: number; spellTrapCount: number }
   | { type: "spell-effect"; playerId: string; cardName: string; effect: string; handCount: number }
   | { type: "trap-trigger"; playerId: string; cardName: string; effect: string; damage: number }
@@ -88,6 +90,7 @@ function getStartingLifePoints(ruleSet: RuleSet) {
 }
 
 function getRequiredTributes(card: BattleCard) {
+  if (card.specialEffect === "RA") return 3;
   if (card.requiredTributes != null) return card.requiredTributes;
   if (isEgyptianGod(card)) return 2;
   if (card.level >= 7) return 2;
@@ -124,9 +127,9 @@ function getAttackStat(card: BattleCard, handCount: number, raBonus = 0) {
   return (card.attack ?? card.power * 1000) + raBonus;
 }
 
-function getDefenseStat(card: BattleCard, handCount: number) {
+function getDefenseStat(card: BattleCard, handCount: number, raBonus = 0) {
   if (card.specialEffect === "SLIFER") return handCount * 1000;
-  return card.defense ?? card.power * 1000;
+  return (card.defense ?? card.power * 1000) + raBonus;
 }
 
 function mapServerCard(card: {
@@ -209,7 +212,8 @@ function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
         typeof unit === "object" &&
         isBattleCard((unit as Record<string, unknown>).card) &&
         typeof (unit as Record<string, unknown>).hasAttacked === "boolean" &&
-        ((unit as Record<string, unknown>).raBonus === undefined || typeof (unit as Record<string, unknown>).raBonus === "number"),
+        ((unit as Record<string, unknown>).raBonus === undefined || typeof (unit as Record<string, unknown>).raBonus === "number") &&
+        ((unit as Record<string, unknown>).raDestroyUsed === undefined || typeof (unit as Record<string, unknown>).raDestroyUsed === "boolean"),
     )
   );
 }
@@ -232,6 +236,10 @@ function isBattleMessage(value: unknown): value is BattleMessage {
         Array.isArray(message.tributeIds) &&
         message.tributeIds.every((id) => typeof id === "string")
       );
+    case "ra-destroy":
+      return typeof message.cardId === "string" &&
+        typeof message.targetId === "string" &&
+        (message.targetOwner === "player" || message.targetOwner === "opponent");
     case "set-trap":
       return typeof message.handCount === "number" && typeof message.spellTrapCount === "number";
     case "spell-effect":
@@ -274,8 +282,14 @@ function CardFace({
 }) {
   const battleType = card.battleType ?? "MONSTER";
   const battleTypeLabel = battleType === "SPELL" ? "Phép" : battleType === "TRAP" ? "Bẫy" : "Quái vật";
+  const abilityText = card.specialEffect === "SLIFER"
+    ? "ATK/DEF theo số bài trên tay; quái đối thủ vừa triệu hồi giảm 2000 chỉ số."
+    : card.specialEffect === "RA"
+      ? "3 hiến tế; trả LP tăng ATK/DEF; trả 1000 LP phá hủy quái thú (1 lần/lượt)."
+      : undefined;
   return (
     <div
+      title={abilityText}
       className={`${compact
         ? "flex min-h-28 w-full flex-col gap-1 overflow-hidden rounded-lg p-1.5"
         : "grid h-full min-h-48 w-32 grid-rows-[auto_minmax(2rem,1fr)_auto] gap-2 overflow-hidden rounded-xl p-2 sm:w-36"
@@ -323,10 +337,11 @@ function CardFace({
         <p className={`mt-1 break-words text-[10px] font-semibold leading-4 ${battleType === "MONSTER" ? "text-rose-300" : "text-violet-200"}`}>
           {battleType === "MONSTER"
             ? ruleSet === "ocg"
-              ? `⚔ ${getAttackStat(card, handCount, raBonus)} / ${getDefenseStat(card, handCount)}`
+              ? `⚔ ${getAttackStat(card, handCount, raBonus)} / ${getDefenseStat(card, handCount, raBonus)}`
               : `⚔ ${card.power}`
             : card.description || battleTypeLabel}
         </p>
+        {abilityText && <p className="mt-0.5 line-clamp-2 text-[9px] leading-3 text-amber-200/80">{abilityText}</p>}
       </div>
     </div>
   );
@@ -406,6 +421,7 @@ export default function BattleRoomPage() {
   const [pendingSummonCardId, setPendingSummonCardId] = useState<string | null>(null);
   const [selectedTributeIds, setSelectedTributeIds] = useState<string[]>([]);
   const [raLifePayment, setRaLifePayment] = useState(0);
+  const [pendingRaDestroyCardId, setPendingRaDestroyCardId] = useState<string | null>(null);
   const [winner, setWinner] = useState<{ playerId: string; reason: string } | null>(null);
   const [drawIndex, setDrawIndex] = useState(5);
   const [attackingCardId, setAttackingCardId] = useState<string | null>(null);
@@ -579,15 +595,43 @@ export default function BattleRoomPage() {
         case "play-card":
           setGameStarted(true);
           if (payload.clearsEnemyBoard) setBoard([]);
+          {
+            const summonedCard = payload.card.battleType === "MONSTER" &&
+              payload.card.specialEffect !== "RA" &&
+              playerSnapshotRef.current.board.some((unit) => unit.card.specialEffect === "SLIFER")
+              ? {
+                  ...payload.card,
+                  attack: Math.max(0, (payload.card.attack ?? payload.card.power * 1000) - 2000),
+                  defense: Math.max(0, (payload.card.defense ?? payload.card.power * 1000) - 2000),
+                }
+              : payload.card;
+            setOpponent((current) => ({
+              ...current,
+              playerId: payload.playerId,
+              board: [
+                ...current.board.filter((unit) => !payload.tributeIds.includes(unit.card.id)),
+                { card: summonedCard, hasAttacked: false, raBonus: payload.raPayment },
+              ].slice(0, MAX_BOARD_CARDS),
+              handCount: Math.max(0, payload.handCount),
+            }));
+            if (summonedCard !== payload.card) {
+              notify(`${summonedCard.name} bị giảm 2000 ATK/DEF bởi Slifer và giữ mức giảm khi còn trên sân.`);
+            }
+          }
+          break;
+        case "ra-destroy":
+          setGameStarted(true);
           setOpponent((current) => ({
             ...current,
-            playerId: payload.playerId,
-            board: [
-              ...current.board.filter((unit) => !payload.tributeIds.includes(unit.card.id)),
-              { card: payload.card, hasAttacked: false, raBonus: payload.raPayment },
-            ].slice(0, MAX_BOARD_CARDS),
-            handCount: Math.max(0, payload.handCount),
+            hp: Math.max(0, current.hp - 1000),
+            board: current.board.map((unit) =>
+              unit.card.id === payload.cardId ? { ...unit, raDestroyUsed: true } : unit,
+            ).filter((unit) => payload.targetOwner !== "player" || unit.card.id !== payload.targetId),
           }));
+          if (payload.targetOwner === "opponent") {
+            setBoard((current) => current.filter((unit) => unit.card.id !== payload.targetId));
+          }
+          notify("Thần Ra trả 1000 LP và phá hủy quái thú được chọn.");
           break;
         case "set-trap":
           setGameStarted(true);
@@ -726,7 +770,8 @@ export default function BattleRoomPage() {
           setMana(MAX_MANA);
           setHasDrawn(false);
           setHasNormalSummoned(false);
-          setBoard((current) => current.map((unit) => ({ ...unit, hasAttacked: false })));
+          setBoard((current) => current.map((unit) => ({ ...unit, hasAttacked: false, raDestroyUsed: false })));
+          setPendingRaDestroyCardId(null);
           break;
         case "victory":
           setWinner({ playerId: payload.playerId, reason: payload.reason });
@@ -764,6 +809,10 @@ export default function BattleRoomPage() {
   }, [notify, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
 
   function playCard(card: BattleCard, tributeIds: string[] = [], raPayment: number | null = null) {
+    if (pendingRaDestroyCardId) {
+      notify("Hãy chọn mục tiêu cho hiệu ứng của Ra hoặc hủy thao tác trước.");
+      return;
+    }
     if (!playerCanAct) {
       notify(opponent.playerId && opponent.ruleSet !== ruleSet ? "Hãy chọn cùng bộ luật với đối thủ." : "Chưa đến lượt của bạn.");
       return;
@@ -870,8 +919,13 @@ export default function BattleRoomPage() {
       return;
     }
     const lifePayment = raPayment ?? 0;
-    if (lifePayment < 0 || !Number.isInteger(lifePayment) || lifePayment >= playerHp) {
-      notify("Bạn phải giữ lại ít nhất 1 điểm sinh mệnh để dùng hiệu ứng Ra.");
+    if (
+      lifePayment < 0 ||
+      !Number.isInteger(lifePayment) ||
+      (card.specialEffect === "RA" && lifePayment > Math.max(0, playerHp - 100)) ||
+      (card.specialEffect !== "RA" && lifePayment > 0)
+    ) {
+      notify("Hiệu ứng Triệu hồi của Thần Ra phải giữ lại ít nhất 100 LP.");
       return;
     }
     if (board.length - tributeIds.length >= MAX_BOARD_CARDS) {
@@ -887,11 +941,24 @@ export default function BattleRoomPage() {
     setGameStarted(true);
     setPendingSummonCardId(null);
     setSelectedTributeIds([]);
-    const clearsEnemyBoard = ruleSet === "ocg" && isEgyptianGod(card);
+    const isProtectedNormalSummon = card.specialEffect === "RA";
+    const summonedCard = isMonster &&
+      !isProtectedNormalSummon &&
+      opponent.board.some((unit) => unit.card.specialEffect === "SLIFER")
+      ? {
+          ...card,
+          attack: Math.max(0, (card.attack ?? card.power * 1000) - 2000),
+          defense: Math.max(0, (card.defense ?? card.power * 1000) - 2000),
+        }
+      : card;
+    const clearsEnemyBoard = ruleSet === "ocg" && card.specialEffect === "OBELISK";
     setBoard((current) => [
       ...current.filter((unit) => !tributeIds.includes(unit.card.id)),
-      { card, hasAttacked: false, raBonus: lifePayment },
+      { card: summonedCard, hasAttacked: false, raBonus: lifePayment },
     ]);
+    if (summonedCard !== card) {
+      notify(`${card.name} bị giảm 2000 ATK/DEF bởi Slifer và giữ mức giảm khi còn trên sân.`);
+    }
     if (clearsEnemyBoard) {
       setOpponent((current) => ({ ...current, board: [] }));
       notify(`${card.name} được triệu hồi và quét sạch sân đối thủ!`);
@@ -919,6 +986,48 @@ export default function BattleRoomPage() {
     });
   }
 
+  function startRaDestroy(cardId: string) {
+    const ra = board.find((unit) => unit.card.id === cardId);
+    if (!playerCanAct || ruleSet !== "ocg" || ra?.card.specialEffect !== "RA") return;
+    if (ra.raDestroyUsed) {
+      notify("Thần Ra đã dùng hiệu ứng phá hủy trong lượt này.");
+      return;
+    }
+    if (playerHp <= 1000) {
+      notify("Cần hơn 1000 LP để kích hoạt hiệu ứng của Thần Ra.");
+      return;
+    }
+    setPendingRaDestroyCardId(cardId);
+    setPendingSummonCardId(null);
+    setSelectedTributeIds([]);
+    notify("Chọn 1 quái thú bất kỳ trên sân để Thần Ra phá hủy.");
+  }
+
+  function destroyRaTarget(targetOwner: "player" | "opponent", targetId: string) {
+    const ra = board.find((unit) => unit.card.id === pendingRaDestroyCardId);
+    const targetExists = targetOwner === "player"
+      ? board.some((unit) => unit.card.id === targetId)
+      : opponent.board.some((unit) => unit.card.id === targetId);
+    if (!playerCanAct || ruleSet !== "ocg" || !ra || ra.card.specialEffect !== "RA" ||
+      ra.raDestroyUsed || playerHp <= 1000 || !targetExists) {
+      setPendingRaDestroyCardId(null);
+      notify("Không thể kích hoạt hiệu ứng phá hủy của Thần Ra.");
+      return;
+    }
+
+    setPlayerHp((current) => current - 1000);
+    setBoard((current) => current.map((unit) =>
+      unit.card.id === ra.card.id ? { ...unit, raDestroyUsed: true } : unit,
+    ).filter((unit) => targetOwner !== "player" || unit.card.id !== targetId));
+    if (targetOwner === "opponent") {
+      setOpponent((current) => ({ ...current, board: current.board.filter((unit) => unit.card.id !== targetId) }));
+    }
+    setPendingRaDestroyCardId(null);
+    setGameStarted(true);
+    void publish({ type: "ra-destroy", playerId, cardId: ra.card.id, targetId, targetOwner });
+    notify("Thần Ra trả 1000 LP và phá hủy quái thú được chọn.");
+  }
+
   function changeRuleSet(nextRuleSet: RuleSet) {
     if (gameStarted || nextRuleSet === ruleSet) return;
     setRuleSet(nextRuleSet);
@@ -937,6 +1046,7 @@ export default function BattleRoomPage() {
     setHasDrawn(false);
     setHasNormalSummoned(false);
     setPendingSummonCardId(null);
+    setPendingRaDestroyCardId(null);
     setSelectedTributeIds([]);
     setRaLifePayment(0);
     setWinner(null);
@@ -970,7 +1080,7 @@ export default function BattleRoomPage() {
   }
 
   function drawCard() {
-    if (!playerCanAct || hasDrawn) return;
+    if (!playerCanAct || pendingRaDestroyCardId || hasDrawn) return;
     if (hand.length >= 8) {
       notify("Tay bài đã đủ 8 lá.");
       return;
@@ -993,7 +1103,7 @@ export default function BattleRoomPage() {
   }
 
   function attack(unit: BoardCard) {
-    if (!playerCanAct || unit.hasAttacked || attackingCardId) return;
+    if (!playerCanAct || pendingRaDestroyCardId || unit.hasAttacked || attackingCardId) return;
     const rawAttack = ruleSet === "ocg"
       ? getAttackStat(unit.card, hand.length, unit.raBonus)
       : unit.card.power;
@@ -1019,7 +1129,7 @@ export default function BattleRoomPage() {
   }
 
   function endTurn() {
-    if (!playerCanAct || attackingCardId) return;
+    if (!playerCanAct || pendingRaDestroyCardId || attackingCardId) return;
     setGameStarted(true);
     setIsMyTurn(false);
     void publish({ type: "end-turn", playerId });
@@ -1066,8 +1176,27 @@ export default function BattleRoomPage() {
                       handCount={owner === "player" ? hand.length : opponent.handCount}
                       raBonus={unit.raBonus}
                     />
+                    {pendingRaDestroyCardId && ruleSet === "ocg" && (
+                      <button
+                        type="button"
+                        onClick={() => destroyRaTarget(owner, unit.card.id)}
+                        className="mt-1 w-full rounded-md bg-rose-500 px-1 py-1 text-[10px] font-black text-white"
+                      >
+                        Chọn làm mục tiêu của Ra
+                      </button>
+                    )}
                     {owner === "player" && (
                       <div className="mt-1 grid gap-1">
+                        {unit.card.specialEffect === "RA" && ruleSet === "ocg" && (
+                          <button
+                            type="button"
+                            disabled={!playerCanAct || pendingRaDestroyCardId !== null || unit.raDestroyUsed || playerHp <= 1000}
+                            onClick={() => startRaDestroy(unit.card.id)}
+                            className="w-full rounded-md bg-amber-400/15 px-1 py-1 text-[10px] font-bold text-amber-100 hover:bg-amber-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {unit.raDestroyUsed ? "Ra đã phá hủy trong lượt" : "Ra: trả 1000 LP, phá hủy"}
+                          </button>
+                        )}
                         {pendingSummonCardId && ruleSet === "ocg" && (
                           <button
                             type="button"
@@ -1083,7 +1212,7 @@ export default function BattleRoomPage() {
                         )}
                         <button
                           type="button"
-                          disabled={!playerCanAct || unit.hasAttacked}
+                          disabled={!playerCanAct || pendingRaDestroyCardId !== null || unit.hasAttacked}
                           onClick={() => attack(unit)}
                           className="w-full rounded-md bg-rose-500/15 px-1 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -1314,16 +1443,15 @@ export default function BattleRoomPage() {
               Triệu hồi <strong>{pendingSummonCard.name}</strong>: chọn {requiredTributes} vật hiến tế trên sân ({selectedTributeIds.length}/{requiredTributes}).
             </p>
             {pendingSummonCard.specialEffect === "RA" && (
-              <label className="mt-3 block max-w-xs text-xs text-amber-100">
-                Hiến tế LP để tăng ATK cho Ra (còn {Math.max(0, playerHp - 1)}):
+              <label className="mt-3 flex max-w-md items-start gap-2 text-xs text-amber-100">
                 <input
-                  type="number"
-                  min={0}
-                  max={Math.max(0, playerHp - 1)}
-                  value={raLifePayment}
-                  onChange={(event) => setRaLifePayment(Math.min(Math.max(0, Number(event.target.value)), Math.max(0, playerHp - 1)))}
-                  className="mt-1 w-full rounded-lg border border-amber-300/20 bg-slate-950 px-3 py-2 text-sm text-white"
+                  type="checkbox"
+                  checked={raLifePayment > 0}
+                  disabled={playerHp <= 100}
+                  onChange={(event) => setRaLifePayment(event.target.checked ? playerHp - 100 : 0)}
+                  className="mt-0.5 accent-amber-300"
                 />
+                <span>Trả {Math.max(0, playerHp - 100).toLocaleString("vi-VN")} LP để còn đúng 100; Ra nhận thêm cùng lượng ATK/DEF.</span>
               </label>
             )}
           </div>
@@ -1337,13 +1465,26 @@ export default function BattleRoomPage() {
             </button>
             <button
               type="button"
-              disabled={!playerCanAct || selectedTributeIds.length !== requiredTributes || raLifePayment >= playerHp}
+              disabled={!playerCanAct || selectedTributeIds.length !== requiredTributes || raLifePayment > Math.max(0, playerHp - 100)}
               onClick={() => playCard(pendingSummonCard, selectedTributeIds, raLifePayment)}
               className="rounded-lg bg-amber-300 px-3 py-2 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Hiến tế & triệu hồi
             </button>
           </div>
+        </section>
+      )}
+
+      {pendingRaDestroyCardId && ruleSet === "ocg" && (
+        <section className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/25 bg-amber-300/5 p-3">
+          <p className="text-xs text-amber-100">Thần Ra: chọn một quái thú trên sân để phá hủy (tốn 1000 LP, mỗi lượt một lần).</p>
+          <button
+            type="button"
+            onClick={() => setPendingRaDestroyCardId(null)}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300"
+          >
+            Hủy chọn mục tiêu
+          </button>
         </section>
       )}
 
@@ -1378,10 +1519,10 @@ export default function BattleRoomPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={drawCard} disabled={!playerCanAct || hasDrawn} className="rounded-lg border border-cyan-400/30 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
+            <button type="button" onClick={drawCard} disabled={!playerCanAct || Boolean(pendingRaDestroyCardId) || hasDrawn} className="rounded-lg border border-cyan-400/30 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
               {hasDrawn ? "Đã bốc bài" : "🂠 Bốc bài"}
             </button>
-            <button type="button" onClick={endTurn} disabled={!playerCanAct || Boolean(attackingCardId)} className="rounded-lg bg-cyan-500 px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40">
+            <button type="button" onClick={endTurn} disabled={!playerCanAct || Boolean(pendingRaDestroyCardId) || Boolean(attackingCardId)} className="rounded-lg bg-cyan-500 px-4 py-2 text-xs font-black text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40">
               Kết thúc lượt →
             </button>
           </div>
@@ -1409,7 +1550,7 @@ export default function BattleRoomPage() {
                   key={card.id}
                   card={card}
                   ruleSet={ruleSet}
-                  canAct={playerCanAct}
+                  canAct={playerCanAct && !pendingRaDestroyCardId}
                   onPlay={() => playCard(card)}
                   onDragEnd={(info) => handleCardDragEnd(card, info)}
                 />
