@@ -38,6 +38,7 @@ yarn-error.log*
 /prisma/*.db
 /prisma/*.db-journal
 /prisma/schema.postgresql.prisma
+/prisma/migrations-postgresql
 
 # vercel
 .vercel
