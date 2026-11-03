@@ -754,10 +754,10 @@ export default function BattleRoomPage() {
           const response = await fetch("/api/battle/cards");
           const result = await response.json();
           if (!response.ok) throw new Error(result.error ?? "Không tải được thẻ công khai.");
-          const cards = result.cards as Parameters<typeof mapServerCard>[0];
-          const battleCards = cards.map(mapServerCard);
+          const cards = result.cards as Parameters<typeof mapServerCard>[0][];
+          const battleCards = cards.map((card) => mapServerCard(card));
           // Use all available cards (3 copies each for a reasonable deck)
-          const fallbackDeck = battleCards.flatMap((card) => Array.from({ length: 3 }, () => card));
+          const fallbackDeck = battleCards.flatMap((card: BattleCard) => Array.from({ length: 3 }, () => card));
           const shuffledDeck = shuffleCards(fallbackDeck);
           setDeckCards(shuffledDeck);
           const startingHand = createStartingHand(playerId, "basic", shuffledDeck);
