@@ -43,6 +43,8 @@ Các migration trong `prisma/migrations` dành cho PostgreSQL production. Khi c�
    UPDATE "User" SET "role" = 'ADMIN' WHERE "username" = 'your_username';
    ```
 
+Các migration production phải được lưu với tên cố định trong `prisma/migrations`; build chỉ chuẩn bị Prisma schema, không tạo migration `init` mới. Nếu deploy báo Prisma `P3009`, hãy xem cột `logs` trong bảng `"_prisma_migrations"` và kiểm tra những bảng đã được tạo trước khi sửa trạng thái migration. Không đánh dấu migration là `rolled back` hoặc `applied` khi chưa xác nhận trạng thái schema, vì migration khởi tạo có thể đã chạy dở.
+
 Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫu với mật khẩu công khai. Email xác minh chỉ hoạt động sau khi khai báo SMTP và `APP_URL` trong Vercel. Judge mặc định ở mock mode.
 
 ### Bật Live IDE cho website trên Vercel
