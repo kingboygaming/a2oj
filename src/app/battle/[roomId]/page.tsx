@@ -247,13 +247,13 @@ function CardFace({
 }) {
   return (
     <div
-      className={`flex h-full flex-col justify-between rounded-xl border ${
+      className={`grid h-full grid-rows-[auto_minmax(2rem,1fr)_auto] gap-2 overflow-hidden rounded-xl border ${
         card.isEgyptianGod ? "border-amber-300/70 shadow-amber-400/20" : "border-cyan-400/30"
       } bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 p-2 text-left shadow-lg shadow-black/30 ${
-        compact ? "min-h-24 w-full" : "min-h-40 w-28 sm:w-32"
+        compact ? "min-h-28 w-full" : "min-h-48 w-32 sm:w-36"
       }`}
     >
-      <div className="flex items-center justify-between gap-1">
+      <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
           {ruleSet === "ocg" ? `★ ${card.level} · ${card.element}` : card.element}
         </span>
@@ -264,13 +264,22 @@ function CardFace({
         )}
       </div>
       {card.imageUrl ? (
-        <div className="my-1 min-h-12 flex-1 rounded-lg bg-cover bg-center" style={{ backgroundImage: `url("${card.imageUrl}")` }} aria-label={card.name} />
+        <div
+          className="grid h-full min-h-8 place-items-center overflow-hidden rounded-lg bg-slate-950/60 bg-cover bg-center"
+          style={{ backgroundImage: `url("${card.imageUrl}")` }}
+          role="img"
+          aria-label={card.name}
+        >
+          <span className="rounded-full bg-slate-950/60 px-1 text-xl" aria-hidden="true">{card.icon}</span>
+        </div>
       ) : (
-        <span className="text-center text-3xl" aria-hidden="true">{card.icon}</span>
+        <span className="grid h-full min-h-8 place-items-center rounded-lg bg-slate-950/40 text-3xl" aria-hidden="true">
+          {card.icon}
+        </span>
       )}
-      <div>
-        <p className="line-clamp-2 text-xs font-bold text-white">{card.name}</p>
-        <p className="mt-1 text-[10px] font-semibold text-rose-300">
+      <div className="min-w-0">
+        <p className="line-clamp-2 break-words text-xs font-bold leading-4 text-white">{card.name}</p>
+        <p className="mt-1 break-words text-[10px] font-semibold leading-4 text-rose-300">
           {ruleSet === "ocg"
             ? `⚔ ${getAttackStat(card, handCount, raBonus)} / ${getDefenseStat(card, handCount)}`
             : `⚔ ${card.power}`}
@@ -301,8 +310,12 @@ export default function BattleRoomPage() {
   const [drawIndex, setDrawIndex] = useState(5);
   const [attackingCardId, setAttackingCardId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const supabaseConfigured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    supabaseUrl && supabaseKey,
   );
   const [realtimeStatus, setRealtimeStatus] = useState(
     supabaseConfigured ? "Đang kết nối phòng realtime" : "Thiếu cấu hình Supabase — đang ở chế độ cục bộ",
@@ -398,12 +411,9 @@ export default function BattleRoomPage() {
 
   // Broadcast the public game actions over a room-specific Supabase channel.
   useEffect(() => {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return;
 
-    if (!supabaseUrl || !supabaseAnonKey) return;
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseKey);
     const channel = supabase.channel(`room_${roomId}`, {
       config: { broadcast: { self: false } },
     });
@@ -550,7 +560,7 @@ export default function BattleRoomPage() {
       channelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [notify, playerId, roomId, ruleSet]);
+  }, [notify, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
 
   function playCard(card: BattleCard, tributeIds: string[] = [], raPayment: number | null = null) {
     if (!playerCanAct) {
@@ -872,8 +882,9 @@ export default function BattleRoomPage() {
 
       {!realtimeConnected && (
         <p className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs leading-5 text-amber-100/80">
-          Cấu hình <code>NEXT_PUBLIC_SUPABASE_URL</code> và{" "}
-          <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> để kết nối người chơi khác trong cùng phòng.
+          Cấu hình <code>NEXT_PUBLIC_SUPABASE_URL</code> và một trong hai biến{" "}
+          <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> hoặc{" "}
+          <code>NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> để kết nối người chơi khác trong cùng phòng.
         </p>
       )}
 
