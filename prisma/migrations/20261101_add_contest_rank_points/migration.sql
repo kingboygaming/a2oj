@@ -1,1 +1,0 @@
-ALTER TABLE "Contest" ADD COLUMN "rankPointsEnabled" BOOLEAN NOT NULL DEFAULT false;

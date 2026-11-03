@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MAX_BATTLE_DECK_SIZE, MIN_BATTLE_DECK_SIZE } from "@/lib/battle-deck";
@@ -136,14 +135,8 @@ export default function BattleDeckPage() {
                   className="relative grid size-20 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-slate-950 text-3xl"
                 >
                   {card.imageUrl && (
-                    <Image
-                      src={card.imageUrl}
-                      alt={card.name}
-                      fill
-                      unoptimized
-                      sizes="80px"
-                      className="object-cover"
-                    />
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={card.imageUrl} alt={card.name} className="absolute inset-0 size-full object-cover" />
                   )}
                   <span className={`absolute ${card.imageUrl ? "left-1 top-1 text-sm" : "inset-0 grid place-items-center"} rounded-full bg-slate-950/65 px-1`} aria-hidden="true">{card.icon || "🃏"}</span>
                 </div>

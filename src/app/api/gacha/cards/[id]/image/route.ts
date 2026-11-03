@@ -7,7 +7,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     select: { imageData: true, imageMimeType: true },
   });
   if (!card?.imageData || !card.imageMimeType) return new Response("Not found", { status: 404 });
-  return new Response(card.imageData, {
+  const imageBytes = card.imageData instanceof Uint8Array
+    ? card.imageData
+    : new Uint8Array(card.imageData);
+  return new Response(imageBytes, {
     headers: {
       "Content-Type": card.imageMimeType,
       "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",

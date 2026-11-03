@@ -1,5 +1,0 @@
--- AlterTable
-ALTER TABLE "Problem" ADD COLUMN IF NOT EXISTS "judgeType" TEXT NOT NULL DEFAULT 'STANDARD';
-
--- AlterTable
-ALTER TABLE "ContestProblem" ADD COLUMN IF NOT EXISTS "judgeType" TEXT;
