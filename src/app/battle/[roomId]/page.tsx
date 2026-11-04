@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type RuleSet = "basic" | "ocg";
 type CoinSide = "heads" | "tails";
 type CoinResult = { side: CoinSide; firstPlayerId: string };
-type BattlePosition = "attack" | "defense";
+type BattlePosition = "ATTACK" | "DEFENSE";
 
 type BattleCard = {
   id: string;
@@ -21,7 +21,7 @@ type BattleCard = {
   level: number;
   requiredTributes?: number | null;
   element: string;
-  icon: string;
+  icon?: string | null;
   imageUrl?: string | null;
   description?: string;
   rarity?: string;
@@ -119,10 +119,8 @@ function getStartingLifePoints(ruleSet: RuleSet) {
 }
 
 function getRequiredTributes(card: BattleCard) {
-  if (card.specialEffect === "RA") return 3;
-  if (isStoneWarden(card)) return 2;
-  if (card.requiredTributes != null) return card.requiredTributes;
   if (isHighTributeMonster(card)) return 2;
+  if (card.requiredTributes != null) return card.requiredTributes;
   if (card.level >= 7) return 2;
   if (card.level >= 5) return 1;
   return 0;
@@ -175,13 +173,13 @@ function getCombatDefense(card: BattleCard, ruleSet: RuleSet, handCount: number,
 }
 
 function readBattlePosition(value: unknown): BattlePosition {
-  return value === "defense" ? "defense" : "attack";
+  return value === "DEFENSE" || value === "defense" ? "DEFENSE" : "ATTACK";
 }
 
 function withBoardDefaults(unit: BoardCard): BoardCard {
   return {
     ...unit,
-    position: unit.position ?? "attack",
+    position: readBattlePosition(unit.position),
     summonedThisTurn: Boolean(unit.summonedThisTurn),
     hasChangedPosition: Boolean(unit.hasChangedPosition),
   };
@@ -220,7 +218,7 @@ function resolveCombat(
     };
   }
 
-  if (target.position !== "defense") {
+  if (target.position !== "DEFENSE") {
     const defenderAtk = getCombatAttack(target.card, ruleSet, defenderHandCount, target.raBonus);
     if (attackStat > defenderAtk) {
       return { cardId: attacker.card.id, targetId: target.card.id, damage: attackStat - defenderAtk, reboundDamage: 0, destroyTarget: true, destroyAttacker: false, critical };
@@ -287,7 +285,7 @@ function isBattleCard(value: unknown): value is BattleCard {
       (typeof card.requiredTributes === "number" &&
         Number.isInteger(card.requiredTributes) && card.requiredTributes >= 0 && card.requiredTributes <= 3)) &&
     typeof card.element === "string" &&
-    typeof card.icon === "string" &&
+    (card.icon === undefined || card.icon === null || typeof card.icon === "string") &&
     (card.attack === undefined || typeof card.attack === "number") &&
     (card.defense === undefined || typeof card.defense === "number") &&
     (card.critRate === undefined || typeof card.critRate === "number") &&
@@ -322,7 +320,7 @@ function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
       return (
         isBattleCard(item.card) &&
         typeof item.hasAttacked === "boolean" &&
-        (item.position === undefined || item.position === "attack" || item.position === "defense") &&
+        (item.position === undefined || ["ATTACK", "DEFENSE", "attack", "defense"].includes(String(item.position))) &&
         (item.summonedThisTurn === undefined || typeof item.summonedThisTurn === "boolean") &&
         (item.hasChangedPosition === undefined || typeof item.hasChangedPosition === "boolean") &&
         (item.raBonus === undefined || typeof item.raBonus === "number") &&
@@ -349,7 +347,7 @@ function isBattleMessage(value: unknown): value is BattleMessage {
         typeof message.raPayment === "number" &&
         Array.isArray(message.tributeIds) &&
         message.tributeIds.every((id) => typeof id === "string") &&
-        (message.position === undefined || message.position === "attack" || message.position === "defense")
+        (message.position === undefined || ["ATTACK", "DEFENSE", "attack", "defense"].includes(String(message.position)))
       );
     case "ra-destroy":
       return typeof message.cardId === "string" &&
@@ -378,7 +376,7 @@ function isBattleMessage(value: unknown): value is BattleMessage {
       return (message.side === "heads" || message.side === "tails") &&
         typeof message.firstPlayerId === "string";
     case "set-position":
-      return typeof message.cardId === "string" && (message.position === "attack" || message.position === "defense");
+      return typeof message.cardId === "string" && ["ATTACK", "DEFENSE", "attack", "defense"].includes(String(message.position));
     case "attack":
     case "attack-hit":
       return (
@@ -418,12 +416,12 @@ function CardArt({ card, compact = false }: { card: BattleCard; compact?: boolea
         />
       ) : (
         <span className={`grid size-full place-items-center ${compact ? "text-xl" : "text-3xl"}`} aria-hidden="true">
-          {card.icon}
+          {card.icon?.trim() || "🎴"}
         </span>
       )}
       {showImage && (
         <span className="absolute left-1 top-1 rounded-full bg-slate-950/75 px-1 text-sm" aria-hidden="true">
-          {card.icon}
+          {card.icon?.trim() || "🎴"}
         </span>
       )}
     </div>
@@ -436,7 +434,7 @@ function CardFace({
   ruleSet,
   handCount = 0,
   raBonus = 0,
-  position = "attack",
+  position = "ATTACK",
 }: {
   card: BattleCard;
   compact?: boolean;
@@ -447,11 +445,11 @@ function CardFace({
 }) {
   const battleType = card.battleType ?? "MONSTER";
   const battleTypeLabel = battleType === "SPELL" ? "Phép" : battleType === "TRAP" ? "Bẫy" : "Quái vật";
-  const inDefense = battleType === "MONSTER" && position === "defense";
+  const inDefense = battleType === "MONSTER" && position === "DEFENSE";
   const abilityText = card.specialEffect === "SLIFER"
     ? "ATK/DEF theo số bài trên tay; quái đối thủ vừa triệu hồi giảm 2000 chỉ số."
     : card.specialEffect === "RA"
-      ? "3 hiến tế; trả LP tăng ATK/DEF; trả 1000 LP phá hủy quái thú (1 lần/lượt)."
+      ? "2 hiến tế; trả LP tăng ATK/DEF; trả 1000 LP phá hủy quái thú (1 lần/lượt)."
       : isStoneWarden(card)
         ? "Không thể bị chọn làm mục tiêu; hiến tế 2 quái vật để quét sân đối thủ. Không thể tấn công lượt kích hoạt."
       : undefined;
@@ -462,7 +460,9 @@ function CardFace({
         ? "flex w-full flex-col gap-1 overflow-hidden rounded-lg p-1.5"
         : "flex h-full min-h-48 w-32 flex-col gap-2 overflow-hidden rounded-xl p-2 sm:w-36"
       } border ${
-        card.isHighTributeMonster ? "border-amber-300/70 shadow-amber-400/20" : "border-cyan-400/30"
+      inDefense
+        ? "border-sky-300/80 shadow-sky-400/20"
+        : card.isHighTributeMonster ? "border-amber-300/70 shadow-amber-400/20" : "border-cyan-400/30"
       } bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 text-left shadow-lg shadow-black/30`}
     >
       <div className="flex min-w-0 items-center justify-between gap-1">
@@ -486,7 +486,7 @@ function CardFace({
         <p className="line-clamp-2 break-words text-xs font-bold leading-4 text-white">{card.name}</p>
         <p className={`mt-1 break-words text-[10px] font-semibold leading-4 ${battleType === "MONSTER" ? "text-rose-300" : "text-violet-200"}`}>
           {battleType === "MONSTER"
-            ? `⚔ ${getCombatAttack(card, ruleSet, handCount, raBonus)} / 🛡 ${getCombatDefense(card, ruleSet, handCount, raBonus)}`
+            ? <><span className={inDefense ? "text-slate-400" : "text-rose-300"}>⚔ {getCombatAttack(card, ruleSet, handCount, raBonus)}</span>{" / "}<span className={inDefense ? "text-sky-200" : "text-slate-400"}>🛡 {getCombatDefense(card, ruleSet, handCount, raBonus)}</span></>
             : card.description || battleTypeLabel}
         </p>
         {abilityText && <p className="mt-0.5 line-clamp-2 text-[9px] leading-3 text-amber-200/80">{abilityText}</p>}
@@ -538,7 +538,7 @@ function HandCard({
           <button
             type="button"
             disabled={!canAct}
-            onClick={() => onPlay("attack")}
+            onClick={() => onPlay("ATTACK")}
             className="rounded-lg bg-cyan-500 px-1.5 py-2 text-[11px] font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {ruleSet === "ocg" ? "Triệu hồi công" : "Ra sân công"}
@@ -546,7 +546,7 @@ function HandCard({
           <button
             type="button"
             disabled={!canAct}
-            onClick={() => onPlay("defense")}
+            onClick={() => onPlay("DEFENSE")}
             className="rounded-lg bg-sky-700 px-1.5 py-2 text-[11px] font-bold text-sky-50 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Đặt thủ
@@ -588,7 +588,7 @@ export default function BattleRoomPage() {
   const [coinResult, setCoinResult] = useState<CoinResult | null>(null);
   const [coinAnimating, setCoinAnimating] = useState(false);
   const [pendingSummonCardId, setPendingSummonCardId] = useState<string | null>(null);
-  const [pendingSummonPosition, setPendingSummonPosition] = useState<BattlePosition>("attack");
+  const [pendingSummonPosition, setPendingSummonPosition] = useState<BattlePosition>("ATTACK");
   const [selectedTributeIds, setSelectedTributeIds] = useState<string[]>([]);
   const [raLifePayment, setRaLifePayment] = useState(0);
   const [pendingRaDestroyCardId, setPendingRaDestroyCardId] = useState<string | null>(null);
@@ -597,6 +597,7 @@ export default function BattleRoomPage() {
   const [drawIndex, setDrawIndex] = useState(5);
   const [attackingCardId, setAttackingCardId] = useState<string | null>(null);
   const [pendingAttackCardId, setPendingAttackCardId] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey =
@@ -611,6 +612,7 @@ export default function BattleRoomPage() {
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const boardDropRef = useRef<HTMLDivElement>(null);
+  const selectedCardMenuRef = useRef<HTMLDivElement>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coinChoiceRef = useRef<CoinSide | null>(null);
@@ -626,6 +628,7 @@ export default function BattleRoomPage() {
   const playerCanAct = gameStarted && deckReady && getCardPool(ruleSet, deckCards).length >= 5 && isMyTurn && !winner && (!opponent.playerId || opponent.ruleSet === ruleSet);
   const pendingSummonCard = hand.find((card) => card.id === pendingSummonCardId);
   const requiredTributes = pendingSummonCard ? getRequiredTributes(pendingSummonCard) : 0;
+  const isSelectingTributes = Boolean(pendingSummonCardId || pendingStoneWardenCardId);
   const playerSnapshotRef = useRef<PlayerSnapshot>({
     playerId,
     name: `Người chơi ${playerId.slice(0, 4)}`,
@@ -638,6 +641,27 @@ export default function BattleRoomPage() {
   });
   const opponentSnapshotRef = useRef(opponent);
   const spellTrapsRef = useRef(spellTraps);
+
+  useEffect(() => {
+    if (!selectedCardId) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!selectedCardMenuRef.current?.contains(event.target as Node)) {
+        setSelectedCardId(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedCardId(null);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedCardId]);
+
   const notify = useCallback((message: string) => {
     setToast(message);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -670,6 +694,7 @@ export default function BattleRoomPage() {
     coinTimerRef.current = setTimeout(() => {
       setCoinAnimating(false);
       setGameStarted(true);
+      setSelectedCardId(null);
       setIsMyTurn(result.firstPlayerId === playerId);
       const firstPlayer = result.firstPlayerId === playerId ? "Bạn" : opponentSnapshotRef.current.name;
       notify(`Đồng xu ra ${result.side === "heads" ? "Ngửa" : "Sấp"} — ${firstPlayer} đi trước!`);
@@ -881,7 +906,7 @@ export default function BattleRoomPage() {
                 ...current.board.filter((unit) => !payload.tributeIds.includes(unit.card.id)),
                 {
                   card: summonedCard,
-                  hasAttacked: readBattlePosition(payload.position) === "defense",
+                  hasAttacked: readBattlePosition(payload.position) === "DEFENSE",
                   position: readBattlePosition(payload.position),
                   summonedThisTurn: true,
                   hasChangedPosition: false,
@@ -972,7 +997,7 @@ export default function BattleRoomPage() {
             ...current,
             board: current.board.map((unit) =>
               unit.card.id === payload.cardId
-                ? { ...unit, position: payload.position, hasChangedPosition: true }
+                ? { ...unit, position: readBattlePosition(payload.position), hasChangedPosition: true }
                 : unit,
             ),
           }));
@@ -1124,6 +1149,7 @@ export default function BattleRoomPage() {
         case "end-turn":
           setGameStarted(true);
           setIsMyTurn(true);
+          setSelectedCardId(null);
           setMana(MAX_MANA);
           setHasDrawn(false);
           setHasNormalSummoned(false);
@@ -1177,7 +1203,7 @@ export default function BattleRoomPage() {
     card: BattleCard,
     tributeIds: string[] = [],
     raPayment: number | null = null,
-    position: BattlePosition = "attack",
+    position: BattlePosition = "ATTACK",
   ) {
     if (pendingRaDestroyCardId || pendingStoneWardenCardId || pendingAttackCardId) {
       notify("Hãy hoàn tất hoặc hủy hiệu ứng đang chọn trước.");
@@ -1265,7 +1291,7 @@ export default function BattleRoomPage() {
       return;
     }
     const requiredTributes = ruleSet === "ocg" ? getRequiredTributes(card) : 0;
-    if (requiredTributes > 0 && tributeIds.length === 0) {
+    if (requiredTributes > 0 && tributeIds.length < requiredTributes) {
       if (board.length < requiredTributes) {
         notify(`Cần hiến tế ${requiredTributes} quái vật trên sân.`);
         return;
@@ -1273,8 +1299,9 @@ export default function BattleRoomPage() {
       setPendingSummonCardId(card.id);
       setPendingSummonPosition(position);
       setPendingStoneWardenCardId(null);
-      setSelectedTributeIds([]);
+      setSelectedTributeIds(tributeIds.filter((id) => board.some((unit) => unit.card.id === id)));
       setRaLifePayment(0);
+      setSelectedCardId(null);
       notify(`Chọn ${requiredTributes} quái vật làm vật hiến tế.`);
       return;
     }
@@ -1328,7 +1355,7 @@ export default function BattleRoomPage() {
       ...current.filter((unit) => !tributeIds.includes(unit.card.id)),
       {
         card: summonedCard,
-        hasAttacked: position === "defense",
+        hasAttacked: position === "DEFENSE",
         position,
         summonedThisTurn: true,
         hasChangedPosition: false,
@@ -1338,7 +1365,7 @@ export default function BattleRoomPage() {
     if (summonedCard !== card) {
       notify(`${card.name} bị giảm 2000 ATK/DEF bởi Slifer và giữ mức giảm khi còn trên sân.`);
     } else {
-      notify(position === "defense" ? `${card.name} được đặt ở thế thủ.` : `${card.name} được triệu hồi ở thế công.`);
+      notify(position === "DEFENSE" ? `${card.name} được đặt ở thế thủ.` : `${card.name} được triệu hồi ở thế công.`);
     }
     void publish({
       type: "play-card",
@@ -1352,6 +1379,7 @@ export default function BattleRoomPage() {
   }
 
   function toggleTribute(cardId: string) {
+    if (!board.some((unit) => unit.card.id === cardId)) return;
     if (pendingStoneWardenCardId) {
       if (cardId === pendingStoneWardenCardId) return;
       setSelectedTributeIds((current) => {
@@ -1387,6 +1415,7 @@ export default function BattleRoomPage() {
     setPendingSummonCardId(null);
     setPendingStoneWardenCardId(null);
     setSelectedTributeIds([]);
+    setSelectedCardId(null);
     notify("Chọn 1 quái thú bất kỳ trên sân để Thần Ra phá hủy.");
   }
 
@@ -1441,6 +1470,7 @@ export default function BattleRoomPage() {
     setPendingSummonCardId(null);
     setPendingRaDestroyCardId(null);
     setSelectedTributeIds([]);
+    setSelectedCardId(null);
     notify("Chọn 2 quái vật khác trên sân làm vật hiến tế.");
   }
 
@@ -1487,7 +1517,7 @@ export default function BattleRoomPage() {
     setHasDrawn(false);
     setHasNormalSummoned(false);
     setPendingSummonCardId(null);
-    setPendingSummonPosition("attack");
+    setPendingSummonPosition("ATTACK");
     setPendingRaDestroyCardId(null);
     setPendingStoneWardenCardId(null);
     setPendingAttackCardId(null);
@@ -1512,10 +1542,7 @@ export default function BattleRoomPage() {
       if (ruleSet === "ocg" && target && getRequiredTributes(card) > 0) {
         const tributeId = target.dataset.tributeId;
         if (tributeId && board.some((unit) => unit.card.id === tributeId)) {
-          setPendingSummonCardId(card.id);
-          setSelectedTributeIds([tributeId]);
-          setRaLifePayment(0);
-          notify(`Đã chọn 1 vật hiến tế. Chọn thêm ${Math.max(0, getRequiredTributes(card) - 1)} để triệu hồi.`);
+          playCard(card, [tributeId], null, "ATTACK");
           return;
         }
       }
@@ -1556,7 +1583,8 @@ export default function BattleRoomPage() {
       notify("Chỉ được đổi thế công/thủ một lần, và không đổi trong lượt vừa triệu hồi.");
       return;
     }
-    const nextPosition: BattlePosition = unit.position === "defense" ? "attack" : "defense";
+    setSelectedCardId(null);
+    const nextPosition: BattlePosition = unit.position === "DEFENSE" ? "ATTACK" : "DEFENSE";
     setBoard((current) =>
       current.map((item) =>
         item.card.id === unit.card.id
@@ -1565,7 +1593,7 @@ export default function BattleRoomPage() {
       ),
     );
     void publish({ type: "set-position", playerId, cardId: unit.card.id, position: nextPosition });
-    notify(nextPosition === "defense" ? `${unit.card.name} chuyển sang thế thủ.` : `${unit.card.name} chuyển sang thế công.`);
+    notify(nextPosition === "DEFENSE" ? `${unit.card.name} chuyển sang thế thủ.` : `${unit.card.name} chuyển sang thế công.`);
   }
 
   function applyCombatAsAttacker(result: CombatResult, attackerCard: BattleCard) {
@@ -1605,10 +1633,11 @@ export default function BattleRoomPage() {
 
   function attack(unit: BoardCard, target: BoardCard | null = null) {
     if (!playerCanAct || pendingRaDestroyCardId || pendingStoneWardenCardId || unit.hasAttacked || attackingCardId) return;
-    if (unit.position === "defense") {
+    if (unit.position === "DEFENSE") {
       notify("Quái thú thế thủ không thể tấn công. Hãy chuyển sang thế công.");
       return;
     }
+    setSelectedCardId(null);
     if (opponent.board.length > 0 && !target) {
       setPendingAttackCardId(unit.card.id);
       notify("Chọn 1 quái thú đối thủ để tấn công.");
@@ -1653,6 +1682,19 @@ export default function BattleRoomPage() {
     if (attacker) attack(attacker, target);
   }
 
+  function activateCardSkill(unit: BoardCard) {
+    setSelectedCardId(null);
+    if (unit.card.specialEffect === "RA" && ruleSet === "ocg") {
+      startRaDestroy(unit.card.id);
+      return;
+    }
+    if (isStoneWarden(unit.card) && ruleSet === "ocg") {
+      startStoneWardenEffect(unit.card.id);
+      return;
+    }
+    notify("Lá bài này không có kỹ năng chủ động.");
+  }
+
   function endTurn() {
     if (!playerCanAct || pendingRaDestroyCardId || pendingStoneWardenCardId || attackingCardId || pendingAttackCardId) return;
     setGameStarted(true);
@@ -1688,13 +1730,28 @@ export default function BattleRoomPage() {
         <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
           {Array.from({ length: MAX_BOARD_CARDS }, (_, index) => {
             const unit = units[index];
+            const isSelectedCard = owner === "player" && playerCanAct && !isSelectingTributes &&
+              !pendingRaDestroyCardId && !pendingAttackCardId && selectedCardId === unit?.card.id;
+            const canSelectCard = owner === "player" && playerCanAct && !isSelectingTributes &&
+              !pendingRaDestroyCardId && !pendingAttackCardId;
+            const hasActiveSkill = unit?.card.specialEffect === "RA" || Boolean(unit && isStoneWarden(unit.card));
+            const positionChangeDisabled = !playerCanAct || pendingRaDestroyCardId !== null ||
+              pendingStoneWardenCardId !== null || unit?.hasAttacked || unit?.summonedThisTurn ||
+              unit?.hasChangedPosition;
+            const attackDisabled = !playerCanAct || pendingRaDestroyCardId !== null ||
+              pendingStoneWardenCardId !== null || unit?.hasAttacked || unit?.position === "DEFENSE";
+            const isTributeTarget = owner === "player" && ruleSet === "ocg" && isSelectingTributes;
+            const canChooseThisCard = (owner === "opponent" && Boolean(pendingAttackCardId)) ||
+              isTributeTarget || canSelectCard;
             return (
               <div
                 key={`${owner}-slot-${index}`}
                 data-tribute-id={owner === "player" && unit ? unit.card.id : undefined}
                 aria-label={`Ô quái thú ${index + 1}${unit ? `: ${unit.card.name}` : ": trống"}`}
                 className={`relative min-h-32 rounded-md border p-1 transition-colors sm:min-h-44 sm:rounded-lg sm:p-1.5 ${
-                  unit && selectedTributeIds.includes(unit.card.id)
+                  isSelectedCard
+                    ? "z-20 scale-[1.03] border-amber-300 bg-amber-300/10 ring-2 ring-amber-300/60 shadow-[0_0_24px_rgba(252,211,77,0.3)]"
+                    : unit && selectedTributeIds.includes(unit.card.id)
                     ? "border-amber-300 bg-amber-400/15 ring-1 ring-amber-300/50"
                     : pendingAttackCardId && owner === "opponent" && unit
                       ? "border-rose-300 bg-rose-400/15 ring-1 ring-rose-300/40"
@@ -1707,29 +1764,87 @@ export default function BattleRoomPage() {
                     animate={
                       attackingCardId === unit.card.id
                         ? { y: [-8, -38, 0], scale: [1, 1.08, 1] }
-                        : { y: 0, scale: 1 }
+                        : { y: 0, scale: isSelectedCard ? 1.03 : 1 }
                     }
                     transition={{ duration: 0.35 }}
-                    className={`h-full ${owner === "opponent" && pendingAttackCardId ? "cursor-crosshair" : ""}`}
-                    role={owner === "opponent" && pendingAttackCardId ? "button" : undefined}
-                    tabIndex={owner === "opponent" && pendingAttackCardId ? 0 : undefined}
-                    aria-label={owner === "opponent" && pendingAttackCardId ? `Tấn công ${unit.card.name}` : undefined}
-                    onClick={owner === "opponent" && pendingAttackCardId ? () => selectAttackTarget(unit) : undefined}
-                    onKeyDown={owner === "opponent" && pendingAttackCardId
-                      ? (event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            selectAttackTarget(unit);
-                          }
-                        }
-                      : undefined}
+                    ref={isSelectedCard ? selectedCardMenuRef : undefined}
+                    className={`relative h-full ${owner === "opponent" && pendingAttackCardId ? "cursor-crosshair" : ""} ${canSelectCard ? "cursor-pointer" : ""}`}
                   >
-                    {owner === "player" && ruleSet === "ocg" && (pendingSummonCardId || pendingStoneWardenCardId) ? (
+                    <AnimatePresence>
+                      {isSelectedCard && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                          className="absolute bottom-full left-1/2 z-50 mb-2 w-40 -translate-x-1/2 rounded-xl border border-amber-300/50 bg-slate-950/95 p-2 shadow-xl shadow-amber-950/40 backdrop-blur"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <p className="mb-1 truncate px-1 text-[10px] font-bold text-amber-100">{unit.card.name}</p>
+                          <button
+                            type="button"
+                            disabled={attackDisabled}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCardId(null);
+                              attack(unit);
+                            }}
+                            className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] font-bold text-rose-100 hover:bg-rose-400/15 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            ⚔️ {unit.position === "DEFENSE" ? "Không thể tấn công khi thủ" : unit.hasAttacked ? "Đã tấn công lượt này" : "Tấn công"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(positionChangeDisabled)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCardId(null);
+                              changePosition(unit);
+                            }}
+                            className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] font-bold text-sky-100 hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            🛡️ Đổi tư thế ({unit.position === "DEFENSE" ? "Công" : "Thủ"})
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!hasActiveSkill}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              activateCardSkill(unit);
+                            }}
+                            className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] font-bold text-amber-100 hover:bg-amber-400/15 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            ✨ Dùng kỹ năng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCardId(null);
+                            }}
+                            className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-[11px] font-bold text-slate-400 hover:bg-white/5 hover:text-white"
+                          >
+                            ✖ Hủy
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    {canChooseThisCard ? (
                       <button
                         type="button"
-                        aria-pressed={selectedTributeIds.includes(unit.card.id)}
-                        disabled={pendingStoneWardenCardId === unit.card.id}
-                        onClick={() => toggleTribute(unit.card.id)}
+                        aria-pressed={isTributeTarget
+                          ? selectedTributeIds.includes(unit.card.id)
+                          : canSelectCard ? isSelectedCard : undefined}
+                        disabled={isTributeTarget && pendingStoneWardenCardId === unit.card.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (owner === "opponent" && pendingAttackCardId) {
+                            selectAttackTarget(unit);
+                          } else if (isTributeTarget) {
+                            toggleTribute(unit.card.id);
+                          } else {
+                            setSelectedCardId((current) => current === unit.card.id ? null : unit.card.id);
+                          }
+                        }}
                         className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <CardFace
@@ -1766,7 +1881,10 @@ export default function BattleRoomPage() {
                           <button
                             type="button"
                             disabled={!playerCanAct || pendingRaDestroyCardId !== null || unit.raDestroyUsed || playerHp <= 1000}
-                            onClick={() => startRaDestroy(unit.card.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startRaDestroy(unit.card.id);
+                            }}
                             className="w-full rounded-md bg-amber-400/15 px-1 py-1 text-[10px] font-bold text-amber-100 hover:bg-amber-400/25 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {unit.raDestroyUsed ? "Ra đã phá hủy trong lượt" : "Ra: trả 1000 LP, phá hủy"}
@@ -1776,17 +1894,23 @@ export default function BattleRoomPage() {
                           <button
                             type="button"
                             disabled={!playerCanAct || pendingStoneWardenCardId !== null || unit.stoneWardenEffectUsed || opponent.board.length === 0}
-                            onClick={() => startStoneWardenEffect(unit.card.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startStoneWardenEffect(unit.card.id);
+                            }}
                             className="w-full rounded-md bg-cyan-400/15 px-1 py-1 text-[10px] font-bold text-cyan-100 hover:bg-cyan-400/25 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {unit.stoneWardenEffectUsed ? "Đã dùng hiệu ứng lượt này" : "Hiến tế 2: quét sân"}
                           </button>
                         )}
-                        {(pendingSummonCardId || pendingStoneWardenCardId) && ruleSet === "ocg" && (
+                        {isSelectingTributes && ruleSet === "ocg" && (
                           <button
                             type="button"
                             disabled={pendingStoneWardenCardId === unit.card.id}
-                            onClick={() => toggleTribute(unit.card.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleTribute(unit.card.id);
+                            }}
                             className={`w-full rounded-md px-1 py-1 text-[10px] font-bold ${
                               selectedTributeIds.includes(unit.card.id)
                                 ? "bg-amber-300 text-slate-950"
@@ -1801,18 +1925,24 @@ export default function BattleRoomPage() {
                         <button
                           type="button"
                           disabled={!playerCanAct || pendingRaDestroyCardId !== null || pendingStoneWardenCardId !== null || unit.hasAttacked || unit.summonedThisTurn || unit.hasChangedPosition}
-                          onClick={() => changePosition(unit)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            changePosition(unit);
+                          }}
                           className="w-full rounded-md bg-sky-500/15 px-1 py-1 text-[10px] font-bold text-sky-100 hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {unit.position === "defense" ? "Chuyển thế công" : "Chuyển thế thủ"}
+                          {unit.position === "DEFENSE" ? "Chuyển thế công" : "Chuyển thế thủ"}
                         </button>
                         <button
                           type="button"
-                          disabled={!playerCanAct || pendingRaDestroyCardId !== null || pendingStoneWardenCardId !== null || unit.hasAttacked || unit.position === "defense"}
-                          onClick={() => attack(unit)}
+                          disabled={!playerCanAct || pendingRaDestroyCardId !== null || pendingStoneWardenCardId !== null || unit.hasAttacked || unit.position === "DEFENSE"}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            attack(unit);
+                          }}
                           className="w-full rounded-md bg-rose-500/15 px-1 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {unit.position === "defense" ? "Thủ, không đánh" : unit.hasAttacked ? "Đã tấn công" : opponent.board.length > 0 ? "⚔ Chọn mục tiêu" : "⚔ Tấn công trực tiếp"}
+                          {unit.position === "DEFENSE" ? "Thủ, không đánh" : unit.hasAttacked ? "Đã tấn công" : opponent.board.length > 0 ? "⚔ Chọn mục tiêu" : "⚔ Tấn công trực tiếp"}
                         </button>
                       </div>
                     )}

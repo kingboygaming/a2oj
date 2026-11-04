@@ -103,7 +103,7 @@ export function normalizeGachaCardData(data: z.output<typeof gachaCardSchema>) {
     manaCost: isBattle ? data.manaCost : 0,
     level: isMonster ? (isGod ? 10 : data.level) : 1,
     requiredTributes: isMonster
-      ? specialEffect === "RA" ? 3 : specialEffect === "STONE_WARDEN" ? 2 : data.requiredTributes
+      ? isGod ? 2 : data.requiredTributes
       : null,
     critRate: isMonster ? data.critRate : 0,
     evasionRate: isMonster ? data.evasionRate : 0,

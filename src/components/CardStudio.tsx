@@ -375,7 +375,7 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
               </div>
               <Field label="Số quái vật cần hiến tế">
                 <select
-                  value={draft.specialEffect === "RA" ? 3 : draft.specialEffect === "STONE_WARDEN" ? 2 : draft.requiredTributes ?? ""}
+                  value={["SLIFER", "RA", "STONE_WARDEN"].includes(draft.specialEffect) ? 2 : draft.requiredTributes ?? ""}
                   disabled={draft.specialEffect === "RA" || draft.specialEffect === "STONE_WARDEN"}
                   onChange={(event) => update("requiredTributes", event.target.value === "" ? null : Number(event.target.value))}
                   className={inputClass}
@@ -386,7 +386,7 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
                   <option value="2">Hiến tế 2 quái vật</option>
                   <option value="3">Hiến tế 3 quái vật</option>
                 </select>
-                {draft.specialEffect === "RA" && <p className="mt-1 text-xs text-amber-200">Thần Ra luôn cần đúng 3 quái vật để Triệu hồi Thường.</p>}
+                {draft.specialEffect === "RA" && <p className="mt-1 text-xs text-amber-200">Thần Ra luôn cần đúng 2 quái vật để Triệu hồi Thường.</p>}
                 {draft.specialEffect === "STONE_WARDEN" && <p className="mt-1 text-xs text-amber-200">Hộ Vệ Cổ Thạch luôn cần 2 vật hiến tế để Triệu hồi Thường.</p>}
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -394,7 +394,7 @@ export function CardStudio({ initialCard }: { initialCard?: EditableCard }) {
                   <select value={draft.specialEffect} onChange={(event) => update("specialEffect", event.target.value)} className={inputClass}>
                     <option value="NONE">Không có</option>
                     <option value="SLIFER">Tăng ATK/DEF theo số bài trên tay và giảm 2000 chỉ số quái thú đối thủ vừa triệu hồi</option>
-                    <option value="RA">Thần Ra: 3 hiến tế, trả LP tăng ATK/DEF, phá hủy quái thú</option>
+                    <option value="RA">Thần Ra: 2 hiến tế, trả LP tăng ATK/DEF, phá hủy quái thú</option>
                     <option value="STONE_WARDEN">Hộ Vệ Cổ Thạch: miễn bị chọn mục tiêu; hiến tế 2 quái vật khác để quét sân, không thể tấn công lượt đó</option>
                   </select>
                 </Field>
