@@ -1763,8 +1763,8 @@ export default function BattleRoomPage() {
                     initial={{ opacity: 0, scale: 0.72 }}
                     animate={
                       attackingCardId === unit.card.id
-                        ? { y: [-8, -38, 0], scale: [1, 1.08, 1] }
-                        : { y: 0, scale: isSelectedCard ? 1.03 : 1 }
+                        ? { opacity: 1, y: [-8, -38, 0], scale: [1, 1.08, 1] }
+                        : { opacity: 1, y: 0, scale: isSelectedCard ? 1.03 : 1 }
                     }
                     transition={{ duration: 0.35 }}
                     ref={isSelectedCard ? selectedCardMenuRef : undefined}
