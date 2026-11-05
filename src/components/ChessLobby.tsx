@@ -1,5 +1,6 @@
 "use client";
 
+import { Chess } from "chess.js";
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import {
   ArrowLeft,
@@ -7,6 +8,7 @@ import {
   Clock3,
   Copy,
   DoorOpen,
+  Eye,
   LoaderCircle,
   Radio,
   Swords,
@@ -35,13 +37,14 @@ type LobbyRoom = {
   timeControlId: string;
   createdAt: number;
   isOpen: boolean;
+  isPlaying: boolean;
   isRandom: boolean;
   isRated: boolean;
 };
 
 type RoomSession = {
   roomId: string;
-  role: "host" | "guest";
+  role: "host" | "guest" | "spectator";
   timeControlId: string;
   playerName: string;
   opponentName: string;
@@ -86,6 +89,23 @@ type RoomMessage =
       playerId: string;
       action: ChessArenaAction;
       actionId: string;
+    }
+  | {
+      type: "spectate";
+      playerId: string;
+      targetPlayerId: string | null;
+    }
+  | {
+      type: "snapshot";
+      playerId: string;
+      targetPlayerId: string;
+      timeControlId: string;
+      whitePlayerName: string;
+      blackPlayerName: string;
+      whitePlayerId: string;
+      blackPlayerId: string;
+      moves: string[];
+      resultAction?: ChessArenaAction;
     };
 
 function preloadStockfishForBot() {
@@ -109,6 +129,7 @@ function isLobbyRoom(value: unknown): value is LobbyRoom {
     typeof room.createdAt === "number" &&
     Number.isFinite(room.createdAt) &&
     typeof room.isOpen === "boolean" &&
+    typeof room.isPlaying === "boolean" &&
     typeof room.isRandom === "boolean" &&
     typeof room.isRated === "boolean"
   );
@@ -127,6 +148,22 @@ function isChessArenaAction(value: unknown): value is ChessArenaAction {
     return action.color === "w" || action.color === "b";
   }
   return action.type === "draw-accept" || action.type === "new-game";
+}
+
+function isValidMoveHistory(moves: unknown[]): moves is string[] {
+  if (moves.length > 2000) return false;
+  const game = new Chess();
+  try {
+    for (const san of moves) {
+      if (typeof san !== "string" || san.length === 0 || san.length > 16) {
+        return false;
+      }
+      game.move(san);
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getRoomMessages(channel: RealtimeChannel) {
@@ -153,6 +190,12 @@ export function ChessLobby({
   const [localGame, setLocalGame] = useState<LocalGame | null>(null);
   const [botLevel, setBotLevel] = useState(2);
   const [remoteAction, setRemoteAction] = useState<ChessArenaRemoteAction | null>(null);
+  const [spectatorSnapshot, setSpectatorSnapshot] = useState<{
+    whitePlayerName: string;
+    blackPlayerName: string;
+    moves: string[];
+    resultAction: ChessArenaAction | null;
+  } | null>(null);
   const [realtimeConnection, setRealtimeConnection] = useState<"connecting" | "connected" | "offline">("connecting");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -164,6 +207,8 @@ export function ChessLobby({
   const roomSessionRef = useRef<RoomSession | null>(null);
   const opponentIdRef = useRef<string | null>(null);
   const opponentAccountIdRef = useRef<string | null>(null);
+  const spectatorPlayerIdsRef = useRef<Set<string>>(new Set());
+  const actionHistoryRef = useRef<ChessArenaAction[]>([]);
   const hasProcessedInviteRef = useRef(false);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey =
@@ -246,6 +291,7 @@ export function ChessLobby({
         timeControlId: session.timeControlId,
         createdAt: Date.now(),
         isOpen,
+        isPlaying: session.started,
         isRandom: session.isRandom,
         isRated: session.isRated,
       } satisfies LobbyRoom);
@@ -275,9 +321,11 @@ export function ChessLobby({
     }
     opponentIdRef.current = null;
     opponentAccountIdRef.current = null;
+    spectatorPlayerIdsRef.current.clear();
     roomSessionRef.current = null;
     setRoomSession(null);
     setRemoteAction(null);
+    setSpectatorSnapshot(null);
     setRatedSyncFailed(false);
     setNotice("");
     setBusy(false);
@@ -340,6 +388,7 @@ export function ChessLobby({
           setNotice(
             error instanceof Error ? error.message : "Không thể tham gia trận xếp hạng.",
           );
+
           return;
         }
       }
@@ -357,6 +406,8 @@ export function ChessLobby({
         isRated: room.isRated,
       };
       roomSessionRef.current = session;
+      actionHistoryRef.current = [];
+      spectatorPlayerIdsRef.current.clear();
       setRoomSession(session);
       setLocalGame(null);
       setRemoteAction(null);
@@ -371,6 +422,40 @@ export function ChessLobby({
       );
     },
     [canPlayRated, playerId, playerName, realtimeStatus],
+  );
+
+  const watchRoom = useCallback(
+    (room: LobbyRoom) => {
+      if (!room.roomId || realtimeStatus !== "connected") {
+        setNotice("Cần kết nối Supabase Realtime để xem ván cờ.");
+        return;
+      }
+
+      const session: RoomSession = {
+        roomId: room.roomId,
+        role: "spectator",
+        timeControlId: room.timeControlId,
+        playerName: room.playerName,
+        opponentName: "Đang tải...",
+        started: true,
+        isRandom: room.isRandom,
+        isRated: room.isRated,
+      };
+      roomSessionRef.current = session;
+      actionHistoryRef.current = [];
+      spectatorPlayerIdsRef.current.clear();
+      setRoomSession(session);
+      setLocalGame(null);
+      setRemoteAction(null);
+      setSpectatorSnapshot(null);
+      setNotice("");
+      setBusy(true);
+      const url = new URL("/chess", window.location.origin);
+      url.searchParams.set("room", room.roomId);
+      url.searchParams.set("watch", "1");
+      window.history.replaceState(null, "", url);
+    },
+    [realtimeStatus],
   );
 
   const createRoom = useCallback(
@@ -430,6 +515,8 @@ export function ChessLobby({
       }
       opponentIdRef.current = null;
       roomSessionRef.current = session;
+      actionHistoryRef.current = [];
+      spectatorPlayerIdsRef.current.clear();
       setRoomSession(session);
       setLocalGame(null);
       setRatedSyncFailed(false);
@@ -451,6 +538,7 @@ export function ChessLobby({
     const match = openRooms.find(
       (room) =>
         room.playerId !== playerId &&
+        !room.isPlaying &&
         room.timeControlId === selectedTimeControlId &&
         room.isRated === isRated &&
         room.isOpen,
@@ -480,14 +568,19 @@ export function ChessLobby({
         timeControlId: selectedTimeControlId,
         createdAt: Date.now(),
         isOpen: true,
+        isPlaying: false,
         isRandom: false,
         isRated: new URLSearchParams(window.location.search).get("rated") === "1",
       };
       const knownRoom = openRooms.find((room) => room.roomId === roomId);
-      joinRoom(knownRoom ?? inviteRoom);
+      if (new URLSearchParams(window.location.search).get("watch") === "1") {
+        watchRoom(knownRoom ?? inviteRoom);
+      } else {
+        joinRoom(knownRoom ?? inviteRoom);
+      }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [joinRoom, openRooms, realtimeStatus, selectedTimeControlId]);
+  }, [joinRoom, openRooms, realtimeStatus, selectedTimeControlId, watchRoom]);
 
   useEffect(() => {
     if (!roomSession?.roomId || !playerId || !supabaseRef.current) return;
@@ -506,6 +599,105 @@ export function ChessLobby({
       if (!payload || typeof payload !== "object" || !("type" in payload)) return;
       const message = payload as Partial<RoomMessage>;
       if (message.playerId === playerId) return;
+
+      if (
+        message.type === "spectate" &&
+        typeof message.playerId === "string" &&
+        (session.role === "host" || session.role === "guest") &&
+        (!message.targetPlayerId || message.targetPlayerId === playerId)
+      ) {
+        const activeSession = roomSessionRef.current;
+        if (
+          !activeSession ||
+          activeSession.role === "spectator" ||
+          !activeSession.started ||
+          !opponentIdRef.current
+        ) {
+          return;
+        }
+        const lastAction = actionHistoryRef.current.at(-1);
+        const whitePlayerId =
+          activeSession.role === "host" ? playerId : opponentIdRef.current;
+        const blackPlayerId =
+          activeSession.role === "host" ? opponentIdRef.current : playerId;
+        const snapshotMessage: RoomMessage = {
+          type: "snapshot",
+          playerId,
+          targetPlayerId: message.playerId,
+          timeControlId: activeSession.timeControlId,
+          whitePlayerName:
+            activeSession.role === "host"
+              ? activeSession.playerName
+              : activeSession.opponentName,
+          blackPlayerName:
+            activeSession.role === "host"
+              ? activeSession.opponentName
+              : activeSession.playerName,
+          whitePlayerId,
+          blackPlayerId,
+          moves: actionHistoryRef.current
+            .filter((action): action is Extract<ChessArenaAction, { type: "move" }> =>
+              action.type === "move",
+            )
+            .map((action) => action.san),
+          ...(lastAction &&
+          (lastAction.type === "resign" ||
+            lastAction.type === "timeout" ||
+            lastAction.type === "draw-accept")
+            ? { resultAction: lastAction }
+            : {}),
+        };
+        void channel.send({
+          type: "broadcast",
+          event: "chess",
+          payload: snapshotMessage,
+        });
+        return;
+      }
+
+      if (
+        message.type === "snapshot" &&
+        session.role === "spectator" &&
+        message.targetPlayerId === playerId &&
+        typeof message.timeControlId === "string" &&
+        getChessTimeControl(message.timeControlId) !== null &&
+        typeof message.whitePlayerName === "string" &&
+        message.whitePlayerName.length <= 24 &&
+        typeof message.blackPlayerName === "string" &&
+        message.blackPlayerName.length <= 24 &&
+        typeof message.whitePlayerId === "string" &&
+        typeof message.blackPlayerId === "string" &&
+        (message.playerId === message.whitePlayerId ||
+          message.playerId === message.blackPlayerId) &&
+        Array.isArray(message.moves) &&
+        isValidMoveHistory(message.moves) &&
+        (message.resultAction === undefined ||
+          (isChessArenaAction(message.resultAction) &&
+            ["resign", "timeout", "draw-accept"].includes(message.resultAction.type)))
+      ) {
+        spectatorPlayerIdsRef.current = new Set([
+          message.whitePlayerId,
+          message.blackPlayerId,
+        ]);
+        const updatedSession = {
+          ...session,
+          timeControlId: message.timeControlId,
+          playerName: message.whitePlayerName,
+          opponentName: message.blackPlayerName,
+        };
+        roomSessionRef.current = updatedSession;
+        setRoomSession(updatedSession);
+        setSpectatorSnapshot({
+          whitePlayerName: message.whitePlayerName,
+          blackPlayerName: message.blackPlayerName,
+          moves: message.moves,
+          resultAction: message.resultAction ?? null,
+        });
+        setRemoteAction(null);
+        setBusy(false);
+        setNotice("");
+        return;
+      }
 
       if (message.type === "join" && session.role === "host") {
         if (
@@ -544,7 +736,7 @@ export function ChessLobby({
           };
           roomSessionRef.current = startedSession;
           setRoomSession(startedSession);
-          void trackHostedRoom(startedSession, false);
+          void trackHostedRoom(startedSession, true);
           void channel.send({
             type: "broadcast",
             event: "chess",
@@ -666,10 +858,17 @@ export function ChessLobby({
       if (
         message.type === "action" &&
         typeof message.playerId === "string" &&
-        message.playerId === opponentIdRef.current &&
         typeof message.actionId === "string" &&
-        isChessArenaAction(message.action)
+        isChessArenaAction(message.action) &&
+        (session.role === "spectator"
+          ? spectatorPlayerIdsRef.current.has(message.playerId)
+          : message.playerId === opponentIdRef.current)
       ) {
+        if (message.action.type === "new-game") {
+          actionHistoryRef.current = [];
+        } else {
+          actionHistoryRef.current.push(message.action);
+        }
         setRemoteAction({ id: message.actionId, action: message.action });
       }
     });
@@ -678,7 +877,7 @@ export function ChessLobby({
       if (status === "SUBSCRIBED") {
         const trackResult = await channel.track({
           playerId,
-            accountUserId,
+          accountUserId,
           roomId: session.roomId,
           role: session.role,
           playerName: session.playerName,
@@ -691,7 +890,7 @@ export function ChessLobby({
         if (session.role === "host") {
           await trackHostedRoom(session, true);
           setBusy(false);
-        } else {
+        } else if (session.role === "guest") {
           const sendResult = await channel.send({
             type: "broadcast",
             event: "chess",
@@ -705,6 +904,20 @@ export function ChessLobby({
           });
           if (sendResult !== "ok") {
             setNotice("Không gửi được yêu cầu tham gia phòng. Hãy thử lại.");
+            setBusy(false);
+          }
+        } else {
+          const sendResult = await channel.send({
+            type: "broadcast",
+            event: "chess",
+            payload: {
+              type: "spectate",
+              playerId,
+              targetPlayerId: null,
+            } satisfies RoomMessage,
+          });
+          if (sendResult !== "ok") {
+            setNotice("Không gửi được yêu cầu xem ván cờ. Hãy thử lại.");
             setBusy(false);
           }
         }
@@ -724,6 +937,7 @@ export function ChessLobby({
     (action: ChessArenaAction) => {
       const channel = roomChannelRef.current;
       const session = roomSessionRef.current;
+      if (session?.role === "spectator") return;
       if (!channel) {
         setNotice("Phòng chưa kết nối; nước đi chưa được gửi tới đối thủ.");
         return;
@@ -813,6 +1027,11 @@ export function ChessLobby({
           payload: message,
         });
         if (result !== "ok") throw new Error("Không đồng bộ được hành động với đối thủ.");
+        if (acceptedAction.type === "new-game") {
+          actionHistoryRef.current = [];
+        } else {
+          actionHistoryRef.current.push(acceptedAction);
+        }
       })().catch((error: unknown) => {
         console.error("Could not synchronize chess action:", error);
         setNotice(
@@ -828,7 +1047,11 @@ export function ChessLobby({
     if (!roomSession) return;
     const url = new URL("/chess", window.location.origin);
     url.searchParams.set("room", roomSession.roomId);
-    if (roomSession.isRated) url.searchParams.set("rated", "1");
+    if (roomSession.started) {
+      url.searchParams.set("watch", "1");
+    } else if (roomSession.isRated) {
+      url.searchParams.set("rated", "1");
+    }
     try {
       await navigator.clipboard.writeText(url.toString());
       setNotice("Đã sao chép liên kết phòng.");
@@ -853,7 +1076,11 @@ export function ChessLobby({
             </button>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-300">
-                {roomSession.isRandom ? "Ghép ngẫu nhiên" : "Phòng cờ vua"}
+                {roomSession.role === "spectator"
+                  ? "Đang xem trận đấu"
+                  : roomSession.isRandom
+                    ? "Ghép ngẫu nhiên"
+                    : "Phòng cờ vua"}
               </p>
               <p className="font-mono text-sm text-slate-300">
                 Mã phòng: {roomSession.roomId}
@@ -866,14 +1093,15 @@ export function ChessLobby({
                 Rated · Elo
               </span>
             )}
-            {roomSession.role === "host" && (
+            {(roomSession.role === "host" ||
+              (roomSession.role === "guest" && roomSession.started)) && (
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-3 text-sm font-semibold text-slate-300 hover:bg-slate-800"
                 onClick={() => void copyRoomLink()}
                 type="button"
               >
                 <Copy aria-hidden="true" className="size-4" />
-                Chia sẻ phòng
+                {roomSession.started ? "Mời khán giả" : "Chia sẻ phòng"}
               </button>
             )}
             <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-3 text-sm text-slate-300">
@@ -899,23 +1127,61 @@ export function ChessLobby({
           </div>
         )}
 
-        {(roomSession.role === "host" || roomSession.started) && (
+        {roomSession.role === "spectator" && (
+          <>
+            <div className="mb-3 rounded-xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-sm text-sky-100">
+              <Eye aria-hidden="true" className="mr-2 inline size-4" />
+              Bạn đang xem trực tiếp. Chế độ khán giả không thể thực hiện nước đi.
+            </div>
+            {!spectatorSnapshot && busy && (
+              <div className="mb-3 flex items-center gap-3 rounded-xl border border-white/8 bg-slate-900 px-4 py-3 text-sm text-slate-300">
+                <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+                Đang đồng bộ bàn cờ...
+              </div>
+            )}
+          </>
+        )}
+
+        {(roomSession.role === "host" ||
+          (roomSession.role === "guest" && roomSession.started) ||
+          (roomSession.role === "spectator" && spectatorSnapshot !== null)) && (
           <ChessArena
             whitePlayerName={
-              roomSession.role === "host"
-                ? roomSession.playerName
-                : roomSession.opponentName
+              roomSession.role === "spectator"
+                ? spectatorSnapshot?.whitePlayerName ?? roomSession.playerName
+                : roomSession.role === "host"
+                  ? roomSession.playerName
+                  : roomSession.opponentName
             }
             blackPlayerName={
-              roomSession.role === "host"
-                ? roomSession.opponentName
-                : roomSession.playerName
+              roomSession.role === "spectator"
+                ? spectatorSnapshot?.blackPlayerName ?? roomSession.opponentName
+                : roomSession.role === "host"
+                  ? roomSession.opponentName
+                  : roomSession.playerName
             }
             initialTimeSeconds={activeTimeControl.initialSeconds}
             incrementSeconds={activeTimeControl.incrementSeconds}
-            playerColor={roomSession.role === "host" ? "w" : "b"}
-            clockRunning={roomSession.started && !ratedSyncFailed}
-            canPlay={roomSession.started && !ratedSyncFailed}
+            initialMoveHistory={spectatorSnapshot?.moves}
+            initialResultAction={spectatorSnapshot?.resultAction}
+            showClocks={roomSession.role !== "spectator"}
+            playerColor={
+              roomSession.role === "host"
+                ? "w"
+                : roomSession.role === "guest"
+                  ? "b"
+                  : undefined
+            }
+            clockRunning={
+              roomSession.role !== "spectator" &&
+              roomSession.started &&
+              !ratedSyncFailed
+            }
+            canPlay={
+              roomSession.role !== "spectator" &&
+              roomSession.started &&
+              !ratedSyncFailed
+            }
             remoteAction={remoteAction}
             onGameAction={sendGameAction}
           />
@@ -1310,11 +1576,22 @@ export function ChessLobby({
                     </div>
                     <button
                       className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300/30 px-3 text-xs font-bold text-emerald-200 transition hover:bg-emerald-300/10"
-                      onClick={() => joinRoom(room)}
+                      onClick={() =>
+                        room.isPlaying ? watchRoom(room) : joinRoom(room)
+                      }
                       type="button"
                     >
-                      <DoorOpen aria-hidden="true" className="size-4" />
-                      Tham gia
+                      {room.isPlaying ? (
+                        <>
+                          <Eye aria-hidden="true" className="size-4" />
+                          Xem ván
+                        </>
+                      ) : (
+                        <>
+                          <DoorOpen aria-hidden="true" className="size-4" />
+                          Tham gia
+                        </>
+                      )}
                     </button>
                   </li>
                 );

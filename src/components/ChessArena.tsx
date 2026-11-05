@@ -79,6 +79,9 @@ type ChessArenaProps = {
   clockRunning?: boolean;
   vsBot?: boolean;
   botLevel?: number;
+  initialMoveHistory?: string[];
+  initialResultAction?: ChessArenaAction | null;
+  showClocks?: boolean;
   remoteAction?: ChessArenaRemoteAction | null;
   onMove?: (move: ChessArenaMove) => void;
   onGameAction?: (action: ChessArenaAction) => void;
@@ -187,18 +190,49 @@ function getGameResult(game: Chess): GameResult | null {
   return null;
 }
 
+function getManualResult(
+  action: ChessArenaAction | null,
+  whitePlayerName: string,
+  blackPlayerName: string,
+): GameResult | null {
+  if (action?.type === "resign" || action?.type === "timeout") {
+    const winner = action.color === "w" ? "b" : "w";
+    const playerName = action.color === "w" ? whitePlayerName : blackPlayerName;
+    return {
+      title: winner === "w" ? `${whitePlayerName} chiến thắng!` : `${blackPlayerName} chiến thắng!`,
+      description:
+        action.type === "timeout"
+          ? `${playerName} đã hết thời gian.`
+          : `${playerName} đã đầu hàng.`,
+      winner,
+    };
+  }
+
+  if (action?.type === "draw-accept") {
+    return {
+      title: "Ván cờ hòa",
+      description: "Hai người chơi đã đồng ý hòa.",
+      winner: null,
+    };
+  }
+
+  return null;
+}
+
 function PlayerCard({
   name,
   color,
   seconds,
   isActive,
   rating,
+  showClock = true,
 }: {
   name: string;
   color: "w" | "b";
   seconds: number;
   isActive: boolean;
   rating: string;
+  showClock?: boolean;
 }) {
   const isWhite = color === "w";
 
@@ -226,17 +260,19 @@ function PlayerCard({
         </div>
       </div>
 
-      <div
-        aria-label={`Thời gian còn lại ${formatTime(seconds)}`}
-        className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 font-mono text-lg font-bold tabular-nums ${
-          isActive
-            ? "bg-emerald-400 text-slate-950 shadow-md shadow-emerald-950/30"
-            : "bg-slate-800 text-slate-200"
-        }`}
-      >
-        <Clock3 aria-hidden="true" className="size-4" />
-        {formatTime(seconds)}
-      </div>
+      {showClock && (
+        <div
+          aria-label={`Thời gian còn lại ${formatTime(seconds)}`}
+          className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 font-mono text-lg font-bold tabular-nums ${
+            isActive
+              ? "bg-emerald-400 text-slate-950 shadow-md shadow-emerald-950/30"
+              : "bg-slate-800 text-slate-200"
+          }`}
+        >
+          <Clock3 aria-hidden="true" className="size-4" />
+          {formatTime(seconds)}
+        </div>
+      )}
     </div>
   );
 }
@@ -245,10 +281,12 @@ function ResultModal({
   result,
   onNewGame,
   onDismiss,
+  showNewGame,
 }: {
   result: GameResult;
   onNewGame: () => void;
   onDismiss: () => void;
+  showNewGame: boolean;
 }) {
   return (
     <div
@@ -283,14 +321,16 @@ function ResultModal({
           {result.title}
         </h2>
         <p className="mt-2 text-sm text-slate-400">{result.description}</p>
-        <button
-          className="mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
-          onClick={onNewGame}
-          type="button"
-        >
-          <RotateCcw aria-hidden="true" className="size-4" />
-          Ván mới
-        </button>
+        {showNewGame && (
+          <button
+            className="mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+            onClick={onNewGame}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" className="size-4" />
+            Ván mới
+          </button>
+        )}
       </div>
     </div>
   );
@@ -306,11 +346,14 @@ export function ChessArena({
   clockRunning = true,
   vsBot = false,
   botLevel = 2,
+  initialMoveHistory = [],
+  initialResultAction = null,
+  showClocks = true,
   remoteAction,
   onMove,
   onGameAction,
 }: ChessArenaProps) {
-  const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [moveHistory, setMoveHistory] = useState<string[]>(initialMoveHistory);
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [pendingPremoves, setPendingPremoves] = useState<PendingPremove[]>([]);
   const [premoveEnabled, setPremoveEnabled] = useState(false);
@@ -329,7 +372,9 @@ export function ChessArena({
   );
   const [whiteTime, setWhiteTime] = useState(initialTimeSeconds);
   const [blackTime, setBlackTime] = useState(initialTimeSeconds);
-  const [manualResult, setManualResult] = useState<GameResult | null>(null);
+  const [manualResult, setManualResult] = useState<GameResult | null>(() =>
+    getManualResult(initialResultAction, whitePlayerName, blackPlayerName),
+  );
   const [drawOffer, setDrawOffer] = useState<"w" | "b" | null>(null);
   const [activeTab, setActiveTab] = useState<PanelTab>("moves");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -387,6 +432,7 @@ export function ChessArena({
           : null),
     [activeColor, blackPlayerName, blackTime, manualResult, whitePlayerName, whiteTime],
   );
+
   const displayedEngineStatus =
     !engineReady && engineStatus !== "error" ? "loading" : engineStatus;
   const lastMove = game.history({ verbose: true }).at(-1);
@@ -1214,6 +1260,7 @@ export function ChessArena({
             name={topPlayerName}
             rating={topPlayerColor === "w" ? "1,320" : "1,284"}
             seconds={topPlayerColor === "w" ? whiteTime : blackTime}
+            showClock={showClocks}
           />
 
           <div className="relative rounded-2xl border border-white/8 bg-slate-900/65 p-2 shadow-2xl shadow-black/25 sm:p-3">
@@ -1223,6 +1270,7 @@ export function ChessArena({
                 result={result}
                 onDismiss={() => setResultModalDismissed(true)}
                 onNewGame={handleNewGame}
+                showNewGame={canPlay}
               />
             )}
           </div>
@@ -1241,14 +1289,16 @@ export function ChessArena({
                   <Sparkles aria-hidden="true" className="size-4" />
                   Phân tích ván
                 </button>
-                <button
-                  className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-400 px-3 text-xs font-bold text-slate-950 transition hover:bg-emerald-300"
-                  onClick={handleNewGame}
-                  type="button"
-                >
-                  <RotateCcw aria-hidden="true" className="size-4" />
-                  Ván mới
-                </button>
+                {canPlay && (
+                  <button
+                    className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-400 px-3 text-xs font-bold text-slate-950 transition hover:bg-emerald-300"
+                    onClick={handleNewGame}
+                    type="button"
+                  >
+                    <RotateCcw aria-hidden="true" className="size-4" />
+                    Ván mới
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1287,6 +1337,7 @@ export function ChessArena({
             name={bottomPlayerName}
             rating={bottomPlayerColor === "w" ? "1,320" : "1,284"}
             seconds={bottomPlayerColor === "w" ? whiteTime : blackTime}
+            showClock={showClocks}
           />
 
           {drawOffer && !result && (
@@ -1309,7 +1360,7 @@ export function ChessArena({
           <div className="grid grid-cols-3 gap-2">
             <button
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-2 text-xs font-semibold text-slate-300 transition hover:border-rose-400/40 hover:bg-rose-400/10 hover:text-rose-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
-              disabled={Boolean(result)}
+              disabled={!canPlay || Boolean(result)}
               onClick={handleResign}
               type="button"
             >
@@ -1318,7 +1369,7 @@ export function ChessArena({
             </button>
             <button
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-2 text-xs font-semibold text-slate-300 transition hover:border-amber-300/40 hover:bg-amber-300/10 hover:text-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
-              disabled={Boolean(result)}
+              disabled={!canPlay || Boolean(result)}
               onClick={handleDrawAction}
               type="button"
             >
