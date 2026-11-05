@@ -233,6 +233,7 @@ export function ChessArena({
   onGameAction,
 }: ChessArenaProps) {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [orientation, setOrientation] = useState<"white" | "black">(
     playerColor === "b" ? "black" : "white",
   );
@@ -279,6 +280,36 @@ export function ChessArena({
   const squareStyles = useMemo(() => {
     const styles: Record<string, CSSProperties> = {};
 
+    if (selectedSquare) {
+      styles[selectedSquare] = {
+        backgroundColor: "rgb(250 204 21 / 48%)",
+      };
+      for (const move of game.moves({ verbose: true, square: selectedSquare })) {
+        const target = game.get(move.to);
+        styles[move.to] = {
+          ...(target
+            ? { boxShadow: "inset 0 0 0 4px rgb(34 197 94 / 65%)" }
+            : {
+                backgroundImage:
+                  "radial-gradient(circle, rgb(15 23 42 / 32%) 0 22%, transparent 24%)",
+              }),
+        };
+        if (move.isKingsideCastle() || move.isQueensideCastle()) {
+          const rookSquare = move.isKingsideCastle()
+            ? move.color === "w"
+              ? "h1"
+              : "h8"
+            : move.color === "w"
+              ? "a1"
+              : "a8";
+          styles[rookSquare] = {
+            backgroundColor: "rgb(34 197 94 / 24%)",
+            boxShadow: "inset 0 0 0 3px rgb(34 197 94 / 55%)",
+          };
+        }
+      }
+    }
+
     if (lastMove) {
       styles[lastMove.from] = {
         backgroundColor: "rgb(163 230 53 / 42%)",
@@ -296,7 +327,7 @@ export function ChessArena({
     }
 
     return styles;
-  }, [checkedKing, lastMove]);
+  }, [checkedKing, game, lastMove, selectedSquare]);
 
   useEffect(() => {
     if (result || !clockRunning) return;
@@ -338,6 +369,7 @@ export function ChessArena({
           for (const san of moveHistory) nextGame.move(san);
           const move = nextGame.move(action.san);
           setMoveHistory(nextGame.history());
+          setSelectedSquare(null);
           setManualResult(getGameResult(nextGame));
           if (incrementSeconds > 0) {
             (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
@@ -373,6 +405,7 @@ export function ChessArena({
         setDrawOffer(null);
       } else if (action.type === "new-game") {
         setMoveHistory([]);
+        setSelectedSquare(null);
         setWhiteTime(initialTimeSeconds);
         setBlackTime(initialTimeSeconds);
         setManualResult(null);
@@ -393,31 +426,42 @@ export function ChessArena({
     whitePlayerName,
   ]);
 
-  function handlePieceDrop(sourceSquare: string, targetSquare: string | null) {
+  function makeMove(sourceSquare: string, targetSquare: string) {
     if (
       result ||
       !canPlay ||
       (playerColor !== undefined && playerColor !== activeColor) ||
-      !targetSquare ||
       !isChessSquare(sourceSquare) ||
       !isChessSquare(targetSquare)
     ) {
       return false;
     }
 
-    const legalMove = game
-      .moves({ verbose: true, square: sourceSquare })
-      .find((move) => move.to === targetSquare);
+    const legalMoves = game.moves({ verbose: true, square: sourceSquare });
+    const targetPiece = game.get(targetSquare);
+    const castleMove =
+      game.get(sourceSquare)?.type === "k" &&
+      targetPiece?.type === "r" &&
+      targetPiece.color === activeColor
+        ? legalMoves.find((move) =>
+            targetSquare[0] === "h"
+              ? move.isKingsideCastle()
+              : targetSquare[0] === "a" && move.isQueensideCastle(),
+          )
+        : undefined;
+    const legalMove =
+      legalMoves.find((move) => move.to === targetSquare) ?? castleMove;
 
     if (!legalMove) return false;
     if (drawOffer !== null && drawOffer !== game.turn()) setDrawOffer(null);
 
     const move = game.move({
-      from: sourceSquare,
-      to: targetSquare,
+      from: legalMove.from,
+      to: legalMove.to,
       ...(legalMove.isPromotion() ? { promotion: "q" } : {}),
     });
 
+    setSelectedSquare(null);
     setMoveHistory(game.history());
     if (incrementSeconds > 0) {
       (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
@@ -436,6 +480,32 @@ export function ChessArena({
     });
 
     return true;
+  }
+
+  function handlePieceDrop(sourceSquare: string, targetSquare: string | null) {
+    if (!targetSquare) {
+      setSelectedSquare(null);
+      return false;
+    }
+    setSelectedSquare(null);
+    return makeMove(sourceSquare, targetSquare);
+  }
+
+  function handleSquareClick(square: string) {
+    if (!canPlay || result || !isChessSquare(square)) {
+      setSelectedSquare(null);
+      return;
+    }
+
+    if (selectedSquare && makeMove(selectedSquare, square)) return;
+
+    const piece = game.get(square);
+    setSelectedSquare(
+      piece?.color === activeColor &&
+        (playerColor === undefined || playerColor === activeColor)
+        ? square
+        : null,
+    );
   }
 
   function handleDrawAction() {
@@ -474,6 +544,7 @@ export function ChessArena({
 
   function handleNewGame() {
     setMoveHistory([]);
+    setSelectedSquare(null);
     setWhiteTime(initialTimeSeconds);
     setBlackTime(initialTimeSeconds);
     setManualResult(null);
@@ -535,6 +606,7 @@ export function ChessArena({
       sourceSquare: string;
       targetSquare: string | null;
     }) => handlePieceDrop(sourceSquare, targetSquare),
+    onSquareClick: ({ square }: { square: string }) => handleSquareClick(square),
   };
 
   const movePairs = Array.from(
@@ -598,6 +670,11 @@ export function ChessArena({
               <ResultModal result={result} onNewGame={handleNewGame} />
             )}
           </div>
+          <p className="px-1 text-xs leading-5 text-slate-500">
+            Kéo quân hoặc chạm quân rồi chạm ô đích. Nhập thành bằng cách đi vua
+            hai ô hoặc kéo vua vào ô xe. Bắt tốt qua đường được phép ngay sau khi
+            đối thủ tiến tốt hai ô.
+          </p>
 
           <PlayerCard
             color={bottomPlayerColor}
