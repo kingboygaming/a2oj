@@ -603,6 +603,7 @@ export default function BattleRoomPage() {
   const [drawIndex, setDrawIndex] = useState(5);
   const [attackingCardId, setAttackingCardId] = useState<string | null>(null);
   const [combatTargetCardId, setCombatTargetCardId] = useState<string | null>(null);
+  const [combatTravel, setCombatTravel] = useState({ x: 0, y: -38 });
   const [pendingAttackCardId, setPendingAttackCardId] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
@@ -619,6 +620,7 @@ export default function BattleRoomPage() {
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const boardDropRef = useRef<HTMLDivElement>(null);
+  const boardCardElementsRef = useRef(new Map<string, HTMLDivElement>());
   const selectedCardMenuRef = useRef<HTMLDivElement>(null);
   const combatAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -679,11 +681,24 @@ export default function BattleRoomPage() {
 
   const playCombatAnimation = useCallback((attackerId: string, targetId: string | null) => {
     if (combatAnimationTimerRef.current) clearTimeout(combatAnimationTimerRef.current);
+    const attackerElement = boardCardElementsRef.current.get(attackerId);
+    const targetElement = targetId ? boardCardElementsRef.current.get(targetId) : null;
+    if (attackerElement && targetElement) {
+      const attackerRect = attackerElement.getBoundingClientRect();
+      const targetRect = targetElement.getBoundingClientRect();
+      setCombatTravel({
+        x: targetRect.left + targetRect.width / 2 - (attackerRect.left + attackerRect.width / 2),
+        y: targetRect.top + targetRect.height / 2 - (attackerRect.top + attackerRect.height / 2),
+      });
+    } else {
+      setCombatTravel({ x: 0, y: -38 });
+    }
     setAttackingCardId(attackerId);
     setCombatTargetCardId(targetId);
     combatAnimationTimerRef.current = setTimeout(() => {
       setAttackingCardId(null);
       setCombatTargetCardId(null);
+      setCombatTravel({ x: 0, y: -38 });
       combatAnimationTimerRef.current = null;
     }, prefersReducedMotion ? 100 : 850);
   }, [prefersReducedMotion]);
@@ -1789,7 +1804,12 @@ export default function BattleRoomPage() {
                         attackingCardId === unit.card.id
                           ? prefersReducedMotion
                             ? { opacity: 1 }
-                            : { opacity: 1, y: [-8, -38, 0], scale: [1, 1.08, 1] }
+                            : {
+                                opacity: 1,
+                                x: [0, combatTravel.x * 0.82, 0],
+                                y: [0, combatTravel.y * 0.82, 0],
+                                scale: [1, 1.08, 1],
+                              }
                           : combatTargetCardId === unit.card.id
                             ? prefersReducedMotion
                               ? { opacity: 1 }
@@ -1802,7 +1822,12 @@ export default function BattleRoomPage() {
                       transition={prefersReducedMotion
                         ? { duration: 0.01 }
                         : { type: "spring", stiffness: 300, damping: 24, layout: { duration: 0.22 } }}
-                      ref={isSelectedCard ? selectedCardMenuRef : undefined}
+                      ref={(element) => {
+                        if (element) boardCardElementsRef.current.set(unit.card.id, element);
+                        else boardCardElementsRef.current.delete(unit.card.id);
+                        if (isSelectedCard) selectedCardMenuRef.current = element;
+                      }}
+                      style={{ zIndex: attackingCardId === unit.card.id ? 30 : undefined }}
                       className={`relative h-full ${owner === "opponent" && pendingAttackCardId ? "cursor-crosshair" : ""} ${canSelectCard ? "cursor-pointer" : ""}`}
                     >
                     {combatTargetCardId === unit.card.id && !prefersReducedMotion && (
