@@ -51,6 +51,8 @@ Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫ
 
 Vercel không cung cấp Docker daemon để chạy code. Muốn bật Live IDE, cần một máy chủ riêng có Docker và chạy `docker/ide-runner/server.py`; ứng dụng Vercel gọi máy chủ đó qua HTTPS bằng chữ ký HMAC. Không mở cổng Docker hoặc cổng runner trực tiếp ra Internet.
 
+API chạy thử được triển khai bằng Node.js trên Vercel; Docker chỉ chạy trên runner riêng. Khi chưa cấu hình `IDE_RUNNER_URL` và `IDE_RUNNER_SECRET`, API không chuyển sang chạy Docker cục bộ trên Vercel.
+
 Trên máy có Docker, build image runner:
 
 ```powershell

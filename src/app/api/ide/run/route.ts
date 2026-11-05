@@ -4,6 +4,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { runCodeInDocker, runCodeOnSamples } from "@/lib/ide-runner";
 import { prisma } from "@/lib/prisma";
 
+export const runtime = "nodejs";
+
 const requestSchema = z.object({
   problemId: z.string().min(1),
   language: z.enum(["CPP", "PYTHON"]),

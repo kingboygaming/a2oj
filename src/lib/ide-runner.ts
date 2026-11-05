@@ -141,8 +141,7 @@ async function runDockerPayload<T>(
   }
   const dockerCommand = process.env.IDE_DOCKER_COMMAND?.trim() || "docker";
 
-  const child = spawn(
-    dockerCommand,
+  const child = spawn(/* turbopackIgnore: true*/ dockerCommand,
     [
       "run",
       "--rm",
