@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { preloadStockfish } from "@/lib/chess-stockfish";
 import {
   ChessArena,
   type ChessArenaAction,
@@ -165,6 +166,12 @@ const TIME_CONTROLS: TimeControl[] = [
     incrementSeconds: 10,
   },
 ];
+
+function preloadStockfishForBot() {
+  void preloadStockfish().catch((error: unknown) =>
+    console.error("Could not preload Stockfish:", error),
+  );
+}
 
 function isLobbyRoom(value: unknown): value is LobbyRoom {
   if (!value || typeof value !== "object") return false;
@@ -1206,13 +1213,16 @@ export function ChessLobby({
           </select>
           <button
             className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/5 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-300/10"
-            onClick={() =>
+            onMouseEnter={preloadStockfishForBot}
+            onFocus={preloadStockfishForBot}
+            onClick={() => {
+              preloadStockfishForBot();
               setLocalGame({
                 ...selectedTimeControl,
                 mode: "bot",
                 botLevel,
-              })
-            }
+              });
+            }}
             type="button"
           >
             <Bot aria-hidden="true" className="size-4" />

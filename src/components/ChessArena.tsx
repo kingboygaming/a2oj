@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { Chessboard } from "react-chessboard";
+import { loadStockfishWorker } from "@/lib/chess-stockfish";
 import {
   useEffect,
   useMemo,
@@ -475,42 +476,34 @@ export function ChessArena({
 
   useEffect(() => {
     if (!vsBot) {
-      engineWorkerRef.current?.terminate();
       engineWorkerRef.current = null;
       engineReadyRef.current = false;
       return;
     }
 
-    const worker = new Worker("/chess-engine/stockfish-worker.js", {
-      type: "module",
-    });
-    engineWorkerRef.current = worker;
-
+    let cancelled = false;
+    let worker: Worker | null = null;
     const handleMessage = (event: MessageEvent<StockfishWorkerMessage>) => {
-      const message = event.data;
-      if (message.type === "ready") {
-        worker.postMessage({ type: "command", command: "uci" });
-        return;
-      }
-      if (message.type === "error") {
-        console.error("Stockfish worker error:", message.message);
+      const { line, type, message } = event.data;
+      if (type === "error") {
+        console.error("Stockfish worker error:", message);
         setEngineStatus("error");
         return;
       }
-      if (message.type !== "line" || !message.line) return;
+      if (type !== "line" || !line) return;
 
-      if (message.line === "uciok") {
-        worker.postMessage({
+      if (line === "uciok") {
+        worker?.postMessage({
           type: "command",
           command: `setoption name Skill Level value ${Math.max(0, Math.min(20, botLevel))}`,
         });
-        worker.postMessage({ type: "command", command: "isready" });
-      } else if (message.line === "readyok") {
+        worker?.postMessage({ type: "command", command: "isready" });
+      } else if (line === "readyok") {
         engineReadyRef.current = true;
         setEngineReady(true);
         setEngineStatus("ready");
-      } else if (message.line.startsWith("bestmove ")) {
-        const bestMove = message.line.split(/\s+/)[1];
+      } else if (line.startsWith("bestmove ")) {
+        const bestMove = line.split(/\s+/)[1];
         const expectedFen = searchFenRef.current;
         const currentGame = gameRef.current;
         if (
@@ -525,16 +518,30 @@ export function ChessArena({
         }
       }
     };
-
-    worker.addEventListener("message", handleMessage);
-    worker.addEventListener("error", (event) => {
+    const handleWorkerError = (event: ErrorEvent) => {
       console.error("Stockfish worker failed:", event.message);
       setEngineStatus("error");
-    });
+    };
+
+    void loadStockfishWorker()
+      .then((readyWorker) => {
+        if (cancelled) return;
+        worker = readyWorker;
+        engineWorkerRef.current = readyWorker;
+        readyWorker.addEventListener("message", handleMessage);
+        readyWorker.addEventListener("error", handleWorkerError);
+        readyWorker.postMessage({ type: "command", command: "uci" });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("Could not load Stockfish:", error);
+        setEngineStatus("error");
+      });
 
     return () => {
-      worker.removeEventListener("message", handleMessage);
-      worker.terminate();
+      cancelled = true;
+      worker?.removeEventListener("message", handleMessage);
+      worker?.removeEventListener("error", handleWorkerError);
       if (engineWorkerRef.current === worker) engineWorkerRef.current = null;
       engineReadyRef.current = false;
       searchFenRef.current = null;
