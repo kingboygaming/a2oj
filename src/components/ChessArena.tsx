@@ -305,7 +305,7 @@ export function ChessArena({
   canPlay = true,
   clockRunning = true,
   vsBot = false,
-  botLevel = 6,
+  botLevel = 2,
   remoteAction,
   onMove,
   onGameAction,
@@ -336,6 +336,8 @@ export function ChessArena({
   const [chatDraft, setChatDraft] = useState("");
   const lastRemoteActionIdRef = useRef<string | null>(null);
   const timeoutReportedRef = useRef(false);
+  const clockElapsedMsRef = useRef(0);
+  const clockLastTickRef = useRef<number | null>(null);
   const pendingPremovesRef = useRef<PendingPremove[]>([]);
   const engineWorkerRef = useRef<Worker | null>(null);
   const engineReadyRef = useRef(false);
@@ -575,17 +577,25 @@ export function ChessArena({
     if (!worker) return;
     searchFenRef.current = game.fen();
     worker.postMessage(`position fen ${game.fen()}`);
-    worker.postMessage("go movetime 900");
+    worker.postMessage("go movetime 1800");
     setEngineStatus("thinking");
   }, [activeColor, engineReady, game, playerColor, result, vsBot]);
 
   useEffect(() => {
     if (result || !clockRunning) return;
 
+    clockLastTickRef.current = performance.now();
     const timer = window.setInterval(() => {
+      const now = performance.now();
+      const lastTick = clockLastTickRef.current ?? now;
+      clockLastTickRef.current = now;
+      clockElapsedMsRef.current += now - lastTick;
+      const elapsedSeconds = Math.floor(clockElapsedMsRef.current / 1000);
+      if (elapsedSeconds === 0) return;
+      clockElapsedMsRef.current %= 1000;
       const setClock = activeColor === "w" ? setWhiteTime : setBlackTime;
-      setClock((seconds) => Math.max(0, seconds - 1));
-    }, 1000);
+      setClock((seconds) => Math.max(0, seconds - elapsedSeconds));
+    }, 100);
 
     return () => window.clearInterval(timer);
   }, [activeColor, clockRunning, result]);
@@ -658,6 +668,8 @@ export function ChessArena({
         updatePendingPremoves([]);
         setWhiteTime(initialTimeSeconds);
         setBlackTime(initialTimeSeconds);
+        clockElapsedMsRef.current = 0;
+        clockLastTickRef.current = null;
         setManualResult(null);
         setDrawOffer(null);
         setOrientation(playerColor === "b" ? "black" : "white");
@@ -1059,6 +1071,8 @@ export function ChessArena({
     updatePendingPremoves([]);
     setWhiteTime(initialTimeSeconds);
     setBlackTime(initialTimeSeconds);
+    clockElapsedMsRef.current = 0;
+    clockLastTickRef.current = null;
     setManualResult(null);
     setResultModalDismissed(false);
     setDrawOffer(null);
@@ -1764,7 +1778,9 @@ export function ChessArena({
               <p className="mt-4 rounded-xl border border-sky-300/15 bg-sky-300/5 p-3 text-xs leading-5 text-sky-100/80">
                 <Bot aria-hidden="true" className="mr-1 inline size-4 align-text-bottom" />
                 Stockfish 19 chạy cục bộ trong Web Worker; độ khó hiện tại là cấp{" "}
-                {botLevel}/20. Ván đấu không gửi trạng thái bàn cờ lên máy chủ.
+                {botLevel}/20. Bot mặc định đã được giảm độ khó và suy nghĩ tối thiểu
+                1,8 giây; thời gian này được trừ vào đồng hồ. Ván đấu không gửi trạng
+                thái bàn cờ lên máy chủ.
               </p>
             )}
           </div>

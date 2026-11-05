@@ -2,36 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getChessTimeControl } from "@/lib/chess-time-controls";
 
 export const runtime = "nodejs";
-
-const TIME_CONTROL_SECONDS: Record<string, { initialSeconds: number; incrementSeconds: number }> = {
-  "super-1": { initialSeconds: 60, incrementSeconds: 0 },
-  "super-1-1": { initialSeconds: 60, incrementSeconds: 1 },
-  "super-2-1": { initialSeconds: 120, incrementSeconds: 1 },
-  "blitz-3": { initialSeconds: 180, incrementSeconds: 0 },
-  "blitz-3-2": { initialSeconds: 180, incrementSeconds: 2 },
-  "blitz-5": { initialSeconds: 300, incrementSeconds: 0 },
-  "rapid-10": { initialSeconds: 600, incrementSeconds: 0 },
-  "rapid-10-5": { initialSeconds: 600, incrementSeconds: 5 },
-  "rapid-15-10": { initialSeconds: 900, incrementSeconds: 10 },
-};
 
 const requestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("create"),
     roomId: z.string().regex(/^[a-f0-9]{10}$/),
-    timeControlId: z.enum([
-      "super-1",
-      "super-1-1",
-      "super-2-1",
-      "blitz-3",
-      "blitz-3-2",
-      "blitz-5",
-      "rapid-10",
-      "rapid-10-5",
-      "rapid-15-10",
-    ]),
+    timeControlId: z
+      .string()
+      .refine((id) => getChessTimeControl(id) !== null),
   }),
   z.object({
     action: z.literal("join"),
@@ -100,7 +81,10 @@ export async function POST(request: Request) {
   }
 
   if (parsed.data.action === "create") {
-    const timeControl = TIME_CONTROL_SECONDS[parsed.data.timeControlId];
+    const timeControl = getChessTimeControl(parsed.data.timeControlId);
+    if (!timeControl) {
+      return NextResponse.json({ error: "Nhịp thời gian không hợp lệ." }, { status: 400 });
+    }
     const existing = await prisma.chessMatch.findFirst({
       where: {
         roomId: parsed.data.roomId,

@@ -17,19 +17,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { preloadStockfish } from "@/lib/chess-stockfish";
 import {
+  CHESS_TIME_CONTROLS,
+  getChessTimeControl,
+  type ChessTimeControl,
+} from "@/lib/chess-time-controls";
+import {
   ChessArena,
   type ChessArenaAction,
   type ChessArenaRemoteAction,
 } from "@/components/ChessArena";
-
-type TimeControl = {
-  id: string;
-  label: string;
-  name: string;
-  group: "siêu chớp" | "chớp" | "cờ chớp";
-  initialSeconds: number;
-  incrementSeconds: number;
-};
 
 type LobbyRoom = {
   playerId: string;
@@ -54,7 +50,7 @@ type RoomSession = {
   isRated: boolean;
 };
 
-type LocalGame = TimeControl & {
+type LocalGame = ChessTimeControl & {
   mode: "local" | "bot";
   botLevel: number;
 };
@@ -92,81 +88,6 @@ type RoomMessage =
       actionId: string;
     };
 
-const TIME_CONTROLS: TimeControl[] = [
-  {
-    id: "super-1",
-    label: "1 phút",
-    name: "Siêu Chớp",
-    group: "siêu chớp",
-    initialSeconds: 60,
-    incrementSeconds: 0,
-  },
-  {
-    id: "super-1-1",
-    label: "1 + 1",
-    name: "Siêu Chớp",
-    group: "siêu chớp",
-    initialSeconds: 60,
-    incrementSeconds: 1,
-  },
-  {
-    id: "super-2-1",
-    label: "2 + 1",
-    name: "Siêu Chớp",
-    group: "siêu chớp",
-    initialSeconds: 2 * 60,
-    incrementSeconds: 1,
-  },
-  {
-    id: "blitz-3",
-    label: "3 phút",
-    name: "Chớp",
-    group: "chớp",
-    initialSeconds: 3 * 60,
-    incrementSeconds: 0,
-  },
-  {
-    id: "blitz-3-2",
-    label: "3 + 2",
-    name: "Chớp",
-    group: "chớp",
-    initialSeconds: 3 * 60,
-    incrementSeconds: 2,
-  },
-  {
-    id: "blitz-5",
-    label: "5 phút",
-    name: "Chớp",
-    group: "chớp",
-    initialSeconds: 5 * 60,
-    incrementSeconds: 0,
-  },
-  {
-    id: "rapid-10",
-    label: "10 phút",
-    name: "Cờ Chớp",
-    group: "cờ chớp",
-    initialSeconds: 10 * 60,
-    incrementSeconds: 0,
-  },
-  {
-    id: "rapid-10-5",
-    label: "10 + 5",
-    name: "Cờ Chớp",
-    group: "cờ chớp",
-    initialSeconds: 10 * 60,
-    incrementSeconds: 5,
-  },
-  {
-    id: "rapid-15-10",
-    label: "15 + 10",
-    name: "Cờ Chớp",
-    group: "cờ chớp",
-    initialSeconds: 15 * 60,
-    incrementSeconds: 10,
-  },
-];
-
 function preloadStockfishForBot() {
   void preloadStockfish().catch((error: unknown) =>
     console.error("Could not preload Stockfish:", error),
@@ -184,7 +105,7 @@ function isLobbyRoom(value: unknown): value is LobbyRoom {
     typeof room.playerName === "string" &&
     room.playerName.length <= 24 &&
     typeof room.timeControlId === "string" &&
-    TIME_CONTROLS.some((control) => control.id === room.timeControlId) &&
+    getChessTimeControl(room.timeControlId) !== null &&
     typeof room.createdAt === "number" &&
     Number.isFinite(room.createdAt) &&
     typeof room.isOpen === "boolean" &&
@@ -224,11 +145,13 @@ export function ChessLobby({
   const [playerId] = useState(() => crypto.randomUUID());
   const [playerName, setPlayerName] = useState(initialPlayerName);
   const [selectedTimeControlId, setSelectedTimeControlId] = useState("blitz-5");
+  const [customMinutes, setCustomMinutes] = useState("5");
+  const [customIncrement, setCustomIncrement] = useState("0");
   const [isRated, setIsRated] = useState(false);
   const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
   const [roomSession, setRoomSession] = useState<RoomSession | null>(null);
   const [localGame, setLocalGame] = useState<LocalGame | null>(null);
-  const [botLevel, setBotLevel] = useState(6);
+  const [botLevel, setBotLevel] = useState(2);
   const [remoteAction, setRemoteAction] = useState<ChessArenaRemoteAction | null>(null);
   const [realtimeConnection, setRealtimeConnection] = useState<"connecting" | "connected" | "offline">("connecting");
   const [busy, setBusy] = useState(false);
@@ -250,11 +173,24 @@ export function ChessLobby({
   const realtimeStatus = hasRealtimeConfig ? realtimeConnection : "offline";
 
   const selectedTimeControl =
-    TIME_CONTROLS.find((control) => control.id === selectedTimeControlId) ??
-    TIME_CONTROLS[2];
+    getChessTimeControl(selectedTimeControlId) ??
+    CHESS_TIME_CONTROLS.find((control) => control.id === "blitz-5")!;
+  const parsedCustomMinutes = Number(customMinutes);
+  const parsedCustomIncrement = Number(customIncrement);
+  const customTimeControlId =
+    Number.isInteger(parsedCustomMinutes) &&
+    parsedCustomMinutes >= 1 &&
+    parsedCustomMinutes <= 180 &&
+    Number.isInteger(parsedCustomIncrement) &&
+    parsedCustomIncrement >= 0 &&
+    parsedCustomIncrement <= 60
+      ? `custom-${parsedCustomMinutes}-${parsedCustomIncrement}`
+      : null;
+  const isSelectedTimeControlValid =
+    !selectedTimeControlId.startsWith("custom-") ||
+    selectedTimeControlId === customTimeControlId;
   const activeTimeControl = roomSession
-    ? TIME_CONTROLS.find((control) => control.id === roomSession.timeControlId) ??
-      TIME_CONTROLS[2]
+    ? getChessTimeControl(roomSession.timeControlId) ?? selectedTimeControl
     : localGame;
 
   useEffect(() => {
@@ -668,6 +604,7 @@ export function ChessLobby({
         message.targetPlayerId === playerId &&
         typeof message.playerName === "string" &&
         typeof message.timeControlId === "string" &&
+        getChessTimeControl(message.timeControlId) !== null &&
         message.isRated === session.isRated &&
         (session.isRated
           ? message.accountUserId === opponentAccountIdRef.current
@@ -1066,7 +1003,7 @@ export function ChessLobby({
                 {group}
               </h3>
               <div className="grid grid-cols-3 gap-2">
-                {TIME_CONTROLS.filter((control) => control.group === group).map((control) => (
+                {CHESS_TIME_CONTROLS.filter((control) => control.group === group).map((control) => (
                   <button
                     aria-label={`${control.label} ${control.name}`}
                     aria-pressed={selectedTimeControlId === control.id}
@@ -1087,6 +1024,72 @@ export function ChessLobby({
               </div>
             </div>
           ))}
+        </div>
+
+        <div
+          className={`mt-3 rounded-xl border p-3 transition ${
+            selectedTimeControlId.startsWith("custom-")
+              ? "border-emerald-300/50 bg-emerald-300/10"
+              : "border-white/8 bg-slate-950/40"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-white">Tùy chỉnh thời gian</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Áp dụng cho ván cục bộ, đấu bot và phòng online.
+              </p>
+            </div>
+            <button
+              aria-pressed={selectedTimeControlId.startsWith("custom-")}
+              className="min-h-9 rounded-lg border border-emerald-300/30 px-3 text-xs font-bold text-emerald-100 hover:bg-emerald-300/10"
+              disabled={!customTimeControlId}
+              onClick={() => {
+                if (customTimeControlId) setSelectedTimeControlId(customTimeControlId);
+              }}
+              type="button"
+            >
+              Chọn {customMinutes} phút
+              {customIncrement !== "0" ? ` + ${customIncrement} giây` : ""}
+            </button>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-medium text-slate-400">
+              Thời gian ban đầu (phút)
+              <input
+                className="mt-1.5 min-h-10 w-full rounded-lg border border-white/10 bg-slate-950 px-3 text-sm text-white outline-none focus:border-emerald-400/50"
+                max={180}
+                min={1}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setCustomMinutes(value);
+                  const nextId = `custom-${Number(value)}-${Number(customIncrement)}`;
+                  if (getChessTimeControl(nextId)) setSelectedTimeControlId(nextId);
+                }}
+                type="number"
+                value={customMinutes}
+              />
+            </label>
+            <label className="text-xs font-medium text-slate-400">
+              Cộng thêm mỗi nước (giây)
+              <input
+                className="mt-1.5 min-h-10 w-full rounded-lg border border-white/10 bg-slate-950 px-3 text-sm text-white outline-none focus:border-emerald-400/50"
+                max={60}
+                min={0}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setCustomIncrement(value);
+                  const nextId = `custom-${Number(customMinutes)}-${Number(value)}`;
+                  if (getChessTimeControl(nextId)) setSelectedTimeControlId(nextId);
+                }}
+                type="number"
+                value={customIncrement}
+              />
+            </label>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Giới hạn 1–180 phút và 0–60 giây cộng thêm.
+          </p>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-slate-950/50 p-3">
@@ -1135,7 +1138,7 @@ export function ChessLobby({
           </p>
           <button
             className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={realtimeStatus !== "connected" || busy}
+            disabled={realtimeStatus !== "connected" || busy || !isSelectedTimeControlValid}
             onClick={findRandomMatch}
             type="button"
           >
@@ -1158,7 +1161,7 @@ export function ChessLobby({
           </p>
           <button
             className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-sky-300/30 bg-sky-300/10 px-4 text-sm font-bold text-sky-100 transition hover:bg-sky-300/15 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={realtimeStatus !== "connected" || busy}
+            disabled={realtimeStatus !== "connected" || busy || !isSelectedTimeControlValid}
             onClick={() => void createRoom(false)}
             type="button"
           >
@@ -1185,6 +1188,7 @@ export function ChessLobby({
         <div className="flex flex-wrap items-center gap-2">
           <button
             className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300 hover:bg-white/5"
+            disabled={!isSelectedTimeControlValid}
             onClick={() =>
               setLocalGame({
                 ...selectedTimeControl,
@@ -1213,6 +1217,7 @@ export function ChessLobby({
           </select>
           <button
             className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/5 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-300/10"
+            disabled={!isSelectedTimeControlValid}
             onMouseEnter={preloadStockfishForBot}
             onFocus={preloadStockfishForBot}
             onClick={() => {
@@ -1278,9 +1283,7 @@ export function ChessLobby({
             {openRooms
               .filter((room) => room.playerId !== playerId)
               .map((room) => {
-                const timeControl = TIME_CONTROLS.find(
-                  (control) => control.id === room.timeControlId,
-                );
+                const timeControl = getChessTimeControl(room.timeControlId);
                 return (
                   <li
                     className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
