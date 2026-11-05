@@ -106,6 +106,29 @@ function getPremovePosition(game: Chess, color: "w" | "b") {
   return new Chess(fen.join(" "), { skipValidation: true });
 }
 
+function getPremovePlanPosition(
+  game: Chess,
+  color: "w" | "b",
+  premoves: PendingPremove[],
+) {
+  let position = getPremovePosition(game, color);
+
+  for (const premove of premoves) {
+    try {
+      position.move(premove);
+    } catch {
+      return null;
+    }
+
+    if (position.isGameOver()) return null;
+    const fen = position.fen().split(" ");
+    fen[1] = color;
+    position = new Chess(fen.join(" "), { skipValidation: true });
+  }
+
+  return position;
+}
+
 function findMove(position: Chess, source: Square, target: Square) {
   const legalMoves = position.moves({ verbose: true, square: source });
   const targetPiece = position.get(target);
@@ -274,7 +297,7 @@ export function ChessArena({
 }: ChessArenaProps) {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
-  const [pendingPremove, setPendingPremove] = useState<PendingPremove | null>(null);
+  const [pendingPremoves, setPendingPremoves] = useState<PendingPremove[]>([]);
   const [premoveEnabled, setPremoveEnabled] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
@@ -291,7 +314,7 @@ export function ChessArena({
   const [chatDraft, setChatDraft] = useState("");
   const lastRemoteActionIdRef = useRef<string | null>(null);
   const timeoutReportedRef = useRef(false);
-  const pendingPremoveRef = useRef<PendingPremove | null>(null);
+  const pendingPremovesRef = useRef<PendingPremove[]>([]);
   const engineWorkerRef = useRef<Worker | null>(null);
   const engineReadyRef = useRef(false);
   const gameRef = useRef<Chess | null>(null);
@@ -304,6 +327,7 @@ export function ChessArena({
   const onMoveRef = useRef(onMove);
   const executePendingPremoveRef = useRef(executePendingPremove);
   const applyEngineMoveRef = useRef(applyEngineMove);
+  const recordMoveRef = useRef(recordMove);
 
   const game = useMemo(() => {
     const nextGame = new Chess();
@@ -346,21 +370,24 @@ export function ChessArena({
 
   const squareStyles = useMemo(() => {
     const styles: Record<string, CSSProperties> = {};
+    const isPremoveTurn =
+      premoveEnabled && playerColor !== undefined && activeColor !== playerColor;
+    const planPosition =
+      isPremoveTurn
+        ? getPremovePlanPosition(game, playerColor ?? activeColor, pendingPremoves)
+        : game;
 
     if (selectedSquare) {
       styles[selectedSquare] = {
         backgroundColor:
-          pendingPremove?.from === selectedSquare
+          pendingPremoves.some((premove) => premove.from === selectedSquare)
             ? "rgb(168 85 247 / 48%)"
             : "rgb(250 204 21 / 48%)",
       };
-      const selectedPiece = game.get(selectedSquare);
-      const previewGame =
-        selectedPiece && selectedPiece.color !== activeColor && playerColor
-          ? getPremovePosition(game, playerColor)
-          : game;
+      const previewGame = planPosition ?? game;
+      const selectedPiece = previewGame.get(selectedSquare);
       for (const move of previewGame.moves({ verbose: true, square: selectedSquare })) {
-        const target = game.get(move.to);
+        const target = previewGame.get(move.to);
         styles[move.to] = {
           ...(target
             ? {
@@ -411,18 +438,28 @@ export function ChessArena({
       };
     }
 
-    if (pendingPremove) {
-      styles[pendingPremove.from] = {
+    for (const premove of pendingPremoves) {
+      styles[premove.from] = {
+        ...styles[premove.from],
         backgroundColor: "rgb(168 85 247 / 42%)",
       };
-      styles[pendingPremove.to] = {
-        ...styles[pendingPremove.to],
+      styles[premove.to] = {
+        ...styles[premove.to],
         boxShadow: "inset 0 0 0 4px rgb(168 85 247 / 70%)",
       };
     }
 
     return styles;
-  }, [activeColor, checkedKing, game, lastMove, pendingPremove, playerColor, selectedSquare]);
+  }, [
+    activeColor,
+    checkedKing,
+    game,
+    lastMove,
+    pendingPremoves,
+    playerColor,
+    premoveEnabled,
+    selectedSquare,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -560,7 +597,7 @@ export function ChessArena({
           const nextGame = new Chess();
           for (const san of moveHistory) nextGame.move(san);
           const move = nextGame.move(action.san);
-          recordMove(nextGame, move, false);
+          recordMoveRef.current(nextGame, move, false);
           setSelectedSquare(null);
           executePendingPremoveRef.current(nextGame);
         } catch (error) {
@@ -570,6 +607,7 @@ export function ChessArena({
       }
 
       if (action.type === "resign" || action.type === "timeout") {
+        updatePendingPremoves([]);
         const winner = action.color === "w" ? "b" : "w";
         setManualResult({
           title: winner === "w" ? `${whitePlayerName} chiến thắng!` : `${blackPlayerName} chiến thắng!`,
@@ -584,6 +622,7 @@ export function ChessArena({
       } else if (action.type === "draw-cancel") {
         setDrawOffer((offer) => offer === action.color ? null : offer);
       } else if (action.type === "draw-accept") {
+        updatePendingPremoves([]);
         setManualResult({
           title: "Ván cờ hòa",
           description: "Hai người chơi đã đồng ý hòa.",
@@ -593,6 +632,7 @@ export function ChessArena({
       } else if (action.type === "new-game") {
         setMoveHistory([]);
         setSelectedSquare(null);
+        updatePendingPremoves([]);
         setWhiteTime(initialTimeSeconds);
         setBlackTime(initialTimeSeconds);
         setManualResult(null);
@@ -618,7 +658,9 @@ export function ChessArena({
 
   function recordMove(nextGame: Chess, move: ReturnType<Chess["move"]>, notify: boolean) {
     setMoveHistory(nextGame.history());
-    setManualResult(getGameResult(nextGame));
+    const gameResult = getGameResult(nextGame);
+    setManualResult(gameResult);
+    if (gameResult) updatePendingPremoves([]);
     if (incrementSecondsRef.current > 0) {
       (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
         seconds + incrementSecondsRef.current,
@@ -637,23 +679,29 @@ export function ChessArena({
     }
   }
 
+  function updatePendingPremoves(premoves: PendingPremove[]) {
+    pendingPremovesRef.current = premoves;
+    setPendingPremoves(premoves);
+  }
+
   function executePendingPremove(nextGame: Chess) {
-    const premove = pendingPremoveRef.current;
+    const [premove, ...remainingPremoves] = pendingPremovesRef.current;
     if (!premove) return false;
-    pendingPremoveRef.current = null;
-    setPendingPremove(null);
 
     if (
       !premoveEnabledRef.current ||
       !playerColorRef.current ||
-      nextGame.turn() !== playerColorRef.current ||
       nextGame.isGameOver()
     ) {
+      updatePendingPremoves([]);
       return false;
     }
 
+    if (nextGame.turn() !== playerColorRef.current) return false;
+
     try {
       const move = nextGame.move(premove);
+      updatePendingPremoves(remainingPremoves);
       recordMove(nextGame, move, true);
       setSelectedSquare(null);
       return true;
@@ -680,7 +728,7 @@ export function ChessArena({
         to: parsedMove[2] as Square,
         ...(parsedMove[3] ? { promotion: parsedMove[3] } : {}),
       });
-      recordMove(nextGame, move, false);
+      recordMoveRef.current(nextGame, move, false);
       executePendingPremove(nextGame);
       setSelectedSquare(null);
       setEngineStatus("ready");
@@ -692,6 +740,7 @@ export function ChessArena({
 
   executePendingPremoveRef.current = executePendingPremove;
   applyEngineMoveRef.current = applyEngineMove;
+  recordMoveRef.current = recordMove;
 
   function makeMove(sourceSquare: string, targetSquare: string) {
     if (
@@ -704,8 +753,15 @@ export function ChessArena({
     }
 
     if (playerColor && playerColor !== activeColor) {
-      if (!premoveEnabled || game.get(sourceSquare)?.color !== playerColor) return false;
-      const premoveGame = getPremovePosition(game, playerColor);
+      if (!premoveEnabled) return false;
+      const premoveGame = getPremovePlanPosition(
+        game,
+        playerColor,
+        pendingPremovesRef.current,
+      );
+      if (premoveGame?.get(sourceSquare)?.color !== playerColor || !premoveGame) {
+        return false;
+      }
       const premove = findMove(premoveGame, sourceSquare, targetSquare);
       if (!premove) return false;
       const queued: PendingPremove = {
@@ -713,8 +769,7 @@ export function ChessArena({
         to: premove.to,
         promotion: "q",
       };
-      pendingPremoveRef.current = queued;
-      setPendingPremove(queued);
+      updatePendingPremoves([...pendingPremovesRef.current, queued]);
       setSelectedSquare(null);
       return true;
     }
@@ -730,8 +785,7 @@ export function ChessArena({
     });
 
     setSelectedSquare(null);
-    pendingPremoveRef.current = null;
-    setPendingPremove(null);
+    updatePendingPremoves([]);
     recordMove(game, move, true);
     return true;
   }
@@ -753,7 +807,18 @@ export function ChessArena({
 
     if (selectedSquare && makeMove(selectedSquare, square)) return;
 
-    const piece = game.get(square);
+    const premovePosition =
+      playerColor && activeColor !== playerColor && premoveEnabled
+        ? getPremovePlanPosition(game, playerColor, pendingPremoves)
+        : null;
+    const position = playerColor && activeColor !== playerColor && premoveEnabled
+      ? premovePosition
+      : game;
+    if (!position) {
+      setSelectedSquare(null);
+      return;
+    }
+    const piece = position.get(square);
     const selectableColor =
       playerColor && activeColor !== playerColor && premoveEnabled
         ? playerColor
@@ -774,8 +839,7 @@ export function ChessArena({
       console.error("Could not save chess settings:", error);
     }
     if (!enabled) {
-      pendingPremoveRef.current = null;
-      setPendingPremove(null);
+      updatePendingPremoves([]);
     }
   }
 
@@ -788,6 +852,7 @@ export function ChessArena({
     }
 
     if (drawOffer !== null) {
+      updatePendingPremoves([]);
       setManualResult({
         title: "Ván cờ hòa",
         description: "Hai người chơi đã đồng ý hòa.",
@@ -803,6 +868,7 @@ export function ChessArena({
   }
 
   function handleResign() {
+    updatePendingPremoves([]);
     const resigningColor = playerColor ?? activeColor;
     const winner = resigningColor === "w" ? "b" : "w";
     setManualResult({
@@ -816,8 +882,7 @@ export function ChessArena({
   function handleNewGame() {
     setMoveHistory([]);
     setSelectedSquare(null);
-    pendingPremoveRef.current = null;
-    setPendingPremove(null);
+    updatePendingPremoves([]);
     setWhiteTime(initialTimeSeconds);
     setBlackTime(initialTimeSeconds);
     setManualResult(null);
@@ -971,22 +1036,28 @@ export function ChessArena({
           <p className="px-1 text-xs leading-5 text-slate-500">
             Kéo quân hoặc chạm quân rồi chạm ô đích. Nhập thành bằng cách đi vua
             hai ô hoặc kéo vua vào ô xe. Bắt tốt qua đường được phép ngay sau khi
-            đối thủ tiến tốt hai ô.
+            đối thủ tiến tốt hai ô. Khi bật premove, có thể xếp nhiều nước trước
+            và hủy cả hàng đợi bất cứ lúc nào.
           </p>
-          {pendingPremove && (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-purple-300/20 bg-purple-300/10 px-3 py-2 text-sm text-purple-100">
-              <span>
-                Nước đi chờ: {pendingPremove.from} → {pendingPremove.to}
+          {pendingPremoves.length > 0 && (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-purple-300/20 bg-purple-300/10 px-3 py-2 text-sm text-purple-100">
+              <span className="min-w-0">
+                <span className="font-semibold">
+                  Hàng đợi premove ({pendingPremoves.length}):
+                </span>{" "}
+                {pendingPremoves.map((premove, index) => (
+                  <span key={`${premove.from}-${premove.to}-${index}`}>
+                    {index > 0 ? " · " : ""}
+                    {premove.from} → {premove.to}
+                  </span>
+                ))}
               </span>
               <button
                 className="text-xs font-bold text-purple-200 underline"
-                onClick={() => {
-                  pendingPremoveRef.current = null;
-                  setPendingPremove(null);
-                }}
+                onClick={() => updatePendingPremoves([])}
                 type="button"
               >
-                Hủy
+                Hủy tất cả
               </button>
             </div>
           )}
@@ -1358,8 +1429,8 @@ export function ChessArena({
               <span>
                 <span className="block text-sm font-bold text-white">Bật premove</span>
                 <span className="mt-1 block text-xs leading-5 text-slate-400">
-                  Chọn trước nước đi khi đang đến lượt đối thủ. Nước đi chỉ được thực hiện
-                  nếu vẫn hợp lệ sau nước của đối thủ.
+                  Xếp trước nhiều nước khi đang đến lượt đối thủ. Mỗi nước chỉ được
+                  thực hiện nếu vẫn hợp lệ trên bàn cờ thực; có thể hủy cả hàng đợi.
                 </span>
               </span>
             </label>
