@@ -61,6 +61,14 @@ export async function Header() {
               </summary>
               <div className="absolute left-0 top-full z-[120] mt-1 min-w-48 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] p-1.5 text-[var(--cream)] shadow-xl">
                 <Link
+                  href="/chess"
+                  prefetch={true}
+                  className="block rounded-md px-3 py-2.5 hover:bg-white/10"
+                >
+                  <span className="block font-medium">♟️ Chess Arena</span>
+                  <span className="mt-0.5 block text-xs text-[var(--cream)]/65">Đấu cờ vua trực tiếp trên cùng máy</span>
+                </Link>
+                <Link
                   href="/battle"
                   prefetch={true}
                   className="block rounded-md px-3 py-2.5 hover:bg-white/10"
