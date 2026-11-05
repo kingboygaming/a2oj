@@ -9,8 +9,10 @@ import {
   LoaderCircle,
   Radio,
   Swords,
+  Trophy,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChessArena,
@@ -22,18 +24,21 @@ type TimeControl = {
   id: string;
   label: string;
   name: string;
+  group: "siêu chớp" | "chớp" | "cờ chớp";
   initialSeconds: number;
   incrementSeconds: number;
 };
 
 type LobbyRoom = {
   playerId: string;
+  accountUserId: string | null;
   roomId: string;
   playerName: string;
   timeControlId: string;
   createdAt: number;
   isOpen: boolean;
   isRandom: boolean;
+  isRated: boolean;
 };
 
 type RoomSession = {
@@ -44,12 +49,14 @@ type RoomSession = {
   opponentName: string;
   started: boolean;
   isRandom: boolean;
+  isRated: boolean;
 };
 
 type RoomMessage =
   | {
       type: "join";
       playerId: string;
+      accountUserId: string | null;
       playerName: string;
       roomId: string;
     }
@@ -57,8 +64,10 @@ type RoomMessage =
       type: "welcome";
       playerId: string;
       targetPlayerId: string;
+      accountUserId: string | null;
       playerName: string;
       timeControlId: string;
+      isRated: boolean;
     }
   | {
       type: "full";
@@ -78,32 +87,76 @@ type RoomMessage =
 
 const TIME_CONTROLS: TimeControl[] = [
   {
-    id: "bullet-1",
-    label: "1 + 0",
-    name: "Bullet",
+    id: "super-1",
+    label: "1 phút",
+    name: "Siêu Chớp",
+    group: "siêu chớp",
     initialSeconds: 60,
     incrementSeconds: 0,
   },
   {
+    id: "super-1-1",
+    label: "1 + 1",
+    name: "Siêu Chớp",
+    group: "siêu chớp",
+    initialSeconds: 60,
+    incrementSeconds: 1,
+  },
+  {
+    id: "super-2-1",
+    label: "2 + 1",
+    name: "Siêu Chớp",
+    group: "siêu chớp",
+    initialSeconds: 2 * 60,
+    incrementSeconds: 1,
+  },
+  {
     id: "blitz-3",
+    label: "3 phút",
+    name: "Chớp",
+    group: "chớp",
+    initialSeconds: 3 * 60,
+    incrementSeconds: 0,
+  },
+  {
+    id: "blitz-3-2",
     label: "3 + 2",
-    name: "Blitz",
+    name: "Chớp",
+    group: "chớp",
     initialSeconds: 3 * 60,
     incrementSeconds: 2,
   },
   {
     id: "blitz-5",
-    label: "5 + 0",
-    name: "Blitz",
+    label: "5 phút",
+    name: "Chớp",
+    group: "chớp",
     initialSeconds: 5 * 60,
     incrementSeconds: 0,
   },
   {
     id: "rapid-10",
-    label: "10 + 0",
-    name: "Rapid",
+    label: "10 phút",
+    name: "Cờ Chớp",
+    group: "cờ chớp",
     initialSeconds: 10 * 60,
     incrementSeconds: 0,
+  },
+  {
+    id: "rapid-10-5",
+    label: "10 + 5",
+    name: "Cờ Chớp",
+    group: "cờ chớp",
+    initialSeconds: 10 * 60,
+    incrementSeconds: 5,
+  },
+  {
+    id: "rapid-15-10",
+    label: "15 + 10",
+    name: "Cờ Chớp",
+    group: "cờ chớp",
+    initialSeconds: 15 * 60,
+    incrementSeconds: 10,
   },
 ];
 
@@ -112,6 +165,7 @@ function isLobbyRoom(value: unknown): value is LobbyRoom {
   const room = value as Partial<LobbyRoom>;
   return (
     typeof room.playerId === "string" &&
+    (room.accountUserId === null || typeof room.accountUserId === "string") &&
     typeof room.roomId === "string" &&
     /^[a-f0-9]{10}$/.test(room.roomId) &&
     typeof room.playerName === "string" &&
@@ -121,7 +175,8 @@ function isLobbyRoom(value: unknown): value is LobbyRoom {
     typeof room.createdAt === "number" &&
     Number.isFinite(room.createdAt) &&
     typeof room.isOpen === "boolean" &&
-    typeof room.isRandom === "boolean"
+    typeof room.isRandom === "boolean" &&
+    typeof room.isRated === "boolean"
   );
 }
 
@@ -144,10 +199,19 @@ function getRoomMessages(channel: RealtimeChannel) {
   return channel.presenceState<LobbyRoom>();
 }
 
-export function ChessLobby() {
+export function ChessLobby({
+  accountUserId,
+  canPlayRated,
+  initialPlayerName,
+}: {
+  accountUserId: string | null;
+  canPlayRated: boolean;
+  initialPlayerName: string;
+}) {
   const [playerId] = useState(() => crypto.randomUUID());
-  const [playerName, setPlayerName] = useState("Người chơi");
-  const [selectedTimeControlId, setSelectedTimeControlId] = useState(TIME_CONTROLS[2].id);
+  const [playerName, setPlayerName] = useState(initialPlayerName);
+  const [selectedTimeControlId, setSelectedTimeControlId] = useState("blitz-5");
+  const [isRated, setIsRated] = useState(false);
   const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
   const [roomSession, setRoomSession] = useState<RoomSession | null>(null);
   const [localGame, setLocalGame] = useState<TimeControl | null>(null);
@@ -155,12 +219,14 @@ export function ChessLobby() {
   const [realtimeConnection, setRealtimeConnection] = useState<"connecting" | "connected" | "offline">("connecting");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [ratedSyncFailed, setRatedSyncFailed] = useState(false);
 
   const supabaseRef = useRef<SupabaseClient | null>(null);
   const lobbyChannelRef = useRef<RealtimeChannel | null>(null);
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const roomSessionRef = useRef<RoomSession | null>(null);
   const opponentIdRef = useRef<string | null>(null);
+  const opponentAccountIdRef = useRef<string | null>(null);
   const hasProcessedInviteRef = useRef(false);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey =
@@ -224,18 +290,20 @@ export function ChessLobby() {
       if (!channel || session.role !== "host") return;
       const result = await channel.track({
         playerId,
+        accountUserId,
         roomId: session.roomId,
         playerName: session.playerName,
         timeControlId: session.timeControlId,
         createdAt: Date.now(),
         isOpen,
         isRandom: session.isRandom,
+        isRated: session.isRated,
       } satisfies LobbyRoom);
       if (result !== "ok") {
         setNotice("Không thể cập nhật trạng thái phòng trong danh sách.");
       }
     },
-    [playerId],
+    [accountUserId, playerId],
   );
 
   const leaveRoom = useCallback(async () => {
@@ -256,19 +324,25 @@ export function ChessLobby() {
       roomChannelRef.current = null;
     }
     opponentIdRef.current = null;
+    opponentAccountIdRef.current = null;
     roomSessionRef.current = null;
     setRoomSession(null);
     setRemoteAction(null);
+    setRatedSyncFailed(false);
     setNotice("");
     setBusy(false);
     window.history.replaceState(null, "", "/chess");
   }, [playerId]);
 
   const joinRoom = useCallback(
-    (room: LobbyRoom) => {
+    async (room: LobbyRoom) => {
       if (!playerId || !room.roomId || !room.isOpen) return;
       if (room.playerId === playerId) {
         setNotice("Đây là phòng của bạn. Hãy chia sẻ liên kết để mời đối thủ.");
+        return;
+      }
+      if (room.isRated && !canPlayRated) {
+        setNotice("Đăng nhập tài khoản học sinh để tham gia trận có xếp hạng.");
         return;
       }
       if (realtimeStatus !== "connected") {
@@ -276,35 +350,91 @@ export function ChessLobby() {
         return;
       }
 
-      opponentIdRef.current = room.playerId || null;
+      setBusy(true);
+      let joinedTimeControlId = room.timeControlId;
+      if (room.isRated) {
+        try {
+          const response = await fetch("/api/chess/matches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "join", roomId: room.roomId }),
+          });
+          const data: unknown = await response.json();
+          if (!response.ok) {
+            const error =
+              typeof data === "object" &&
+              data !== null &&
+              "error" in data &&
+              typeof data.error === "string"
+                ? data.error
+                : "Không thể tham gia trận xếp hạng.";
+            throw new Error(error);
+          }
+          if (
+            typeof data !== "object" ||
+            data === null ||
+            !("timeControlId" in data) ||
+            typeof data.timeControlId !== "string" ||
+            !("rated" in data) ||
+            data.rated !== true ||
+            !("whiteUserId" in data) ||
+            typeof data.whiteUserId !== "string" ||
+            (room.accountUserId !== null && data.whiteUserId !== room.accountUserId)
+          ) {
+            throw new Error("Máy chủ trả về thông tin trận không hợp lệ.");
+          }
+          joinedTimeControlId = data.timeControlId;
+          opponentAccountIdRef.current = data.whiteUserId;
+        } catch (error) {
+          setBusy(false);
+          setNotice(
+            error instanceof Error ? error.message : "Không thể tham gia trận xếp hạng.",
+          );
+          return;
+        }
+      }
+
+      opponentIdRef.current = null;
+      if (!room.isRated) opponentAccountIdRef.current = null;
       const session: RoomSession = {
         roomId: room.roomId,
         role: "guest",
-        timeControlId: room.timeControlId,
+        timeControlId: joinedTimeControlId,
         playerName: playerName.trim() || "Người chơi",
         opponentName: room.playerName,
         started: false,
         isRandom: room.isRandom,
+        isRated: room.isRated,
       };
       roomSessionRef.current = session;
       setRoomSession(session);
       setLocalGame(null);
       setRemoteAction(null);
+      setRatedSyncFailed(false);
       setNotice("");
       setBusy(true);
+      const inviteQuery = room.isRated ? "&rated=1" : "";
       window.history.replaceState(
         null,
         "",
-        `/chess?room=${encodeURIComponent(room.roomId)}`,
+        `/chess?room=${encodeURIComponent(room.roomId)}${inviteQuery}`,
       );
     },
-    [playerId, playerName, realtimeStatus],
+    [canPlayRated, playerId, playerName, realtimeStatus],
   );
 
   const createRoom = useCallback(
-    async (isRandom: boolean, timeControlId = selectedTimeControlId) => {
+    async (
+      isRandom: boolean,
+      timeControlId = selectedTimeControlId,
+      rated = isRated,
+    ) => {
       if (realtimeStatus !== "connected" || !playerId) {
         setNotice("Cần kết nối Supabase Realtime để tạo phòng online.");
+        return;
+      }
+      if (rated && !canPlayRated) {
+        setNotice("Đăng nhập tài khoản học sinh để tạo trận có xếp hạng.");
         return;
       }
       setBusy(true);
@@ -316,23 +446,55 @@ export function ChessLobby() {
         opponentName: "Đang chờ đối thủ...",
         started: false,
         isRandom,
+        isRated: rated,
       };
+      if (rated) {
+        try {
+          const response = await fetch("/api/chess/matches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "create",
+              roomId: session.roomId,
+              timeControlId,
+            }),
+          });
+          const data: unknown = await response.json();
+          if (!response.ok) {
+            const error =
+              typeof data === "object" &&
+              data !== null &&
+              "error" in data &&
+              typeof data.error === "string"
+                ? data.error
+                : "Không thể tạo trận xếp hạng.";
+            throw new Error(error);
+          }
+        } catch (error) {
+          setBusy(false);
+          setNotice(
+            error instanceof Error ? error.message : "Không thể tạo trận xếp hạng.",
+          );
+          return;
+        }
+      }
       opponentIdRef.current = null;
       roomSessionRef.current = session;
       setRoomSession(session);
       setLocalGame(null);
+      setRatedSyncFailed(false);
       setNotice(
         isRandom
-          ? "Chưa có đối thủ phù hợp. Bạn đang trong hàng chờ; người chơi khác có thể ghép với bạn."
+          ? "Đang chờ đối thủ phù hợp. Người chơi khác có thể ghép với bạn."
           : "",
       );
       window.history.replaceState(
         null,
         "",
-        `/chess?room=${encodeURIComponent(session.roomId)}`,
+        `/chess?room=${encodeURIComponent(session.roomId)}${rated ? "&rated=1" : ""}`,
       );
     },
-    [playerId, playerName, realtimeStatus, selectedTimeControlId],
+    [canPlayRated, isRated, playerId, playerName, realtimeStatus, selectedTimeControlId],
   );
 
   const findRandomMatch = useCallback(() => {
@@ -340,6 +502,7 @@ export function ChessLobby() {
       (room) =>
         room.playerId !== playerId &&
         room.timeControlId === selectedTimeControlId &&
+        room.isRated === isRated &&
         room.isOpen,
     );
     if (match) {
@@ -347,7 +510,7 @@ export function ChessLobby() {
       return;
     }
     void createRoom(true, selectedTimeControlId);
-  }, [createRoom, joinRoom, openRooms, playerId, selectedTimeControlId]);
+  }, [createRoom, isRated, joinRoom, openRooms, playerId, selectedTimeControlId]);
 
   useEffect(() => {
     if (hasProcessedInviteRef.current || realtimeStatus !== "connected") return;
@@ -361,12 +524,14 @@ export function ChessLobby() {
       }
       const inviteRoom: LobbyRoom = {
         playerId: "",
+        accountUserId: null,
         roomId,
         playerName: "Chủ phòng",
         timeControlId: selectedTimeControlId,
         createdAt: Date.now(),
         isOpen: true,
         isRandom: false,
+        isRated: new URLSearchParams(window.location.search).get("rated") === "1",
       };
       const knownRoom = openRooms.find((room) => room.roomId === roomId);
       joinRoom(knownRoom ?? inviteRoom);
@@ -396,10 +561,15 @@ export function ChessLobby() {
         if (
           typeof message.playerId !== "string" ||
           typeof message.playerName !== "string" ||
-          message.roomId !== session.roomId
+          message.roomId !== session.roomId ||
+          (message.accountUserId !== null &&
+            typeof message.accountUserId !== "string")
         ) {
           return;
         }
+        const joiningPlayerId = message.playerId;
+        const joiningPlayerName = message.playerName;
+        const joiningAccountUserId = message.accountUserId ?? null;
         if (opponentIdRef.current && opponentIdRef.current !== message.playerId) {
           void channel.send({
             type: "broadcast",
@@ -412,30 +582,69 @@ export function ChessLobby() {
           });
           return;
         }
-
-        opponentIdRef.current = message.playerId;
-        const activeSession = roomSessionRef.current;
-        if (!activeSession) return;
-        const startedSession = {
-          ...activeSession,
-          opponentName: message.playerName,
-          started: true,
+        const acceptOpponent = () => {
+          opponentIdRef.current = joiningPlayerId;
+          opponentAccountIdRef.current = joiningAccountUserId;
+          const activeSession = roomSessionRef.current;
+          if (!activeSession) return;
+          const startedSession = {
+            ...activeSession,
+            opponentName: joiningPlayerName,
+            started: true,
+          };
+          roomSessionRef.current = startedSession;
+          setRoomSession(startedSession);
+          void trackHostedRoom(startedSession, false);
+          void channel.send({
+            type: "broadcast",
+            event: "chess",
+            payload: {
+              type: "welcome",
+              playerId,
+              targetPlayerId: joiningPlayerId,
+              accountUserId,
+              playerName: activeSession.playerName,
+              timeControlId: activeSession.timeControlId,
+              isRated: activeSession.isRated,
+            } satisfies RoomMessage,
+          });
+          setNotice("");
         };
-        roomSessionRef.current = startedSession;
-        setRoomSession(startedSession);
-        void trackHostedRoom(startedSession, false);
-        void channel.send({
-          type: "broadcast",
-          event: "chess",
-          payload: {
-            type: "welcome",
-            playerId,
-            targetPlayerId: message.playerId,
-            playerName: activeSession.playerName,
-            timeControlId: activeSession.timeControlId,
-          } satisfies RoomMessage,
-        });
-        setNotice("");
+
+        if (session.isRated) {
+          if (!accountUserId || !joiningAccountUserId) {
+            setNotice("Chỉ tài khoản học sinh đã đăng nhập mới có thể tham gia trận rated.");
+            return;
+          }
+          void fetch(`/api/chess/matches?roomId=${encodeURIComponent(session.roomId)}`)
+            .then(async (response) => {
+              const data: unknown = await response.json();
+              if (
+                !response.ok ||
+                typeof data !== "object" ||
+                data === null ||
+                !("whiteUserId" in data) ||
+                data.whiteUserId !== accountUserId ||
+                !("blackUserId" in data) ||
+                data.blackUserId !== joiningAccountUserId ||
+                !("status" in data) ||
+                data.status !== "IN_PROGRESS"
+              ) {
+                throw new Error("Tài khoản đối thủ không khớp với trận rated.");
+              }
+              acceptOpponent();
+            })
+            .catch((error: unknown) => {
+              console.error("Could not verify rated chess opponent:", error);
+              setNotice(
+                error instanceof Error
+                  ? error.message
+                  : "Không thể xác minh tài khoản đối thủ.",
+              );
+            });
+        } else {
+          acceptOpponent();
+        }
         return;
       }
 
@@ -445,6 +654,10 @@ export function ChessLobby() {
         message.targetPlayerId === playerId &&
         typeof message.playerName === "string" &&
         typeof message.timeControlId === "string" &&
+        message.isRated === session.isRated &&
+        (session.isRated
+          ? message.accountUserId === opponentAccountIdRef.current
+          : true) &&
         (!opponentIdRef.current || message.playerId === opponentIdRef.current)
       ) {
         const startedSession = {
@@ -480,16 +693,22 @@ export function ChessLobby() {
         message.playerId === opponentIdRef.current
       ) {
         opponentIdRef.current = null;
+        opponentAccountIdRef.current = null;
         const activeSession = roomSessionRef.current;
         if (!activeSession) return;
         const waitingSession = {
           ...activeSession,
-          opponentName: "Đang chờ đối thủ...",
+          opponentName: activeSession.isRated
+            ? "Đối thủ đã mất kết nối"
+            : "Đang chờ đối thủ...",
           started: false,
         };
         roomSessionRef.current = waitingSession;
         setRoomSession(waitingSession);
-        void trackHostedRoom(waitingSession, true);
+        void trackHostedRoom(waitingSession, !waitingSession.isRated);
+        if (waitingSession.isRated) {
+          setNotice("Trận rated tạm dừng chờ đối thủ kết nối lại.");
+        }
         return;
       }
 
@@ -508,6 +727,7 @@ export function ChessLobby() {
       if (status === "SUBSCRIBED") {
         const trackResult = await channel.track({
           playerId,
+            accountUserId,
           roomId: session.roomId,
           role: session.role,
           playerName: session.playerName,
@@ -527,6 +747,7 @@ export function ChessLobby() {
             payload: {
               type: "join",
               playerId,
+              accountUserId,
               playerName: session.playerName,
               roomId: session.roomId,
             } satisfies RoomMessage,
@@ -546,27 +767,107 @@ export function ChessLobby() {
       if (roomChannelRef.current === channel) roomChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [leaveRoom, playerId, roomSession?.role, roomSession?.roomId, trackHostedRoom]);
+  }, [accountUserId, leaveRoom, playerId, roomSession?.role, roomSession?.roomId, trackHostedRoom]);
 
   const sendGameAction = useCallback(
     (action: ChessArenaAction) => {
       const channel = roomChannelRef.current;
+      const session = roomSessionRef.current;
       if (!channel) {
         setNotice("Phòng chưa kết nối; nước đi chưa được gửi tới đối thủ.");
         return;
       }
-      const message: RoomMessage = {
-        type: "action",
-        playerId,
-        action,
-        actionId: crypto.randomUUID(),
-      };
-      void channel.send({
-        type: "broadcast",
-        event: "chess",
-        payload: message,
-      }).then((result) => {
-        if (result !== "ok") setNotice("Không đồng bộ được nước đi với đối thủ.");
+      void (async () => {
+        let acceptedAction = action;
+        if (session?.isRated) {
+          let data: unknown;
+          for (let attempt = 0; attempt < 20; attempt += 1) {
+            const response = await fetch(
+              `/api/chess/matches/${encodeURIComponent(session.roomId)}/action`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(action),
+              },
+            );
+            data = await response.json();
+            if (!response.ok) {
+              const error =
+                typeof data === "object" &&
+                data !== null &&
+                "error" in data &&
+                typeof data.error === "string"
+                  ? data.error
+                  : "Máy chủ chưa chấp nhận hành động rated.";
+              throw new Error(error);
+            }
+            if (
+              action.type !== "timeout" ||
+              typeof data !== "object" ||
+              data === null ||
+              !("pendingTimeout" in data) ||
+              data.pendingTimeout !== true
+            ) {
+              break;
+            }
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
+          }
+          if (
+            action.type === "timeout" &&
+            typeof data === "object" &&
+            data !== null &&
+            "pendingTimeout" in data &&
+            data.pendingTimeout === true
+          ) {
+            throw new Error("Chưa xác nhận được thời gian hết cờ. Hãy thử tải lại ván đấu.");
+          }
+          if (typeof data === "object" && data !== null && "action" in data) {
+            const serverAction = data.action;
+            if (isChessArenaAction(serverAction)) acceptedAction = serverAction;
+          }
+          if (
+            action.type === "move" &&
+            typeof data === "object" &&
+            data !== null &&
+            "san" in data &&
+            typeof data.san === "string"
+          ) {
+            acceptedAction = { type: "move", san: data.san };
+          }
+          if (
+            typeof data === "object" &&
+            data !== null &&
+            "whiteRatingChange" in data &&
+            typeof data.whiteRatingChange === "number" &&
+            "blackRatingChange" in data &&
+            typeof data.blackRatingChange === "number"
+          ) {
+            const ownChange =
+              session.role === "host"
+                ? data.whiteRatingChange
+                : data.blackRatingChange;
+            setNotice(`Trận đã xếp hạng. Elo của bạn ${ownChange >= 0 ? "+" : ""}${ownChange}.`);
+          }
+        }
+
+        const message: RoomMessage = {
+          type: "action",
+          playerId,
+          action: acceptedAction,
+          actionId: crypto.randomUUID(),
+        };
+        const result = await channel.send({
+          type: "broadcast",
+          event: "chess",
+          payload: message,
+        });
+        if (result !== "ok") throw new Error("Không đồng bộ được hành động với đối thủ.");
+      })().catch((error: unknown) => {
+        console.error("Could not synchronize chess action:", error);
+        setNotice(
+          error instanceof Error ? error.message : "Không đồng bộ được hành động với đối thủ.",
+        );
+        if (session?.isRated) setRatedSyncFailed(true);
       });
     },
     [playerId],
@@ -576,6 +877,7 @@ export function ChessLobby() {
     if (!roomSession) return;
     const url = new URL("/chess", window.location.origin);
     url.searchParams.set("room", roomSession.roomId);
+    if (roomSession.isRated) url.searchParams.set("rated", "1");
     try {
       await navigator.clipboard.writeText(url.toString());
       setNotice("Đã sao chép liên kết phòng.");
@@ -608,6 +910,11 @@ export function ChessLobby() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {roomSession.isRated && (
+              <span className="inline-flex min-h-10 items-center rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 text-xs font-bold uppercase tracking-wide text-amber-100">
+                Rated · Elo
+              </span>
+            )}
             {roomSession.role === "host" && (
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-3 text-sm font-semibold text-slate-300 hover:bg-slate-800"
@@ -656,8 +963,8 @@ export function ChessLobby() {
             initialTimeSeconds={activeTimeControl.initialSeconds}
             incrementSeconds={activeTimeControl.incrementSeconds}
             playerColor={roomSession.role === "host" ? "w" : "b"}
-            canPlay={roomSession.started}
-            clockRunning={roomSession.started}
+            clockRunning={roomSession.started && !ratedSyncFailed}
+            canPlay={roomSession.started && !ratedSyncFailed}
             remoteAction={remoteAction}
             onGameAction={sendGameAction}
           />
@@ -688,15 +995,26 @@ export function ChessLobby() {
   return (
     <main className="mx-auto w-full max-w-5xl text-slate-100">
       <header className="mb-6">
-        <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">
-          A2OJ · Giải trí
-        </p>
-        <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-          Chess Arena
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-          Chọn nhịp độ, ghép trận nhanh hoặc tham gia một phòng đang mở.
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="mb-1 text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">
+              A2OJ · Giải trí
+            </p>
+            <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
+              Chess Arena
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+              Chọn nhịp độ, ghép trận nhanh hoặc tham gia một phòng đang mở.
+            </p>
+          </div>
+          <Link
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/5 px-3 text-sm font-bold text-emerald-200 transition hover:bg-emerald-300/10"
+            href="/chess/leaderboard"
+          >
+            <Trophy aria-hidden="true" className="size-4" />
+            Bảng Elo toàn trường
+          </Link>
+        </div>
       </header>
 
       <section className="mb-5 rounded-2xl border border-white/8 bg-slate-900/80 p-4 sm:p-5">
@@ -718,23 +1036,68 @@ export function ChessLobby() {
             />
           </label>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {TIME_CONTROLS.map((control) => (
+        <div className="grid gap-3 md:grid-cols-3">
+          {(["siêu chớp", "chớp", "cờ chớp"] as const).map((group) => (
+            <div className="rounded-xl border border-white/6 bg-slate-950/40 p-3" key={group}>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                {group}
+              </h3>
+              <div className="grid grid-cols-3 gap-2">
+                {TIME_CONTROLS.filter((control) => control.group === group).map((control) => (
+                  <button
+                    aria-label={`${control.label} ${control.name}`}
+                    aria-pressed={selectedTimeControlId === control.id}
+                    className={`min-h-16 rounded-lg border px-2 py-2 text-center transition ${
+                      selectedTimeControlId === control.id
+                        ? "border-emerald-300/50 bg-emerald-300/10 text-white"
+                        : "border-white/8 bg-slate-950/60 text-slate-300 hover:border-white/20"
+                    }`}
+                    key={control.id}
+                    onClick={() => setSelectedTimeControlId(control.id)}
+                    type="button"
+                  >
+                    <span className="block font-mono text-sm font-black sm:text-base">
+                      {control.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-slate-950/50 p-3">
+          <div>
+            <p className="text-sm font-bold text-white">Trận có xếp hạng Elo</p>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Chỉ tính Elo khi ván rated kết thúc. Ván cục bộ luôn không xếp hạng.
+            </p>
+          </div>
+          {canPlayRated ? (
             <button
-              aria-pressed={selectedTimeControlId === control.id}
-              className={`rounded-xl border px-3 py-3 text-left transition ${
-                selectedTimeControlId === control.id
-                  ? "border-emerald-300/50 bg-emerald-300/10 text-white"
-                  : "border-white/8 bg-slate-950/60 text-slate-300 hover:border-white/20"
+              aria-pressed={isRated}
+              className={`min-h-10 rounded-lg border px-4 text-sm font-bold transition ${
+                isRated
+                  ? "border-amber-300/40 bg-amber-300/10 text-amber-100"
+                  : "border-white/10 bg-slate-900 text-slate-300 hover:bg-slate-800"
               }`}
-              key={control.id}
-              onClick={() => setSelectedTimeControlId(control.id)}
+              onClick={() => setIsRated((value) => !value)}
               type="button"
             >
-              <span className="block font-mono text-lg font-black">{control.label}</span>
-              <span className="mt-0.5 block text-xs text-slate-400">{control.name}</span>
+              {isRated ? "Đang bật · Rated" : "Chỉ chơi giao hữu"}
             </button>
-          ))}
+          ) : accountUserId ? (
+            <p className="text-xs font-semibold text-slate-400">
+              Chỉ tài khoản học sinh có thể tính Elo.
+            </p>
+          ) : (
+            <Link
+              className="inline-flex min-h-10 items-center rounded-lg border border-white/10 bg-slate-900 px-4 text-sm font-bold text-slate-300 hover:bg-slate-800"
+              href="/login"
+            >
+              Đăng nhập để tính Elo
+            </Link>
+          )}
         </div>
       </section>
 
@@ -871,6 +1234,11 @@ export function ChessLobby() {
                         {room.isRandom && (
                           <span className="ml-2 rounded-md bg-emerald-300/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-200">
                             Ghép nhanh
+                          </span>
+                        )}
+                        {room.isRated && (
+                          <span className="ml-2 rounded-md bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200">
+                            Rated
                           </span>
                         )}
                       </p>

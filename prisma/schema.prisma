@@ -59,6 +59,11 @@ model User {
   nameColorAchievementId String?
   achievementNotificationsInitialized Boolean @default(false)
   gachaTickets Int @default(0)
+  chessRating Int @default(1200)
+  chessGamesPlayed Int @default(0)
+  chessWins Int @default(0)
+  chessDraws Int @default(0)
+  chessLosses Int @default(0)
   featuredGachaCardId String?
   createdAt     DateTime               @default(now())
   news          News[]
@@ -73,7 +78,34 @@ model User {
   gachaBannerPity UserGachaBannerPity[]
   gachaRewardClaims GachaRewardClaim[]
   battleDeck UserBattleDeck?
+  chessWhiteMatches ChessMatch[] @relation("ChessWhitePlayer")
+  chessBlackMatches ChessMatch[] @relation("ChessBlackPlayer")
   featuredGachaCard GachaCard? @relation("FeaturedGachaCard", fields: [featuredGachaCardId], references: [id], onDelete: SetNull)
+}
+
+model ChessMatch {
+  id            String   @id @default(cuid())
+  roomId        String
+  whiteUserId   String
+  blackUserId   String?
+  timeControlId String
+  status        String   @default("WAITING")
+  moves         String   @default("[]")
+  initialTimeMs Int      @default(300000)
+  whiteTimeMs   Int      @default(0)
+  blackTimeMs   Int      @default(0)
+  incrementSeconds Int   @default(0)
+  clockStartedAt DateTime?
+  drawOfferBy   String?
+  result        String?
+  createdAt     DateTime @default(now())
+  finishedAt    DateTime?
+  whitePlayer   User     @relation("ChessWhitePlayer", fields: [whiteUserId], references: [id], onDelete: Cascade)
+  blackPlayer   User?    @relation("ChessBlackPlayer", fields: [blackUserId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, status, createdAt])
+  @@index([whiteUserId, createdAt])
+  @@index([blackUserId, createdAt])
 }
 
 model News {

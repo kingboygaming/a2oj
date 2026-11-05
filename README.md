@@ -49,7 +49,9 @@ Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫ
 
 ## Chess Arena
 
-Trang `/chess` hỗ trợ chơi cục bộ, các mức thời gian 1+0, 3+2, 5+0 và 10+0, ghép ngẫu nhiên theo cùng mức thời gian, và phòng công khai. Chơi online cần bật Supabase Realtime và cấu hình `NEXT_PUBLIC_SUPABASE_URL` cùng `NEXT_PUBLIC_SUPABASE_ANON_KEY` (hoặc `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) trong môi trường local/Vercel. Phòng dùng Presence/Broadcast nên chỉ tồn tại khi chủ phòng còn kết nối; danh sách phòng không được lưu lâu dài.
+Trang `/chess` hỗ trợ chơi cục bộ, ghép ngẫu nhiên và phòng công khai với chín nhịp thời gian: Siêu Chớp (1 phút, 1+1, 2+1), Chớp (3 phút, 3+2, 5 phút) và Cờ Chớp (10 phút, 10+5, 15+10). Trận online có thể bật tính Elo; người chơi cần đăng nhập bằng tài khoản học sinh. Máy chủ xác minh nước đi, đồng hồ và kết quả, sau đó cập nhật Elo cùng thống kê. Bảng xếp hạng toàn trường nằm ở `/chess/leaderboard`; ván cục bộ luôn là giao hữu.
+
+Chơi online cần bật Supabase Realtime và cấu hình `NEXT_PUBLIC_SUPABASE_URL` cùng `NEXT_PUBLIC_SUPABASE_ANON_KEY` (hoặc `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) trong môi trường local/Vercel. Phòng dùng Presence/Broadcast nên chỉ tồn tại khi chủ phòng còn kết nối; danh sách phòng không được lưu lâu dài. Các trường Elo và dữ liệu trận rated được tạo bởi migration PostgreSQL trong `prisma/migrations`; trên Vercel, build production áp dụng migration như các thay đổi schema khác.
 
 ### Bật Live IDE cho website trên Vercel
 
