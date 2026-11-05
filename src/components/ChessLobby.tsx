@@ -3,6 +3,7 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import {
   ArrowLeft,
+  Bot,
   Clock3,
   Copy,
   DoorOpen,
@@ -50,6 +51,11 @@ type RoomSession = {
   started: boolean;
   isRandom: boolean;
   isRated: boolean;
+};
+
+type LocalGame = TimeControl & {
+  mode: "local" | "bot";
+  botLevel: number;
 };
 
 type RoomMessage =
@@ -214,7 +220,8 @@ export function ChessLobby({
   const [isRated, setIsRated] = useState(false);
   const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
   const [roomSession, setRoomSession] = useState<RoomSession | null>(null);
-  const [localGame, setLocalGame] = useState<TimeControl | null>(null);
+  const [localGame, setLocalGame] = useState<LocalGame | null>(null);
+  const [botLevel, setBotLevel] = useState(6);
   const [remoteAction, setRemoteAction] = useState<ChessArenaRemoteAction | null>(null);
   const [realtimeConnection, setRealtimeConnection] = useState<"connecting" | "connected" | "offline">("connecting");
   const [busy, setBusy] = useState(false);
@@ -987,6 +994,15 @@ export function ChessLobby({
         <ChessArena
           initialTimeSeconds={localGame.initialSeconds}
           incrementSeconds={localGame.incrementSeconds}
+          vsBot={localGame.mode === "bot"}
+          botLevel={localGame.botLevel}
+          playerColor={localGame.mode === "bot" ? "w" : undefined}
+          whitePlayerName={playerName.trim() || "Người chơi"}
+          blackPlayerName={
+            localGame.mode === "bot"
+              ? `Stockfish · cấp ${localGame.botLevel}`
+              : "Người chơi 2"
+          }
         />
       </main>
     );
@@ -1159,18 +1175,50 @@ export function ChessLobby({
                 : "Đang kiểm tra cấu hình sảnh online..."
               : "Sảnh online chưa được cấu hình"}
         </div>
-        <button
-          className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300 hover:bg-white/5"
-          onClick={() =>
-            setLocalGame({
-              ...selectedTimeControl,
-            })
-          }
-          type="button"
-        >
-          <Users aria-hidden="true" className="size-4" />
-          Chơi cục bộ
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-semibold text-slate-300 hover:bg-white/5"
+            onClick={() =>
+              setLocalGame({
+                ...selectedTimeControl,
+                mode: "local",
+                botLevel,
+              })
+            }
+            type="button"
+          >
+            <Users aria-hidden="true" className="size-4" />
+            Chơi cục bộ
+          </button>
+          <label className="sr-only" htmlFor="chess-bot-level">
+            Độ khó Stockfish
+          </label>
+          <select
+            className="min-h-9 rounded-lg border border-white/10 bg-slate-950 px-2 text-xs font-semibold text-slate-300"
+            id="chess-bot-level"
+            onChange={(event) => setBotLevel(Number(event.target.value))}
+            value={botLevel}
+          >
+            <option value={2}>Bot dễ</option>
+            <option value={6}>Bot vừa</option>
+            <option value={12}>Bot khó</option>
+            <option value={20}>Bot mạnh nhất</option>
+          </select>
+          <button
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/5 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-300/10"
+            onClick={() =>
+              setLocalGame({
+                ...selectedTimeControl,
+                mode: "bot",
+                botLevel,
+              })
+            }
+            type="button"
+          >
+            <Bot aria-hidden="true" className="size-4" />
+            Đấu Stockfish
+          </button>
+        </div>
       </div>
 
       {notice && (

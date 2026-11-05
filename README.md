@@ -51,6 +51,8 @@ Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫ
 
 Trang `/chess` hỗ trợ chơi cục bộ, ghép ngẫu nhiên và phòng công khai với chín nhịp thời gian: Siêu Chớp (1 phút, 1+1, 2+1), Chớp (3 phút, 3+2, 5 phút) và Cờ Chớp (10 phút, 10+5, 15+10). Trận online có thể bật tính Elo; người chơi cần đăng nhập bằng tài khoản học sinh. Máy chủ xác minh nước đi, đồng hồ và kết quả, sau đó cập nhật Elo cùng thống kê. Bảng xếp hạng toàn trường nằm ở `/chess/leaderboard`; ván cục bộ luôn là giao hữu.
 
+Sảnh cờ có nút đấu với Stockfish 19 chạy trong Web Worker trên trình duyệt, với các mức sức mạnh từ dễ đến mạnh nhất; engine chỉ được tải khi build và chỉ chạy khi bắt đầu ván bot. Cài đặt trong bàn cờ cho phép bật premove; nước đi chờ chỉ thực hiện nếu còn hợp lệ sau nước đối thủ. Bản Stockfish WebAssembly nhỏ được cung cấp bởi `@lichess-org/stockfish-web` (AGPL-3.0-or-later); script `scripts/prepare-stockfish-assets.mjs` chỉ sao chép bản đơn luồng nhỏ và giấy phép vào `public/chess-engine` khi chạy `npm run dev`, `npm run build` hoặc `npm run build:vercel`.
+
 Chơi online cần bật Supabase Realtime và cấu hình `NEXT_PUBLIC_SUPABASE_URL` cùng `NEXT_PUBLIC_SUPABASE_ANON_KEY` (hoặc `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) trong môi trường local/Vercel. Phòng dùng Presence/Broadcast nên chỉ tồn tại khi chủ phòng còn kết nối; danh sách phòng không được lưu lâu dài. Các trường Elo và dữ liệu trận rated được tạo bởi migration PostgreSQL trong `prisma/migrations`; trên Vercel, build production áp dụng migration như các thay đổi schema khác.
 
 ### Bật Live IDE cho website trên Vercel

@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node scripts/prepare-stockfish-assets.mjs && next dev",
+    "build": "node scripts/prepare-stockfish-assets.mjs && next build",
     "start": "next start",
     "start:lan": "next start --hostname 0.0.0.0",
     "lint": "eslint",
@@ -12,10 +12,11 @@
     "db:sync:sqlite": "prisma db push --schema prisma/schema.prisma && tsx scripts/seed-spell-trap-starter.ts",
     "db:generate:postgres": "node scripts/prepare-postgres-schema.mjs && prisma generate --schema prisma/schema.postgresql.prisma",
     "db:migrate:deploy": "node scripts/prepare-postgres-schema.mjs && prisma migrate deploy --schema prisma/schema.postgresql.prisma",
-    "build:vercel": "node scripts/check-vercel-env.mjs && npm run db:generate:postgres && npm run db:migrate:deploy && next build",
+    "build:vercel": "node scripts/check-vercel-env.mjs && npm run db:generate:postgres && npm run db:migrate:deploy && node scripts/prepare-stockfish-assets.mjs && next build",
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@lichess-org/stockfish-web": "^0.5.0",
     "@monaco-editor/react": "^4.7.0",
     "@prisma/client": "6.19.0",
     "@supabase/supabase-js": "^2.118.0",

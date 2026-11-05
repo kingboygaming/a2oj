@@ -4,6 +4,7 @@ import { Chess, type Square } from "chess.js";
 import {
   AlertTriangle,
   ArrowDownUp,
+  Bot,
   Check,
   Clock3,
   Crown,
@@ -12,6 +13,7 @@ import {
   MessageCircle,
   RotateCcw,
   Send,
+  Settings,
   Shield,
   Sparkles,
   Trophy,
@@ -50,6 +52,18 @@ export type ChessArenaRemoteAction = {
   action: ChessArenaAction;
 };
 
+type PendingPremove = {
+  from: Square;
+  to: Square;
+  promotion: "q";
+};
+
+type StockfishWorkerMessage = {
+  type: "ready" | "line" | "error";
+  line?: string;
+  message?: string;
+};
+
 type ChessArenaProps = {
   whitePlayerName?: string;
   blackPlayerName?: string;
@@ -58,6 +72,8 @@ type ChessArenaProps = {
   playerColor?: "w" | "b";
   canPlay?: boolean;
   clockRunning?: boolean;
+  vsBot?: boolean;
+  botLevel?: number;
   remoteAction?: ChessArenaRemoteAction | null;
   onMove?: (move: ChessArenaMove) => void;
   onGameAction?: (action: ChessArenaAction) => void;
@@ -82,6 +98,28 @@ const QUICK_REACTIONS = ["👏", "🔥", "😮", "💪"];
 
 function isChessSquare(square: string): square is Square {
   return /^[a-h][1-8]$/.test(square);
+}
+
+function getPremovePosition(game: Chess, color: "w" | "b") {
+  const fen = game.fen().split(" ");
+  fen[1] = color;
+  return new Chess(fen.join(" "), { skipValidation: true });
+}
+
+function findMove(position: Chess, source: Square, target: Square) {
+  const legalMoves = position.moves({ verbose: true, square: source });
+  const targetPiece = position.get(target);
+  const castleMove =
+    position.get(source)?.type === "k" &&
+    targetPiece?.type === "r" &&
+    targetPiece.color === position.turn()
+      ? legalMoves.find((move) =>
+          target[0] === "h"
+            ? move.isKingsideCastle()
+            : target[0] === "a" && move.isQueensideCastle(),
+        )
+      : undefined;
+  return legalMoves.find((move) => move.to === target) ?? castleMove;
 }
 
 function formatTime(seconds: number) {
@@ -228,12 +266,19 @@ export function ChessArena({
   playerColor,
   canPlay = true,
   clockRunning = true,
+  vsBot = false,
+  botLevel = 6,
   remoteAction,
   onMove,
   onGameAction,
 }: ChessArenaProps) {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [pendingPremove, setPendingPremove] = useState<PendingPremove | null>(null);
+  const [premoveEnabled, setPremoveEnabled] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [engineReady, setEngineReady] = useState(false);
+  const [engineStatus, setEngineStatus] = useState<"loading" | "ready" | "thinking" | "error">("loading");
   const [orientation, setOrientation] = useState<"white" | "black">(
     playerColor === "b" ? "black" : "white",
   );
@@ -246,6 +291,19 @@ export function ChessArena({
   const [chatDraft, setChatDraft] = useState("");
   const lastRemoteActionIdRef = useRef<string | null>(null);
   const timeoutReportedRef = useRef(false);
+  const pendingPremoveRef = useRef<PendingPremove | null>(null);
+  const engineWorkerRef = useRef<Worker | null>(null);
+  const engineReadyRef = useRef(false);
+  const gameRef = useRef<Chess | null>(null);
+  const moveHistoryRef = useRef(moveHistory);
+  const searchFenRef = useRef<string | null>(null);
+  const premoveEnabledRef = useRef(premoveEnabled);
+  const playerColorRef = useRef(playerColor);
+  const incrementSecondsRef = useRef(incrementSeconds);
+  const onGameActionRef = useRef(onGameAction);
+  const onMoveRef = useRef(onMove);
+  const executePendingPremoveRef = useRef(executePendingPremove);
+  const applyEngineMoveRef = useRef(applyEngineMove);
 
   const game = useMemo(() => {
     const nextGame = new Chess();
@@ -254,6 +312,13 @@ export function ChessArena({
   }, [moveHistory]);
 
   const activeColor = game.turn();
+  gameRef.current = game;
+  moveHistoryRef.current = moveHistory;
+  premoveEnabledRef.current = premoveEnabled;
+  playerColorRef.current = playerColor;
+  incrementSecondsRef.current = incrementSeconds;
+  onGameActionRef.current = onGameAction;
+  onMoveRef.current = onMove;
   const result = useMemo(
     () =>
       manualResult ??
@@ -272,6 +337,8 @@ export function ChessArena({
           : null),
     [activeColor, blackPlayerName, blackTime, manualResult, whitePlayerName, whiteTime],
   );
+  const displayedEngineStatus =
+    !engineReady && engineStatus !== "error" ? "loading" : engineStatus;
   const lastMove = game.history({ verbose: true }).at(-1);
   const checkedKing = game.isCheck()
     ? game.findPiece({ type: "k", color: activeColor })[0]
@@ -282,16 +349,34 @@ export function ChessArena({
 
     if (selectedSquare) {
       styles[selectedSquare] = {
-        backgroundColor: "rgb(250 204 21 / 48%)",
+        backgroundColor:
+          pendingPremove?.from === selectedSquare
+            ? "rgb(168 85 247 / 48%)"
+            : "rgb(250 204 21 / 48%)",
       };
-      for (const move of game.moves({ verbose: true, square: selectedSquare })) {
+      const selectedPiece = game.get(selectedSquare);
+      const previewGame =
+        selectedPiece && selectedPiece.color !== activeColor && playerColor
+          ? getPremovePosition(game, playerColor)
+          : game;
+      for (const move of previewGame.moves({ verbose: true, square: selectedSquare })) {
         const target = game.get(move.to);
         styles[move.to] = {
           ...(target
-            ? { boxShadow: "inset 0 0 0 4px rgb(34 197 94 / 65%)" }
+            ? {
+                boxShadow: `inset 0 0 0 4px ${
+                  selectedPiece?.color !== activeColor
+                    ? "rgb(168 85 247 / 65%)"
+                    : "rgb(34 197 94 / 65%)"
+                }`,
+              }
             : {
                 backgroundImage:
-                  "radial-gradient(circle, rgb(15 23 42 / 32%) 0 22%, transparent 24%)",
+                  `radial-gradient(circle, ${
+                    selectedPiece?.color !== activeColor
+                      ? "rgb(168 85 247 / 45%)"
+                      : "rgb(15 23 42 / 32%)"
+                  } 0 22%, transparent 24%)`,
               }),
         };
         if (move.isKingsideCastle() || move.isQueensideCastle()) {
@@ -326,8 +411,115 @@ export function ChessArena({
       };
     }
 
+    if (pendingPremove) {
+      styles[pendingPremove.from] = {
+        backgroundColor: "rgb(168 85 247 / 42%)",
+      };
+      styles[pendingPremove.to] = {
+        ...styles[pendingPremove.to],
+        boxShadow: "inset 0 0 0 4px rgb(168 85 247 / 70%)",
+      };
+    }
+
     return styles;
-  }, [checkedKing, game, lastMove, selectedSquare]);
+  }, [activeColor, checkedKing, game, lastMove, pendingPremove, playerColor, selectedSquare]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        setPremoveEnabled(window.localStorage.getItem("a2oj.chess.premove") === "true");
+      } catch (error) {
+        console.error("Could not read chess settings:", error);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!vsBot) {
+      engineWorkerRef.current?.terminate();
+      engineWorkerRef.current = null;
+      engineReadyRef.current = false;
+      return;
+    }
+
+    const worker = new Worker("/chess-engine/stockfish-worker.js", {
+      type: "module",
+    });
+    engineWorkerRef.current = worker;
+
+    const handleMessage = (event: MessageEvent<StockfishWorkerMessage>) => {
+      const message = event.data;
+      if (message.type === "ready") {
+        worker.postMessage({ type: "command", command: "uci" });
+        return;
+      }
+      if (message.type === "error") {
+        console.error("Stockfish worker error:", message.message);
+        setEngineStatus("error");
+        return;
+      }
+      if (message.type !== "line" || !message.line) return;
+
+      if (message.line === "uciok") {
+        worker.postMessage({
+          type: "command",
+          command: `setoption name Skill Level value ${Math.max(0, Math.min(20, botLevel))}`,
+        });
+        worker.postMessage({ type: "command", command: "isready" });
+      } else if (message.line === "readyok") {
+        engineReadyRef.current = true;
+        setEngineReady(true);
+        setEngineStatus("ready");
+      } else if (message.line.startsWith("bestmove ")) {
+        const bestMove = message.line.split(/\s+/)[1];
+        const expectedFen = searchFenRef.current;
+        const currentGame = gameRef.current;
+        if (
+          bestMove &&
+          bestMove !== "(none)" &&
+          currentGame &&
+          expectedFen === currentGame.fen()
+        ) {
+          applyEngineMoveRef.current(bestMove);
+        } else {
+          setEngineStatus("ready");
+        }
+      }
+    };
+
+    worker.addEventListener("message", handleMessage);
+    worker.addEventListener("error", (event) => {
+      console.error("Stockfish worker failed:", event.message);
+      setEngineStatus("error");
+    });
+
+    return () => {
+      worker.removeEventListener("message", handleMessage);
+      worker.terminate();
+      if (engineWorkerRef.current === worker) engineWorkerRef.current = null;
+      engineReadyRef.current = false;
+      searchFenRef.current = null;
+      setEngineReady(false);
+    };
+  }, [botLevel, vsBot]);
+
+  useEffect(() => {
+    if (!vsBot || !engineReady || !engineReadyRef.current || result) return;
+    const humanColor = playerColor ?? "w";
+    if (activeColor === humanColor) return;
+
+    const worker = engineWorkerRef.current;
+    if (!worker) return;
+    searchFenRef.current = game.fen();
+    worker.postMessage({
+      type: "command",
+      command: `position fen ${game.fen()}`,
+    });
+    worker.postMessage({ type: "command", command: "go movetime 900" });
+    setEngineStatus("thinking");
+  }, [activeColor, engineReady, game, playerColor, result, vsBot]);
 
   useEffect(() => {
     if (result || !clockRunning) return;
@@ -368,14 +560,9 @@ export function ChessArena({
           const nextGame = new Chess();
           for (const san of moveHistory) nextGame.move(san);
           const move = nextGame.move(action.san);
-          setMoveHistory(nextGame.history());
+          recordMove(nextGame, move, false);
           setSelectedSquare(null);
-          setManualResult(getGameResult(nextGame));
-          if (incrementSeconds > 0) {
-            (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
-              seconds + incrementSeconds,
-            );
-          }
+          executePendingPremoveRef.current(nextGame);
         } catch (error) {
           console.error("Received an invalid remote chess move:", error);
         }
@@ -422,36 +609,117 @@ export function ChessArena({
     incrementSeconds,
     moveHistory,
     playerColor,
+    premoveEnabled,
     remoteAction,
+    onGameAction,
+    onMove,
     whitePlayerName,
   ]);
+
+  function recordMove(nextGame: Chess, move: ReturnType<Chess["move"]>, notify: boolean) {
+    setMoveHistory(nextGame.history());
+    setManualResult(getGameResult(nextGame));
+    if (incrementSecondsRef.current > 0) {
+      (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
+        seconds + incrementSecondsRef.current,
+      );
+    }
+    if (notify) {
+      onGameActionRef.current?.({ type: "move", san: move.san });
+      onMoveRef.current?.({
+        fen: nextGame.fen(),
+        san: move.san,
+        from: move.from,
+        to: move.to,
+        color: move.color,
+        ...(move.promotion ? { promotion: move.promotion } : {}),
+      });
+    }
+  }
+
+  function executePendingPremove(nextGame: Chess) {
+    const premove = pendingPremoveRef.current;
+    if (!premove) return false;
+    pendingPremoveRef.current = null;
+    setPendingPremove(null);
+
+    if (
+      !premoveEnabledRef.current ||
+      !playerColorRef.current ||
+      nextGame.turn() !== playerColorRef.current ||
+      nextGame.isGameOver()
+    ) {
+      return false;
+    }
+
+    try {
+      const move = nextGame.move(premove);
+      recordMove(nextGame, move, true);
+      setSelectedSquare(null);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function applyEngineMove(uciMove: string) {
+    const currentGame = gameRef.current;
+    if (!currentGame || currentGame.isGameOver()) return;
+
+    const parsedMove = /^([a-h][1-8])([a-h][1-8])([qrbn])?$/.exec(uciMove);
+    if (!parsedMove) {
+      setEngineStatus("error");
+      return;
+    }
+
+    try {
+      const nextGame = new Chess();
+      for (const san of moveHistoryRef.current) nextGame.move(san);
+      const move = nextGame.move({
+        from: parsedMove[1] as Square,
+        to: parsedMove[2] as Square,
+        ...(parsedMove[3] ? { promotion: parsedMove[3] } : {}),
+      });
+      recordMove(nextGame, move, false);
+      executePendingPremove(nextGame);
+      setSelectedSquare(null);
+      setEngineStatus("ready");
+    } catch (error) {
+      console.error("Stockfish returned an invalid chess move:", error);
+      setEngineStatus("error");
+    }
+  }
+
+  executePendingPremoveRef.current = executePendingPremove;
+  applyEngineMoveRef.current = applyEngineMove;
 
   function makeMove(sourceSquare: string, targetSquare: string) {
     if (
       result ||
       !canPlay ||
-      (playerColor !== undefined && playerColor !== activeColor) ||
       !isChessSquare(sourceSquare) ||
       !isChessSquare(targetSquare)
     ) {
       return false;
     }
 
-    const legalMoves = game.moves({ verbose: true, square: sourceSquare });
-    const targetPiece = game.get(targetSquare);
-    const castleMove =
-      game.get(sourceSquare)?.type === "k" &&
-      targetPiece?.type === "r" &&
-      targetPiece.color === activeColor
-        ? legalMoves.find((move) =>
-            targetSquare[0] === "h"
-              ? move.isKingsideCastle()
-              : targetSquare[0] === "a" && move.isQueensideCastle(),
-          )
-        : undefined;
-    const legalMove =
-      legalMoves.find((move) => move.to === targetSquare) ?? castleMove;
+    if (playerColor && playerColor !== activeColor) {
+      if (!premoveEnabled || game.get(sourceSquare)?.color !== playerColor) return false;
+      const premoveGame = getPremovePosition(game, playerColor);
+      const premove = findMove(premoveGame, sourceSquare, targetSquare);
+      if (!premove) return false;
+      const queued: PendingPremove = {
+        from: premove.from,
+        to: premove.to,
+        promotion: "q",
+      };
+      pendingPremoveRef.current = queued;
+      setPendingPremove(queued);
+      setSelectedSquare(null);
+      return true;
+    }
 
+    const legalMove = findMove(game, sourceSquare, targetSquare);
     if (!legalMove) return false;
     if (drawOffer !== null && drawOffer !== game.turn()) setDrawOffer(null);
 
@@ -462,23 +730,9 @@ export function ChessArena({
     });
 
     setSelectedSquare(null);
-    setMoveHistory(game.history());
-    if (incrementSeconds > 0) {
-      (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
-        seconds + incrementSeconds,
-      );
-    }
-    setManualResult(getGameResult(game));
-    onGameAction?.({ type: "move", san: move.san });
-    onMove?.({
-      fen: game.fen(),
-      san: move.san,
-      from: move.from,
-      to: move.to,
-      color: move.color,
-      ...(move.promotion ? { promotion: move.promotion } : {}),
-    });
-
+    pendingPremoveRef.current = null;
+    setPendingPremove(null);
+    recordMove(game, move, true);
     return true;
   }
 
@@ -500,12 +754,29 @@ export function ChessArena({
     if (selectedSquare && makeMove(selectedSquare, square)) return;
 
     const piece = game.get(square);
+    const selectableColor =
+      playerColor && activeColor !== playerColor && premoveEnabled
+        ? playerColor
+        : activeColor;
     setSelectedSquare(
-      piece?.color === activeColor &&
-        (playerColor === undefined || playerColor === activeColor)
-        ? square
-        : null,
+      piece?.color === selectableColor &&
+        (playerColor === undefined || piece.color === playerColor || playerColor === activeColor)
+          ? square
+          : null,
     );
+  }
+
+  function updatePremoveSetting(enabled: boolean) {
+    setPremoveEnabled(enabled);
+    try {
+      window.localStorage.setItem("a2oj.chess.premove", String(enabled));
+    } catch (error) {
+      console.error("Could not save chess settings:", error);
+    }
+    if (!enabled) {
+      pendingPremoveRef.current = null;
+      setPendingPremove(null);
+    }
   }
 
   function handleDrawAction() {
@@ -545,6 +816,8 @@ export function ChessArena({
   function handleNewGame() {
     setMoveHistory([]);
     setSelectedSquare(null);
+    pendingPremoveRef.current = null;
+    setPendingPremove(null);
     setWhiteTime(initialTimeSeconds);
     setBlackTime(initialTimeSeconds);
     setManualResult(null);
@@ -592,13 +865,19 @@ export function ChessArena({
     showAnimations: true,
     animationDurationInMs: 180,
     allowDragging: !result && canPlay,
-    canDragPiece: ({ square }: { square: string | null }) =>
-      !result &&
-      canPlay &&
-      square !== null &&
-      isChessSquare(square) &&
-      (playerColor === undefined || playerColor === activeColor) &&
-      game.get(square)?.color === activeColor,
+    canDragPiece: ({ square }: { square: string | null }) => {
+      if (!square || !isChessSquare(square) || result || !canPlay) return false;
+      const pieceColor = game.get(square)?.color;
+      return (
+        pieceColor === activeColor &&
+        (playerColor === undefined || playerColor === activeColor)
+      ) || (
+        premoveEnabled &&
+        playerColor !== undefined &&
+        activeColor !== playerColor &&
+        pieceColor === playerColor
+      );
+    },
     onPieceDrop: ({
       sourceSquare,
       targetSquare,
@@ -650,8 +929,27 @@ export function ChessArena({
         </div>
         <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
           <span className="size-2 rounded-full bg-emerald-400" />
-          {playerColor ? "Ván đấu online" : "Ván đấu cục bộ"}
+          {vsBot
+            ? displayedEngineStatus === "loading"
+              ? "Đang tải Stockfish..."
+              : displayedEngineStatus === "thinking"
+                ? "Stockfish đang tính..."
+                : displayedEngineStatus === "error"
+                  ? "Lỗi tải Stockfish"
+                  : "Đấu với Stockfish"
+            : playerColor
+              ? "Ván đấu online"
+              : "Ván đấu cục bộ"}
         </span>
+        <button
+          aria-label="Cài đặt cờ vua"
+          className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+          onClick={() => setSettingsOpen(true)}
+          type="button"
+        >
+          <Settings aria-hidden="true" className="size-4" />
+          Cài đặt
+        </button>
       </div>
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.85fr)]">
@@ -675,6 +973,23 @@ export function ChessArena({
             hai ô hoặc kéo vua vào ô xe. Bắt tốt qua đường được phép ngay sau khi
             đối thủ tiến tốt hai ô.
           </p>
+          {pendingPremove && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-purple-300/20 bg-purple-300/10 px-3 py-2 text-sm text-purple-100">
+              <span>
+                Nước đi chờ: {pendingPremove.from} → {pendingPremove.to}
+              </span>
+              <button
+                className="text-xs font-bold text-purple-200 underline"
+                onClick={() => {
+                  pendingPremoveRef.current = null;
+                  setPendingPremove(null);
+                }}
+                type="button"
+              >
+                Hủy
+              </button>
+            </div>
+          )}
 
           <PlayerCard
             color={bottomPlayerColor}
@@ -1002,6 +1317,62 @@ export function ChessArena({
         <span className="sr-only">
           {drawOffer === "w" ? whitePlayerName : blackPlayerName} đã xin hòa.
         </span>
+      )}
+      {settingsOpen && (
+        <div
+          aria-labelledby="chess-settings-title"
+          aria-modal="true"
+          className="fixed inset-0 z-40 grid place-items-center bg-slate-950/75 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSettingsOpen(false);
+          }}
+          role="dialog"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black text-white" id="chess-settings-title">
+                  Cài đặt cờ vua
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Tùy chỉnh thao tác trong ván đấu này và các ván sau.
+                </p>
+              </div>
+              <button
+                aria-label="Đóng cài đặt"
+                className="grid size-9 place-items-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-white"
+                onClick={() => setSettingsOpen(false)}
+                type="button"
+              >
+                <X aria-hidden="true" className="size-4" />
+              </button>
+            </div>
+
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-white/8 bg-slate-950/50 p-4">
+              <input
+                checked={premoveEnabled}
+                className="mt-1 size-4 accent-emerald-400"
+                onChange={(event) => updatePremoveSetting(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-bold text-white">Bật premove</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-400">
+                  Chọn trước nước đi khi đang đến lượt đối thủ. Nước đi chỉ được thực hiện
+                  nếu vẫn hợp lệ sau nước của đối thủ.
+                </span>
+              </span>
+            </label>
+
+            {vsBot && (
+              <p className="mt-4 rounded-xl border border-sky-300/15 bg-sky-300/5 p-3 text-xs leading-5 text-sky-100/80">
+                <Bot aria-hidden="true" className="mr-1 inline size-4 align-text-bottom" />
+                Stockfish 19 chạy cục bộ trong Web Worker; độ khó hiện tại là cấp{" "}
+                {botLevel}/20. Ván đấu không gửi trạng thái bàn cờ lên máy chủ.
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </section>
   );
