@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion, useDragControls, type PanInfo } from "framer-motion";
+import { AnimatePresence, motion, useDragControls, useReducedMotion, type PanInfo } from "framer-motion";
 import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -446,6 +446,7 @@ function CardFace({
   const battleType = card.battleType ?? "MONSTER";
   const battleTypeLabel = battleType === "SPELL" ? "Phép" : battleType === "TRAP" ? "Bẫy" : "Quái vật";
   const inDefense = battleType === "MONSTER" && position === "DEFENSE";
+  const prefersReducedMotion = useReducedMotion();
   const abilityText = card.specialEffect === "SLIFER"
     ? "ATK/DEF theo số bài trên tay; quái đối thủ vừa triệu hồi giảm 2000 chỉ số."
     : card.specialEffect === "RA"
@@ -478,9 +479,13 @@ function CardFace({
         )}
       </div>
       <div className={`relative shrink-0 ${inDefense ? "origin-center py-1" : ""}`}>
-        <div className={inDefense ? "rotate-90 scale-90" : ""}>
+        <motion.div
+          initial={false}
+          animate={{ rotate: inDefense ? 90 : 0, scale: inDefense ? 0.9 : 1 }}
+          transition={prefersReducedMotion ? { duration: 0.01 } : { type: "spring", stiffness: 220, damping: 22 }}
+        >
           <CardArt card={card} compact={compact} />
-        </div>
+        </motion.div>
       </div>
       <div className="min-w-0">
         <p className="line-clamp-2 break-words text-xs font-bold leading-4 text-white">{card.name}</p>
@@ -509,6 +514,7 @@ function HandCard({
   onDragEnd: (info: PanInfo) => void;
 }) {
   const dragControls = useDragControls();
+  const prefersReducedMotion = useReducedMotion();
 
   return (
     <motion.div
@@ -516,11 +522,11 @@ function HandCard({
       dragControls={dragControls}
       dragListener={false}
       dragMomentum={false}
-      initial={{ opacity: 0, x: 90, y: -70, scale: 0.65, rotate: 8 }}
+      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 90, y: -70, scale: 0.65, rotate: 8 }}
       animate={{ opacity: 1, x: 0, y: 0, scale: 1, rotate: 0 }}
       exit={{ opacity: 0, y: -24, scale: 0.85 }}
-      transition={{ type: "spring", stiffness: 260, damping: 22 }}
-      whileDrag={{ scale: 1.1, zIndex: 20, rotate: -3 }}
+      transition={prefersReducedMotion ? { duration: 0.01 } : { type: "spring", stiffness: 260, damping: 22 }}
+      whileDrag={prefersReducedMotion ? { zIndex: 20 } : { scale: 1.1, zIndex: 20, rotate: -3 }}
       className="w-32 shrink-0 sm:w-36"
       onDragEnd={(_, info) => onDragEnd(info)}
     >
@@ -596,6 +602,7 @@ export default function BattleRoomPage() {
   const [winner, setWinner] = useState<{ playerId: string; reason: string } | null>(null);
   const [drawIndex, setDrawIndex] = useState(5);
   const [attackingCardId, setAttackingCardId] = useState<string | null>(null);
+  const [combatTargetCardId, setCombatTargetCardId] = useState<string | null>(null);
   const [pendingAttackCardId, setPendingAttackCardId] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
@@ -613,6 +620,7 @@ export default function BattleRoomPage() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const boardDropRef = useRef<HTMLDivElement>(null);
   const selectedCardMenuRef = useRef<HTMLDivElement>(null);
+  const combatAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coinChoiceRef = useRef<CoinSide | null>(null);
@@ -629,6 +637,7 @@ export default function BattleRoomPage() {
   const pendingSummonCard = hand.find((card) => card.id === pendingSummonCardId);
   const requiredTributes = pendingSummonCard ? getRequiredTributes(pendingSummonCard) : 0;
   const isSelectingTributes = Boolean(pendingSummonCardId || pendingStoneWardenCardId);
+  const prefersReducedMotion = useReducedMotion();
   const playerSnapshotRef = useRef<PlayerSnapshot>({
     playerId,
     name: `Người chơi ${playerId.slice(0, 4)}`,
@@ -667,6 +676,17 @@ export default function BattleRoomPage() {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setToast(""), 2400);
   }, []);
+
+  const playCombatAnimation = useCallback((attackerId: string, targetId: string | null) => {
+    if (combatAnimationTimerRef.current) clearTimeout(combatAnimationTimerRef.current);
+    setAttackingCardId(attackerId);
+    setCombatTargetCardId(targetId);
+    combatAnimationTimerRef.current = setTimeout(() => {
+      setAttackingCardId(null);
+      setCombatTargetCardId(null);
+      combatAnimationTimerRef.current = null;
+    }, prefersReducedMotion ? 100 : 850);
+  }, [prefersReducedMotion]);
 
   const publish = useCallback(async (message: BattleMessage) => {
     const channel = channelRef.current;
@@ -744,6 +764,7 @@ export default function BattleRoomPage() {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (coinTimerRef.current) clearTimeout(coinTimerRef.current);
+      if (combatAnimationTimerRef.current) clearTimeout(combatAnimationTimerRef.current);
     };
   }, []);
 
@@ -1046,6 +1067,7 @@ export default function BattleRoomPage() {
               });
               break;
             }
+            playCombatAnimation(payload.cardId, payload.targetId ?? null);
             if (payload.damage > 0 && playerSnapshotRef.current.hp <= payload.damage) {
               setWinner({ playerId: payload.playerId, reason: "Hết điểm sinh mệnh" });
             }
@@ -1197,7 +1219,7 @@ export default function BattleRoomPage() {
       channelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [applyCoinResult, notify, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
+  }, [applyCoinResult, notify, playCombatAnimation, playerId, roomId, ruleSet, supabaseKey, supabaseUrl]);
 
   function playCard(
     card: BattleCard,
@@ -1650,14 +1672,13 @@ export default function BattleRoomPage() {
 
     const result = resolveCombat(unit, target, ruleSet, hand.length, opponent.handCount);
     setPendingAttackCardId(null);
-    setAttackingCardId(unit.card.id);
+    playCombatAnimation(unit.card.id, result.targetId);
     setBoard((current) =>
       current.map((item) =>
         item.card.id === unit.card.id ? { ...item, hasAttacked: true } : item,
       ),
     );
     setTimeout(() => {
-      setAttackingCardId(null);
       setGameStarted(true);
       const message = {
         type: "attack" as const,
@@ -1748,7 +1769,7 @@ export default function BattleRoomPage() {
                 key={`${owner}-slot-${index}`}
                 data-tribute-id={owner === "player" && unit ? unit.card.id : undefined}
                 aria-label={`Ô quái thú ${index + 1}${unit ? `: ${unit.card.name}` : ": trống"}`}
-                className={`relative min-h-32 rounded-md border p-1 transition-colors sm:min-h-44 sm:rounded-lg sm:p-1.5 ${
+                className={`relative min-h-32 rounded-md border p-1 transition-all duration-200 sm:min-h-44 sm:rounded-lg sm:p-1.5 ${
                   isSelectedCard
                     ? "z-20 scale-[1.03] border-amber-300 bg-amber-300/10 ring-2 ring-amber-300/60 shadow-[0_0_24px_rgba(252,211,77,0.3)]"
                     : unit && selectedTributeIds.includes(unit.card.id)
@@ -1758,18 +1779,41 @@ export default function BattleRoomPage() {
                     : "border-cyan-100/20 bg-slate-950/35"
                 }`}
               >
-                {unit ? (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.72 }}
-                    animate={
-                      attackingCardId === unit.card.id
-                        ? { opacity: 1, y: [-8, -38, 0], scale: [1, 1.08, 1] }
-                        : { opacity: 1, y: 0, scale: isSelectedCard ? 1.03 : 1 }
-                    }
-                    transition={{ duration: 0.35 }}
-                    ref={isSelectedCard ? selectedCardMenuRef : undefined}
-                    className={`relative h-full ${owner === "opponent" && pendingAttackCardId ? "cursor-crosshair" : ""} ${canSelectCard ? "cursor-pointer" : ""}`}
-                  >
+                <AnimatePresence initial={false} mode="sync">
+                  {unit ? (
+                    <motion.div
+                      key={unit.card.id}
+                      layout
+                      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.72 }}
+                      animate={
+                        attackingCardId === unit.card.id
+                          ? prefersReducedMotion
+                            ? { opacity: 1 }
+                            : { opacity: 1, y: [-8, -38, 0], scale: [1, 1.08, 1] }
+                          : combatTargetCardId === unit.card.id
+                            ? prefersReducedMotion
+                              ? { opacity: 1 }
+                              : { opacity: 1, x: [-4, 4, -3, 3, 0], rotate: [0, -1.5, 1.5, 0] }
+                            : { opacity: 1, x: 0, y: 0, rotate: 0, scale: isSelectedCard ? 1.03 : 1 }
+                      }
+                      exit={prefersReducedMotion
+                        ? { opacity: 0 }
+                        : { opacity: 0, y: -10, scale: 0.68, filter: "blur(4px)" }}
+                      transition={prefersReducedMotion
+                        ? { duration: 0.01 }
+                        : { type: "spring", stiffness: 300, damping: 24, layout: { duration: 0.22 } }}
+                      ref={isSelectedCard ? selectedCardMenuRef : undefined}
+                      className={`relative h-full ${owner === "opponent" && pendingAttackCardId ? "cursor-crosshair" : ""} ${canSelectCard ? "cursor-pointer" : ""}`}
+                    >
+                    {combatTargetCardId === unit.card.id && !prefersReducedMotion && (
+                      <motion.div
+                        aria-hidden="true"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: [0, 0.45, 0] }}
+                        transition={{ duration: 0.55, times: [0, 0.3, 1] }}
+                        className="pointer-events-none absolute inset-0 z-10 rounded-lg bg-rose-400 mix-blend-screen"
+                      />
+                    )}
                     <AnimatePresence>
                       {isSelectedCard && (
                         <motion.div
@@ -1946,12 +1990,19 @@ export default function BattleRoomPage() {
                         </button>
                       </div>
                     )}
-                  </motion.div>
-                ) : (
-                  <div className="grid min-h-[5.5rem] place-items-center text-center text-[9px] font-semibold text-cyan-100/35 sm:min-h-32 sm:text-[10px]">
-                    <span>{index + 1}</span>
-                  </div>
-                )}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key={`empty-${owner}-${index}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: prefersReducedMotion ? 0.01 : 0.18 }}
+                      className="grid min-h-[5.5rem] place-items-center text-center text-[9px] font-semibold text-cyan-100/35 sm:min-h-32 sm:text-[10px]"
+                    >
+                      <span>{index + 1}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}
