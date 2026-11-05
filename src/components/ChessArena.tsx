@@ -59,10 +59,14 @@ type PendingPremove = {
   promotion: "q";
 };
 
-type StockfishWorkerMessage = {
-  type: "ready" | "line" | "error";
-  line?: string;
-  message?: string;
+type AnalyzableMove = {
+  fen: string;
+  san: string;
+  uci: string;
+};
+
+type MoveAnalysis = AnalyzableMove & {
+  recommendedSan: string | null;
 };
 
 type ChessArenaProps = {
@@ -86,7 +90,7 @@ type GameResult = {
   winner: "w" | "b" | null;
 };
 
-type PanelTab = "moves" | "chat" | "leaderboard";
+type PanelTab = "moves" | "chat" | "leaderboard" | "analysis";
 
 type ChatMessage = {
   id: number;
@@ -240,9 +244,11 @@ function PlayerCard({
 function ResultModal({
   result,
   onNewGame,
+  onDismiss,
 }: {
   result: GameResult;
   onNewGame: () => void;
+  onDismiss: () => void;
 }) {
   return (
     <div
@@ -251,7 +257,15 @@ function ResultModal({
       className="absolute inset-0 z-20 grid place-items-center rounded-2xl bg-slate-950/75 p-4 backdrop-blur-sm"
       role="dialog"
     >
-      <div className="w-full max-w-sm rounded-3xl border border-emerald-300/20 bg-slate-900 p-6 text-center shadow-2xl shadow-black/50 sm:p-8">
+      <div className="relative w-full max-w-sm rounded-3xl border border-emerald-300/20 bg-slate-900 p-6 text-center shadow-2xl shadow-black/50 sm:p-8">
+        <button
+          aria-label="Đóng thông báo kết quả"
+          className="absolute right-3 top-3 grid size-9 place-items-center rounded-lg text-slate-400 transition hover:bg-white/5 hover:text-white"
+          onClick={onDismiss}
+          type="button"
+        >
+          <X aria-hidden="true" className="size-4" />
+        </button>
         <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300">
           {result.winner ? (
             <Crown aria-hidden="true" className="size-7" />
@@ -300,6 +314,13 @@ export function ChessArena({
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [pendingPremoves, setPendingPremoves] = useState<PendingPremove[]>([]);
   const [premoveEnabled, setPremoveEnabled] = useState(false);
+  const [showResultModal, setShowResultModal] = useState(true);
+  const [resultModalDismissed, setResultModalDismissed] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<
+    "idle" | "loading" | "analyzing" | "complete" | "error"
+  >("idle");
+  const [analysisRows, setAnalysisRows] = useState<MoveAnalysis[]>([]);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
   const [engineStatus, setEngineStatus] = useState<"loading" | "ready" | "thinking" | "error">("loading");
@@ -321,6 +342,8 @@ export function ChessArena({
   const gameRef = useRef<Chess | null>(null);
   const moveHistoryRef = useRef(moveHistory);
   const searchFenRef = useRef<string | null>(null);
+  const analysisRunIdRef = useRef(0);
+  const analysisCleanupRef = useRef<(() => void) | null>(null);
   const premoveEnabledRef = useRef(premoveEnabled);
   const playerColorRef = useRef(playerColor);
   const incrementSecondsRef = useRef(incrementSeconds);
@@ -466,6 +489,9 @@ export function ChessArena({
     const timer = window.setTimeout(() => {
       try {
         setPremoveEnabled(window.localStorage.getItem("a2oj.chess.premove") === "true");
+        setShowResultModal(
+          window.localStorage.getItem("a2oj.chess.showResultModal") !== "false",
+        );
       } catch (error) {
         console.error("Could not read chess settings:", error);
       }
@@ -483,22 +509,10 @@ export function ChessArena({
 
     let cancelled = false;
     let worker: Worker | null = null;
-    const handleMessage = (event: MessageEvent<StockfishWorkerMessage>) => {
-      const { line, type, message } = event.data;
-      if (type === "error") {
-        console.error("Stockfish worker error:", message);
-        setEngineStatus("error");
-        return;
-      }
-      if (type !== "line" || !line) return;
-
-      if (line === "uciok") {
-        worker?.postMessage({
-          type: "command",
-          command: `setoption name Skill Level value ${Math.max(0, Math.min(20, botLevel))}`,
-        });
-        worker?.postMessage({ type: "command", command: "isready" });
-      } else if (line === "readyok") {
+    const handleMessage = (event: MessageEvent<unknown>) => {
+      if (typeof event.data !== "string") return;
+      const line = event.data;
+      if (line === "readyok") {
         engineReadyRef.current = true;
         setEngineReady(true);
         setEngineStatus("ready");
@@ -530,7 +544,10 @@ export function ChessArena({
         engineWorkerRef.current = readyWorker;
         readyWorker.addEventListener("message", handleMessage);
         readyWorker.addEventListener("error", handleWorkerError);
-        readyWorker.postMessage({ type: "command", command: "uci" });
+        readyWorker.postMessage(
+          `setoption name Skill Level value ${Math.max(0, Math.min(20, botLevel))}`,
+        );
+        readyWorker.postMessage("isready");
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -557,11 +574,8 @@ export function ChessArena({
     const worker = engineWorkerRef.current;
     if (!worker) return;
     searchFenRef.current = game.fen();
-    worker.postMessage({
-      type: "command",
-      command: `position fen ${game.fen()}`,
-    });
-    worker.postMessage({ type: "command", command: "go movetime 900" });
+    worker.postMessage(`position fen ${game.fen()}`);
+    worker.postMessage("go movetime 900");
     setEngineStatus("thinking");
   }, [activeColor, engineReady, game, playerColor, result, vsBot]);
 
@@ -637,8 +651,10 @@ export function ChessArena({
         });
         setDrawOffer(null);
       } else if (action.type === "new-game") {
+        stopAnalysis();
         setMoveHistory([]);
         setSelectedSquare(null);
+        setResultModalDismissed(false);
         updatePendingPremoves([]);
         setWhiteTime(initialTimeSeconds);
         setBlackTime(initialTimeSeconds);
@@ -850,6 +866,155 @@ export function ChessArena({
     }
   }
 
+  function stopAnalysis() {
+    analysisRunIdRef.current += 1;
+    analysisCleanupRef.current?.();
+    analysisCleanupRef.current = null;
+    setAnalysisStatus("idle");
+    setAnalysisRows([]);
+    setAnalysisProgress(0);
+  }
+
+  async function startAnalysis() {
+    if (!result) return;
+
+    stopAnalysis();
+    const runId = analysisRunIdRef.current;
+    setActiveTab("analysis");
+    if (moveHistory.length === 0) {
+      setAnalysisStatus("complete");
+      return;
+    }
+
+    const replay = new Chess();
+    const moves: AnalyzableMove[] = [];
+
+    try {
+      for (const san of moveHistory) {
+        const fen = replay.fen();
+        const move = replay.move(san);
+        moves.push({
+          fen,
+          san,
+          uci: `${move.from}${move.to}${move.promotion ?? ""}`,
+        });
+      }
+    } catch (error) {
+      console.error("Could not prepare chess game analysis:", error);
+      setAnalysisStatus("error");
+      return;
+    }
+
+    setAnalysisStatus("loading");
+
+    try {
+      const worker = await loadStockfishWorker();
+      if (analysisRunIdRef.current !== runId) return;
+
+      searchFenRef.current = null;
+      let moveIndex = 0;
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        worker.postMessage("stop");
+        worker.removeEventListener("message", handleMessage);
+        worker.removeEventListener("error", handleError);
+        analysisCleanupRef.current = null;
+        setAnalysisStatus("error");
+      }, 30000);
+
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        worker.removeEventListener("message", handleMessage);
+        worker.removeEventListener("error", handleError);
+      };
+      const finish = (status: "complete" | "error") => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        analysisCleanupRef.current = null;
+        setAnalysisStatus(status);
+      };
+      const analyzeCurrentMove = () => {
+        const currentMove = moves[moveIndex];
+        if (!currentMove) {
+          finish("complete");
+          return;
+        }
+        worker.postMessage(`position fen ${currentMove.fen}`);
+        worker.postMessage("go depth 10");
+        setAnalysisStatus("analyzing");
+      };
+      const handleMessage = (event: MessageEvent<unknown>) => {
+        if (analysisRunIdRef.current !== runId || typeof event.data !== "string") {
+          return;
+        }
+        if (event.data === "readyok") {
+          analyzeCurrentMove();
+          return;
+        }
+        if (!event.data.startsWith("bestmove ")) return;
+
+        const currentMove = moves[moveIndex];
+        if (!currentMove) {
+          finish("complete");
+          return;
+        }
+
+        const uci = event.data.split(/\s+/)[1];
+        let recommendedSan: string | null = null;
+        const parsed = /^([a-h][1-8])([a-h][1-8])([qrbn])?$/.exec(uci ?? "");
+        if (parsed) {
+          try {
+            const position = new Chess(currentMove.fen);
+            recommendedSan = position.move({
+              from: parsed[1] as Square,
+              to: parsed[2] as Square,
+              ...(parsed[3] ? { promotion: parsed[3] } : {}),
+            }).san;
+          } catch (error) {
+            console.error("Stockfish suggested an invalid analysis move:", error);
+          }
+        }
+
+        setAnalysisRows((rows) => [...rows, { ...currentMove, recommendedSan }]);
+        moveIndex += 1;
+        setAnalysisProgress(moveIndex);
+        analyzeCurrentMove();
+      };
+      const handleError = (event: ErrorEvent) => {
+        console.error("Stockfish analysis worker failed:", event.message);
+        finish("error");
+      };
+
+      analysisCleanupRef.current = () => {
+        if (!settled) worker.postMessage("stop");
+        settled = true;
+        cleanup();
+      };
+      worker.addEventListener("message", handleMessage);
+      worker.addEventListener("error", handleError);
+      worker.postMessage("setoption name Skill Level value 20");
+      worker.postMessage("ucinewgame");
+      worker.postMessage("isready");
+    } catch (error) {
+      if (analysisRunIdRef.current !== runId) return;
+      console.error("Could not start chess game analysis:", error);
+      setAnalysisStatus("error");
+    }
+  }
+
+  function updateResultModalSetting(enabled: boolean) {
+    setShowResultModal(enabled);
+    setResultModalDismissed(false);
+    try {
+      window.localStorage.setItem("a2oj.chess.showResultModal", String(enabled));
+    } catch (error) {
+      console.error("Could not save result display setting:", error);
+    }
+  }
+
   function handleDrawAction() {
     const offeringColor = playerColor ?? activeColor;
     if (drawOffer === offeringColor) {
@@ -887,12 +1052,15 @@ export function ChessArena({
   }
 
   function handleNewGame() {
+    stopAnalysis();
     setMoveHistory([]);
     setSelectedSquare(null);
+    setResultModalDismissed(false);
     updatePendingPremoves([]);
     setWhiteTime(initialTimeSeconds);
     setBlackTime(initialTimeSeconds);
     setManualResult(null);
+    setResultModalDismissed(false);
     setDrawOffer(null);
     setOrientation(playerColor === "b" ? "black" : "white");
     timeoutReportedRef.current = false;
@@ -1036,10 +1204,40 @@ export function ChessArena({
 
           <div className="relative rounded-2xl border border-white/8 bg-slate-900/65 p-2 shadow-2xl shadow-black/25 sm:p-3">
             <Chessboard options={boardOptions} />
-            {result && (
-              <ResultModal result={result} onNewGame={handleNewGame} />
+            {result && showResultModal && !resultModalDismissed && (
+              <ResultModal
+                result={result}
+                onDismiss={() => setResultModalDismissed(true)}
+                onNewGame={handleNewGame}
+              />
             )}
           </div>
+          {result && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-300/5 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-white">{result.title}</p>
+                <p className="mt-0.5 text-xs text-slate-400">{result.description}</p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 text-xs font-bold text-emerald-100 transition hover:bg-emerald-300/15"
+                  onClick={() => void startAnalysis()}
+                  type="button"
+                >
+                  <Sparkles aria-hidden="true" className="size-4" />
+                  Phân tích ván
+                </button>
+                <button
+                  className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-400 px-3 text-xs font-bold text-slate-950 transition hover:bg-emerald-300"
+                  onClick={handleNewGame}
+                  type="button"
+                >
+                  <RotateCcw aria-hidden="true" className="size-4" />
+                  Ván mới
+                </button>
+              </div>
+            </div>
+          )}
           <p className="px-1 text-xs leading-5 text-slate-500">
             Kéo quân hoặc chạm quân rồi chạm ô đích. Nhập thành bằng cách đi vua
             hai ô hoặc kéo vua vào ô xe. Bắt tốt qua đường được phép ngay sau khi
@@ -1135,7 +1333,7 @@ export function ChessArena({
         <aside className="overflow-hidden rounded-2xl border border-white/8 bg-slate-900/80 shadow-xl shadow-black/15">
           <div
             aria-label="Bảng điều khiển ván đấu"
-            className="grid grid-cols-3 border-b border-white/8 p-1.5"
+            className="grid grid-cols-4 border-b border-white/8 p-1.5"
             role="tablist"
           >
             <button
@@ -1169,6 +1367,23 @@ export function ChessArena({
             >
               <MessageCircle aria-hidden="true" className="size-4" />
               Chat
+            </button>
+            <button
+              aria-controls="chess-panel-analysis"
+              aria-selected={activeTab === "analysis"}
+              className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition sm:text-sm ${
+                activeTab === "analysis"
+                  ? "bg-slate-700 text-white shadow"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+              } disabled:cursor-not-allowed disabled:opacity-40`}
+              disabled={!result}
+              onClick={() => setActiveTab("analysis")}
+              id="chess-tab-analysis"
+              role="tab"
+              type="button"
+            >
+              <Sparkles aria-hidden="true" className="size-4" />
+              Phân tích
             </button>
             <button
               aria-controls="chess-panel-leaderboard"
@@ -1257,6 +1472,92 @@ export function ChessArena({
                 <RotateCcw aria-hidden="true" className="size-3.5" />
                 Ván mới
               </button>
+            </div>
+          </div>
+
+          <div
+            aria-labelledby="chess-tab-analysis"
+            className={activeTab === "analysis" ? "block" : "hidden"}
+            id="chess-panel-analysis"
+            role="tabpanel"
+          >
+            <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
+              <div>
+                <h2 className="text-sm font-bold text-white">Phân tích bằng Stockfish</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  So sánh từng nước với lựa chọn tốt nhất của engine.
+                </p>
+              </div>
+              {analysisStatus !== "analyzing" && analysisStatus !== "loading" && (
+                <button
+                  className="shrink-0 rounded-lg bg-emerald-400 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-emerald-300"
+                  disabled={!result || moveHistory.length === 0}
+                  onClick={() => void startAnalysis()}
+                  type="button"
+                >
+                  {analysisStatus === "complete" ? "Phân tích lại" : "Bắt đầu"}
+                </button>
+              )}
+              {(analysisStatus === "analyzing" || analysisStatus === "loading") && (
+                <button
+                  className="shrink-0 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/5"
+                  onClick={stopAnalysis}
+                  type="button"
+                >
+                  Hủy
+                </button>
+              )}
+            </div>
+            <div className="h-[340px] overflow-y-auto border-y border-white/6 px-3 py-3">
+              {analysisStatus === "idle" && (
+                <p className="py-12 text-center text-xs text-slate-500">
+                  Bắt đầu phân tích để xem gợi ý Stockfish cho từng nước đi.
+                </p>
+              )}
+              {(analysisStatus === "loading" || analysisStatus === "analyzing") && (
+                <p aria-live="polite" className="py-12 text-center text-sm text-sky-200">
+                  {analysisStatus === "loading"
+                    ? "Đang khởi tạo Stockfish..."
+                    : `Đang phân tích nước ${analysisProgress + 1}/${moveHistory.length}...`}
+                </p>
+              )}
+              {analysisStatus === "error" && (
+                <p className="py-12 text-center text-sm text-rose-200" role="alert">
+                  Không thể hoàn tất phân tích. Hãy thử lại.
+                </p>
+              )}
+              {analysisRows.length > 0 && (
+                <ol className="space-y-1">
+                  {analysisRows.map((row, index) => (
+                    <li
+                      className="grid grid-cols-[36px_minmax(42px,0.6fr)_minmax(0,1.4fr)] items-center gap-2 rounded-lg bg-white/[0.025] px-2 py-2 text-xs"
+                      key={`${index}-${row.uci}`}
+                    >
+                      <span className="font-mono text-slate-500">
+                        {Math.floor(index / 2) + 1}{index % 2 === 0 ? "." : "..."}
+                      </span>
+                      <span className="font-bold text-white">{row.san}</span>
+                      <span className={row.recommendedSan === row.san ? "text-emerald-300" : "text-amber-200"}>
+                        {row.recommendedSan === row.san
+                          ? "Nước tốt nhất"
+                          : row.recommendedSan
+                            ? `Engine đề xuất ${row.recommendedSan}`
+                            : "Không có gợi ý"}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {analysisStatus === "complete" && analysisRows.length === 0 && (
+                <p className="py-12 text-center text-xs text-slate-500">
+                  Ván đấu không có nước đi để phân tích.
+                </p>
+              )}
+              {analysisStatus === "complete" && analysisRows.length > 0 && (
+                <p className="pt-3 text-center text-xs text-slate-500">
+                  Đã phân tích {analysisRows.length}/{moveHistory.length} nước.
+                </p>
+              )}
             </div>
           </div>
 
@@ -1438,6 +1739,23 @@ export function ChessArena({
                 <span className="mt-1 block text-xs leading-5 text-slate-400">
                   Xếp trước nhiều nước khi đang đến lượt đối thủ. Mỗi nước chỉ được
                   thực hiện nếu vẫn hợp lệ trên bàn cờ thực; có thể hủy cả hàng đợi.
+                </span>
+              </span>
+            </label>
+
+            <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-white/8 bg-slate-950/50 p-4">
+              <input
+                checked={showResultModal}
+                className="mt-1 size-4 accent-emerald-400"
+                onChange={(event) => updateResultModalSetting(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-bold text-white">
+                  Hiện thông báo kết quả
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-400">
+                  Tắt để không mở hộp kết quả phủ lên bàn cờ khi ván đấu kết thúc.
                 </span>
               </span>
             </label>

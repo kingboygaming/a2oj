@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+/public/chess-engine/stockfish-19-lite-single.js
+/public/chess-engine/stockfish-19-lite-single.wasm
+/public/chess-engine/Copying.txt
 /public/chess-engine/sf_19_smallnet.js
 /public/chess-engine/sf_19_smallnet.wasm
 /public/chess-engine/LICENSE
