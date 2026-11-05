@@ -21,6 +21,7 @@ import { Chessboard } from "react-chessboard";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -35,10 +36,31 @@ export type ChessArenaMove = {
   promotion?: string;
 };
 
+export type ChessArenaAction =
+  | { type: "move"; san: string }
+  | { type: "resign"; color: "w" | "b" }
+  | { type: "timeout"; color: "w" | "b" }
+  | { type: "draw-offer"; color: "w" | "b" }
+  | { type: "draw-cancel"; color: "w" | "b" }
+  | { type: "draw-accept" }
+  | { type: "new-game" };
+
+export type ChessArenaRemoteAction = {
+  id: string;
+  action: ChessArenaAction;
+};
+
 type ChessArenaProps = {
   whitePlayerName?: string;
   blackPlayerName?: string;
+  initialTimeSeconds?: number;
+  incrementSeconds?: number;
+  playerColor?: "w" | "b";
+  canPlay?: boolean;
+  clockRunning?: boolean;
+  remoteAction?: ChessArenaRemoteAction | null;
   onMove?: (move: ChessArenaMove) => void;
+  onGameAction?: (action: ChessArenaAction) => void;
 };
 
 type GameResult = {
@@ -55,7 +77,7 @@ type ChatMessage = {
   sender: "white" | "black";
 };
 
-const INITIAL_TIME_SECONDS = 5 * 60;
+const DEFAULT_TIME_SECONDS = 5 * 60;
 const QUICK_REACTIONS = ["👏", "🔥", "😮", "💪"];
 
 function isChessSquare(square: string): square is Square {
@@ -201,17 +223,28 @@ function ResultModal({
 export function ChessArena({
   whitePlayerName = "Người chơi 1",
   blackPlayerName = "Người chơi 2",
+  initialTimeSeconds = DEFAULT_TIME_SECONDS,
+  incrementSeconds = 0,
+  playerColor,
+  canPlay = true,
+  clockRunning = true,
+  remoteAction,
   onMove,
+  onGameAction,
 }: ChessArenaProps) {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
-  const [orientation, setOrientation] = useState<"white" | "black">("white");
-  const [whiteTime, setWhiteTime] = useState(INITIAL_TIME_SECONDS);
-  const [blackTime, setBlackTime] = useState(INITIAL_TIME_SECONDS);
+  const [orientation, setOrientation] = useState<"white" | "black">(
+    playerColor === "b" ? "black" : "white",
+  );
+  const [whiteTime, setWhiteTime] = useState(initialTimeSeconds);
+  const [blackTime, setBlackTime] = useState(initialTimeSeconds);
   const [manualResult, setManualResult] = useState<GameResult | null>(null);
   const [drawOffer, setDrawOffer] = useState<"w" | "b" | null>(null);
   const [activeTab, setActiveTab] = useState<PanelTab>("moves");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
+  const lastRemoteActionIdRef = useRef<string | null>(null);
+  const timeoutReportedRef = useRef(false);
 
   const game = useMemo(() => {
     const nextGame = new Chess();
@@ -266,7 +299,7 @@ export function ChessArena({
   }, [checkedKing, lastMove]);
 
   useEffect(() => {
-    if (result) return;
+    if (result || !clockRunning) return;
 
     const timer = window.setInterval(() => {
       const setClock = activeColor === "w" ? setWhiteTime : setBlackTime;
@@ -274,11 +307,97 @@ export function ChessArena({
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [activeColor, result]);
+  }, [activeColor, clockRunning, result]);
+
+  useEffect(() => {
+    if (
+      !playerColor ||
+      !clockRunning ||
+      manualResult ||
+      timeoutReportedRef.current
+    ) {
+      return;
+    }
+
+    const playerTime = playerColor === "w" ? whiteTime : blackTime;
+    if (playerTime === 0) {
+      timeoutReportedRef.current = true;
+      onGameAction?.({ type: "timeout", color: playerColor });
+    }
+  }, [blackTime, clockRunning, manualResult, onGameAction, playerColor, whiteTime]);
+
+  useEffect(() => {
+    if (!remoteAction || remoteAction.id === lastRemoteActionIdRef.current) return;
+    lastRemoteActionIdRef.current = remoteAction.id;
+
+    const timer = window.setTimeout(() => {
+      const action = remoteAction.action;
+      if (action.type === "move") {
+        try {
+          const nextGame = new Chess();
+          for (const san of moveHistory) nextGame.move(san);
+          const move = nextGame.move(action.san);
+          setMoveHistory(nextGame.history());
+          setManualResult(getGameResult(nextGame));
+          if (incrementSeconds > 0) {
+            (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
+              seconds + incrementSeconds,
+            );
+          }
+        } catch (error) {
+          console.error("Received an invalid remote chess move:", error);
+        }
+        return;
+      }
+
+      if (action.type === "resign" || action.type === "timeout") {
+        const winner = action.color === "w" ? "b" : "w";
+        setManualResult({
+          title: winner === "w" ? `${whitePlayerName} chiến thắng!` : `${blackPlayerName} chiến thắng!`,
+          description:
+            action.type === "timeout"
+              ? `${action.color === "w" ? whitePlayerName : blackPlayerName} đã hết thời gian.`
+              : `${action.color === "w" ? whitePlayerName : blackPlayerName} đã đầu hàng.`,
+          winner,
+        });
+      } else if (action.type === "draw-offer") {
+        setDrawOffer(action.color);
+      } else if (action.type === "draw-cancel") {
+        setDrawOffer((offer) => offer === action.color ? null : offer);
+      } else if (action.type === "draw-accept") {
+        setManualResult({
+          title: "Ván cờ hòa",
+          description: "Hai người chơi đã đồng ý hòa.",
+          winner: null,
+        });
+        setDrawOffer(null);
+      } else if (action.type === "new-game") {
+        setMoveHistory([]);
+        setWhiteTime(initialTimeSeconds);
+        setBlackTime(initialTimeSeconds);
+        setManualResult(null);
+        setDrawOffer(null);
+        setOrientation(playerColor === "b" ? "black" : "white");
+        timeoutReportedRef.current = false;
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    blackPlayerName,
+    initialTimeSeconds,
+    incrementSeconds,
+    moveHistory,
+    playerColor,
+    remoteAction,
+    whitePlayerName,
+  ]);
 
   function handlePieceDrop(sourceSquare: string, targetSquare: string | null) {
     if (
       result ||
+      !canPlay ||
+      (playerColor !== undefined && playerColor !== activeColor) ||
       !targetSquare ||
       !isChessSquare(sourceSquare) ||
       !isChessSquare(targetSquare)
@@ -300,7 +419,13 @@ export function ChessArena({
     });
 
     setMoveHistory(game.history());
+    if (incrementSeconds > 0) {
+      (move.color === "w" ? setWhiteTime : setBlackTime)((seconds) =>
+        seconds + incrementSeconds,
+      );
+    }
     setManualResult(getGameResult(game));
+    onGameAction?.({ type: "move", san: move.san });
     onMove?.({
       fen: game.fen(),
       san: move.san,
@@ -314,8 +439,10 @@ export function ChessArena({
   }
 
   function handleDrawAction() {
-    if (drawOffer === activeColor) {
+    const offeringColor = playerColor ?? activeColor;
+    if (drawOffer === offeringColor) {
       setDrawOffer(null);
+      onGameAction?.({ type: "draw-cancel", color: offeringColor });
       return;
     }
 
@@ -326,28 +453,34 @@ export function ChessArena({
         winner: null,
       });
       setDrawOffer(null);
+      onGameAction?.({ type: "draw-accept" });
       return;
     }
 
-    setDrawOffer(activeColor);
+    setDrawOffer(offeringColor);
+    onGameAction?.({ type: "draw-offer", color: offeringColor });
   }
 
   function handleResign() {
-    const winner = activeColor === "w" ? "b" : "w";
+    const resigningColor = playerColor ?? activeColor;
+    const winner = resigningColor === "w" ? "b" : "w";
     setManualResult({
       title: winner === "w" ? `${whitePlayerName} chiến thắng!` : `${blackPlayerName} chiến thắng!`,
-      description: `${activeColor === "w" ? whitePlayerName : blackPlayerName} đã đầu hàng.`,
+      description: `${resigningColor === "w" ? whitePlayerName : blackPlayerName} đã đầu hàng.`,
       winner,
     });
+    onGameAction?.({ type: "resign", color: resigningColor });
   }
 
   function handleNewGame() {
     setMoveHistory([]);
-    setWhiteTime(INITIAL_TIME_SECONDS);
-    setBlackTime(INITIAL_TIME_SECONDS);
+    setWhiteTime(initialTimeSeconds);
+    setBlackTime(initialTimeSeconds);
     setManualResult(null);
     setDrawOffer(null);
-    setOrientation("white");
+    setOrientation(playerColor === "b" ? "black" : "white");
+    timeoutReportedRef.current = false;
+    onGameAction?.({ type: "new-game" });
   }
 
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
@@ -387,11 +520,13 @@ export function ChessArena({
     showNotation: true,
     showAnimations: true,
     animationDurationInMs: 180,
-    allowDragging: !result,
+    allowDragging: !result && canPlay,
     canDragPiece: ({ square }: { square: string | null }) =>
       !result &&
+      canPlay &&
       square !== null &&
       isChessSquare(square) &&
+      (playerColor === undefined || playerColor === activeColor) &&
       game.get(square)?.color === activeColor,
     onPieceDrop: ({
       sourceSquare,
@@ -412,11 +547,16 @@ export function ChessArena({
   );
 
   const drawButtonLabel =
-    drawOffer === activeColor
+    drawOffer === (playerColor ?? activeColor)
       ? "Hủy lời xin hòa"
       : drawOffer
         ? "Chấp nhận hòa"
         : "Xin hòa";
+  const topPlayerColor = playerColor === "b" ? "w" : "b";
+  const topPlayerName = topPlayerColor === "w" ? whitePlayerName : blackPlayerName;
+  const bottomPlayerColor = topPlayerColor === "w" ? "b" : "w";
+  const bottomPlayerName =
+    bottomPlayerColor === "w" ? whitePlayerName : blackPlayerName;
 
   return (
     <section className="mx-auto w-full max-w-7xl text-slate-100">
@@ -430,23 +570,26 @@ export function ChessArena({
             Sẵn sàng khai cuộc?
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Cờ nhanh · 5 phút mỗi bên · Người chơi vs Người chơi
+            {formatTime(initialTimeSeconds)} mỗi bên
+            {incrementSeconds > 0 ? ` + ${incrementSeconds} giây/nước` : ""}
+            {" · "}
+            {playerColor ? "Đấu online" : "Người chơi vs Người chơi"}
           </p>
         </div>
         <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
           <span className="size-2 rounded-full bg-emerald-400" />
-          Ván đấu cục bộ
+          {playerColor ? "Ván đấu online" : "Ván đấu cục bộ"}
         </span>
       </div>
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.85fr)]">
         <div className="space-y-3">
           <PlayerCard
-            color="b"
-            isActive={activeColor === "b" && !result}
-            name={blackPlayerName}
-            rating="1,284"
-            seconds={blackTime}
+            color={topPlayerColor}
+            isActive={activeColor === topPlayerColor && !result}
+            name={topPlayerName}
+            rating={topPlayerColor === "w" ? "1,320" : "1,284"}
+            seconds={topPlayerColor === "w" ? whiteTime : blackTime}
           />
 
           <div className="relative rounded-2xl border border-white/8 bg-slate-900/65 p-2 shadow-2xl shadow-black/25 sm:p-3">
@@ -457,11 +600,11 @@ export function ChessArena({
           </div>
 
           <PlayerCard
-            color="w"
-            isActive={activeColor === "w" && !result}
-            name={whitePlayerName}
-            rating="1,320"
-            seconds={whiteTime}
+            color={bottomPlayerColor}
+            isActive={activeColor === bottomPlayerColor && !result}
+            name={bottomPlayerName}
+            rating={bottomPlayerColor === "w" ? "1,320" : "1,284"}
+            seconds={bottomPlayerColor === "w" ? whiteTime : blackTime}
           />
 
           {drawOffer && !result && (

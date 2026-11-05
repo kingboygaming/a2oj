@@ -47,6 +47,10 @@ Các migration production phải được lưu với tên cố định trong `pr
 
 Không chạy `prisma/seed.ts` trên production vì seed tạo tài khoản mẫu với mật khẩu công khai. Email xác minh chỉ hoạt động sau khi khai báo SMTP và `APP_URL` trong Vercel. Judge mặc định ở mock mode.
 
+## Chess Arena
+
+Trang `/chess` hỗ trợ chơi cục bộ, các mức thời gian 1+0, 3+2, 5+0 và 10+0, ghép ngẫu nhiên theo cùng mức thời gian, và phòng công khai. Chơi online cần bật Supabase Realtime và cấu hình `NEXT_PUBLIC_SUPABASE_URL` cùng `NEXT_PUBLIC_SUPABASE_ANON_KEY` (hoặc `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) trong môi trường local/Vercel. Phòng dùng Presence/Broadcast nên chỉ tồn tại khi chủ phòng còn kết nối; danh sách phòng không được lưu lâu dài.
+
 ### Bật Live IDE cho website trên Vercel
 
 Vercel không cung cấp Docker daemon để chạy code. Muốn bật Live IDE, cần một máy chủ riêng có Docker và chạy `docker/ide-runner/server.py`; ứng dụng Vercel gọi máy chủ đó qua HTTPS bằng chữ ký HMAC. Không mở cổng Docker hoặc cổng runner trực tiếp ra Internet.

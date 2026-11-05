@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ChessArena } from "@/components/ChessArena";
+import { ChessLobby } from "@/components/ChessLobby";
 
 export const metadata: Metadata = {
   title: "Chess Arena | A2OJ",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function ChessPage() {
-  return <ChessArena />;
+  return <ChessLobby />;
 }
