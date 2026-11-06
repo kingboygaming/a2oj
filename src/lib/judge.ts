@@ -930,6 +930,31 @@ async function executeOnWandbox(
   throw new Error("Không thể kết nối đến máy chủ chấm Wandbox.");
 }
 
+export async function runReferenceCodeOnWandbox(
+  language: Language,
+  source: string,
+  inputs: string[],
+  timeLimitMs: number,
+): Promise<string[]> {
+  if (inputs.length < 1 || inputs.length > 10) {
+    throw new Error("Số input phải từ 1 đến 10.");
+  }
+  const timeoutMs = Math.min(Math.max(timeLimitMs + 5000, 16000), 30_000);
+  const results = await Promise.all(
+    inputs.map((input) => executeOnWandbox(language, source, input, timeoutMs)),
+  );
+  const compileError = results.find((result) => result.compiler_error?.trim());
+  if (compileError) {
+    throw new Error((compileError.compiler_error || compileError.compiler_message || "Lời giải không biên dịch được.").slice(0, 2000));
+  }
+  const failed = results.find((result) => isInfrastructureError(result) || result.status !== "0");
+  if (failed) {
+    const details = failed.program_error || failed.program_message || failed.status || "Không chạy được lời giải.";
+    throw new Error(details.slice(0, 2000));
+  }
+  return results.map((result) => result.program_output ?? "");
+}
+
 async function gradeWithWandbox(
   language: Language,
   source: string,

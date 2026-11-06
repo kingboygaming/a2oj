@@ -188,6 +188,19 @@ Trang `/admin` và API duyệt đề đều kiểm tra role ở phía máy chủ
 - Trong `.env` local, `JUDGE_MODE=auto` sẽ biên dịch/chạy C++ hoặc Python trên máy phát triển.
 - Judge chạy chương trình với từng test case không phải sample trong database và so sánh output chuẩn hóa với đáp án đã lưu.
 - Live IDE có nút chạy thử với input tùy chỉnh hoặc chạy toàn bộ sample (tối đa 20 sample mỗi lượt). Khi bật `ENABLE_IDE_DOCKER_RUN="true"`, endpoint chạy trong Docker runner cô lập; cần đăng nhập, giới hạn 5 lượt/phút mỗi tài khoản, source tối đa 64 KB, input tùy chỉnh tối đa 16 KB và thời gian chạy tối đa 3 giây cho mỗi sample.
+- Trong form chỉnh sửa đề, ADMIN hoặc tác giả của đề chưa duyệt có thể sinh tối đa 10 input theo cấu hình JSON ngay trên trình duyệt. Có thể tải ZIP để chạy lời giải thủ công, hoặc gọi API chấm cloud Wandbox đang dùng làm dự phòng để tạo output tự động; không cần Docker. API miễn phí có thể giới hạn hoặc quá tải, và code sẽ được gửi tới dịch vụ này. Ví dụ:
+
+  ```json
+  {
+    "variables": [
+      { "name": "n", "type": "int", "min": 1, "max": 100 },
+      { "name": "a", "type": "intArray", "length": "n", "min": -1000, "max": 1000 }
+    ],
+    "template": "{n}\n{a}\n"
+  }
+  ```
+
+  Các kiểu biến gồm `int`, `string`, `intArray`, `intMatrix`; template quyết định thứ tự và định dạng dòng. Chế độ hỗn hợp sinh test biên min/max trước rồi đến ngẫu nhiên. Mỗi input/output tối đa 16 KB, số test mỗi lượt tối đa 10 và tối đa 3 lần gọi API mỗi phút cho mỗi tài khoản. Kết quả được xem trước trước khi thêm vào bộ test; hãy rà soát test trước khi lưu.
 - Code nháp trong Live IDE được tự lưu theo tài khoản, đề và ngôn ngữ trên trình duyệt; đổi ngôn ngữ sẽ khôi phục bản nháp riêng, và chỉ dùng code mẫu khi chưa có bản nháp.
 
 `JUDGE_MODE=auto` cho phần chấm bài nộp vẫn chạy trực tiếp trên tiến trình web, không phải sandbox; không dùng chế độ này cho người dùng không đáng tin cậy. Docker runner giúp cô lập Live IDE nhưng không thay thế cập nhật Docker/kernel thường xuyên hoặc bảo vệ tuyệt đối trước lỗ hổng container.

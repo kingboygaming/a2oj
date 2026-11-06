@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseTestCaseZip } from "@/lib/testcase-zip";
+import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
 
 type Case = {
   input: string;
@@ -554,6 +555,20 @@ export function ContributeForm({
             {importError}
           </p>
         )}
+        <TestGeneratorPanel
+          problemId={problem?.id}
+          onAddCases={(generated) => {
+            setCases((current) => [
+              ...current,
+              ...generated.map((testCase, index) => ({
+                ...testCase,
+                isSample: false,
+                points: 100,
+                name: `Test sinh ${current.length + index + 1}`,
+              })),
+            ]);
+          }}
+        />
         <div className="mt-2 space-y-3">
           {cases.map((c, i) => (
             <div key={i} className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-3">
