@@ -136,6 +136,21 @@ model WikiArticle {
   @@index([category, published])
 }
 
+model RoadmapStage {
+  id          String   @id @default(cuid())
+  sortOrder   Int
+  level       String
+  title       String
+  description String
+  topics      String
+  checkpoint  String
+  resources   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sortOrder])
+}
+
 model Achievement {
   id              String   @id @default(cuid())
   slug            String   @unique
