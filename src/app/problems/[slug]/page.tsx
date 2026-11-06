@@ -17,10 +17,11 @@ export default async function ProblemDetailPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ contest?: string }>;
+  searchParams: Promise<{ contest?: string; practice?: string }>;
 }) {
   const { slug } = await params;
-  const { contest } = await searchParams;
+  const { contest, practice: practiceParam } = await searchParams;
+  const practice = practiceParam === "1";
   const user = await getCurrentUser();
   const problem = await prisma.problem.findUnique({
     where: { slug },
@@ -39,6 +40,7 @@ export default async function ProblemDetailPage({
               title: true,
               authorId: true,
               startAt: true,
+              endAt: true,
               passwordHash: true,
               gachaAcRewardMin: true,
               gachaAcRewardMax: true,
@@ -68,6 +70,7 @@ export default async function ProblemDetailPage({
           title: true,
           authorId: true,
           startAt: true,
+          endAt: true,
           scoringMode: true,
           gachaAcRewardMin: true,
           gachaAcRewardMax: true,
@@ -93,6 +96,7 @@ export default async function ProblemDetailPage({
   if ((contest && !contestContext) || (problem.contestOnly && !contestContext && !staff)) {
     notFound();
   }
+  if (practice && (!contestContext || contestContext.endAt > new Date())) notFound();
 
   const accessContests = contestContext
     ? [contestContext]
@@ -101,7 +105,7 @@ export default async function ProblemDetailPage({
   for (const linkedContest of accessContests) {
     const organizer = user?.role === "ADMIN" || user?.id === linkedContest.authorId;
     const unlocked = organizer || await hasContestAccess(linkedContest.id, linkedContest.passwordHash);
-    if (!organizer && (!unlocked || new Date() < linkedContest.startAt)) {
+    if (!organizer && (!unlocked || (!practice && new Date() < linkedContest.startAt))) {
       blockedContest = linkedContest;
       break;
     }
@@ -110,7 +114,7 @@ export default async function ProblemDetailPage({
     return (
       <div className="max-w-3xl">
         <Link
-          href={`/contests/${blockedContest.slug}/problems`}
+          href={`/contests/${blockedContest.slug}/problems${practice ? "?practice=1" : ""}`}
           className="mb-4 inline-block text-sm font-medium text-[var(--teal)] hover:underline"
         >
           ← {blockedContest.title}
@@ -130,14 +134,14 @@ export default async function ProblemDetailPage({
 
   const samples = problem.testCases.filter((t) => t.isSample);
   const { items: recentSubmissions, total, page, totalPages } =
-    await getProblemSubmissionPage(problem.id, 1, 10, contestContext?.id ?? null);
+    await getProblemSubmissionPage(problem.id, 1, 10, practice ? null : contestContext?.id ?? null);
   const submissionRankColors = await getRankColorClasses(recentSubmissions.map((submission) => submission.user.id));
 
   const currentContestProblem = contestContext?.problems?.[0];
   const problemDisplayName = currentContestProblem?.customTitle || problem.title;
   const effectiveJudgeType = currentContestProblem?.judgeType || problem.judgeType || "STANDARD";
-  const effectiveScoringMode = contestContext?.scoringMode ?? problem.scoringMode;
-  const gachaRewardConfig = contestContext ?? problem;
+  const effectiveScoringMode = practice ? problem.scoringMode : contestContext?.scoringMode ?? problem.scoringMode;
+  const gachaRewardConfig = practice ? problem : contestContext ?? problem;
   const effectiveIoMode = currentContestProblem?.ioMode || problem.ioMode || "STDIO";
   const effectiveInputFile =
     effectiveIoMode === "FILE"
@@ -152,11 +156,16 @@ export default async function ProblemDetailPage({
     <div>
       {contestContext && (
         <Link
-          href={`/contests/${contestContext.slug}/problems`}
+          href={`/contests/${contestContext.slug}/problems${practice ? "?practice=1" : ""}`}
           className="mb-4 inline-block text-sm font-medium text-[var(--teal)] hover:underline"
         >
           ← {contestContext.title}
         </Link>
+      )}
+      {practice && (
+        <p className="mb-4 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 p-3 text-sm text-[var(--teal)]">
+          Practice Contest · bài nộp của bạn sẽ không ảnh hưởng bảng xếp hạng.
+        </p>
       )}
       {user?.role === "ADMIN" && (
         <PreviousPageButton fallbackHref="/admin" />
@@ -314,7 +323,8 @@ export default async function ProblemDetailPage({
           problemId={problem.id}
           userId={user?.id ?? ""}
           loggedIn={Boolean(user)}
-          contestId={contestContext?.id}
+          contestId={practice ? undefined : contestContext?.id}
+          practiceContestId={practice ? contestContext?.id : undefined}
           judgeType={effectiveJudgeType}
           ioMode={effectiveIoMode}
           inputFile={effectiveInputFile}
@@ -342,7 +352,7 @@ export default async function ProblemDetailPage({
           </div>
           {total > 10 && (
             <Link
-              href={`/problems/${problem.slug}/submissions${contestContext ? `?contest=${contestContext.slug}` : ""}`}
+              href={`/problems/${problem.slug}/submissions${practice ? "" : contestContext ? `?contest=${contestContext.slug}` : ""}`}
               className="text-sm font-medium text-[var(--teal)] hover:underline"
             >
               Xem tất cả →

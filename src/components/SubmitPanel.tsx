@@ -27,6 +27,7 @@ export function SubmitPanel({
   userId,
   loggedIn,
   contestId,
+  practiceContestId,
   samples,
   judgeType,
   ioMode,
@@ -37,6 +38,7 @@ export function SubmitPanel({
   userId: string;
   loggedIn: boolean;
   contestId?: string;
+  practiceContestId?: string;
   samples: Sample[];
   judgeType?: string | null;
   ioMode?: string | null;
@@ -197,7 +199,7 @@ export function SubmitPanel({
       const res = await fetch("/api/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ problemId, language, source, contestId }),
+        body: JSON.stringify({ problemId, language, source, contestId, practiceContestId }),
       });
       const data = await res.json();
       if (!res.ok) {

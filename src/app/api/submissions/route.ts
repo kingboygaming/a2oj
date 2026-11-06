@@ -19,6 +19,7 @@ const schema = z.object({
   language: z.enum(["CPP", "PYTHON"]),
   source: z.string().min(1).max(64_000),
   contestId: z.string().optional(),
+  practiceContestId: z.string().optional(),
 });
 
 export async function GET() {
@@ -57,7 +58,11 @@ export async function POST(request: Request) {
   if (!problem || !problem.published) {
     return NextResponse.json({ error: "Không nộp được bài này." }, { status: 404 });
   }
-  if (problem.contestOnly && !parsed.data.contestId) {
+  if (parsed.data.contestId && parsed.data.practiceContestId) {
+    return NextResponse.json({ error: "Không thể vừa thi vừa luyện tập trong cùng một lượt nộp." }, { status: 400 });
+  }
+  const submissionContestId = parsed.data.contestId ?? parsed.data.practiceContestId;
+  if (problem.contestOnly && !submissionContestId) {
     return NextResponse.json(
       { error: "Bài này chỉ được nộp trong contest." },
       { status: 400 },
@@ -71,9 +76,9 @@ export async function POST(request: Request) {
     outputFile?: string | null;
     judgeType?: string | null;
   } | null = null;
-  if (parsed.data.contestId) {
+  if (submissionContestId) {
     const contest = await prisma.contest.findUnique({
-      where: { id: parsed.data.contestId },
+      where: { id: submissionContestId },
       include: {
         problems: {
           where: { problemId: problem.id },
@@ -95,13 +100,19 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
-    if (!contest.registrations.length) {
+    if (parsed.data.practiceContestId && now < contest.endAt) {
+      return NextResponse.json(
+        { error: "Chỉ có thể luyện tập sau khi contest kết thúc." },
+        { status: 400 },
+      );
+    }
+    if (parsed.data.contestId && !contest.registrations.length) {
       return NextResponse.json(
         { error: "Bạn cần đăng ký contest trước khi nộp bài." },
         { status: 403 },
       );
     }
-    if (now < contest.startAt || now > contest.endAt) {
+    if (parsed.data.contestId && (now < contest.startAt || now > contest.endAt)) {
       return NextResponse.json(
         { error: "Contest chưa bắt đầu hoặc đã kết thúc." },
         { status: 400 },
@@ -109,7 +120,7 @@ export async function POST(request: Request) {
     }
     const cp = contest.problems[0];
     contestConfig = {
-      testLimit: contest.testLimit,
+      testLimit: parsed.data.practiceContestId ? 0 : contest.testLimit,
       ioMode: cp.ioMode,
       inputFile: cp.inputFile,
       outputFile: cp.outputFile,
@@ -117,7 +128,7 @@ export async function POST(request: Request) {
     };
   }
 
-  if (process.env.VERCEL === "1" && isSubmissionQueueConfigured()) {
+  if (process.env.VERCEL === "1" && isSubmissionQueueConfigured() && !parsed.data.practiceContestId) {
     const queued = await prisma.submission.create({
       data: {
         userId: user.id,

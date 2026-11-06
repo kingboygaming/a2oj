@@ -12,19 +12,25 @@ const TABS: { id: ContestTab; label: string; path: string }[] = [
 export function ContestNavigation({
   slug,
   active,
+  practice = false,
 }: {
   slug: string;
   active: ContestTab;
+  practice?: boolean;
 }) {
+  const tabs = practice
+    ? TABS.filter((tab) => tab.id === "overview" || tab.id === "problems")
+    : TABS;
+
   return (
     <nav
       aria-label="Điều hướng contest"
       className="mt-5 flex flex-wrap gap-1 border-b border-[var(--line)]"
     >
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <Link
           key={tab.id}
-          href={`/contests/${slug}${tab.path}`}
+          href={`/contests/${slug}${tab.path}${practice ? "?practice=1" : ""}`}
           prefetch={true}
           aria-current={active === tab.id ? "page" : undefined}
           className={`rounded-t-md px-4 py-2 text-sm font-medium ${

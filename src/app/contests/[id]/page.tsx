@@ -13,10 +13,13 @@ export const dynamic = "force-dynamic";
 
 export default async function ContestDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ practice?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, { practice: practiceParam }] = await Promise.all([params, searchParams]);
+  const practice = practiceParam === "1";
   const user = await getCurrentUser();
   const contest = await prisma.contest.findFirst({
     where: { OR: [{ slug: id }, { id }] },
@@ -32,6 +35,7 @@ export default async function ContestDetailPage({
     },
   });
   if (!contest) notFound();
+  if (practice && contest.endAt > new Date()) notFound();
 
   const joined = user
     ? contest.registrations.some((r) => r.userId === user.id)
@@ -59,7 +63,12 @@ export default async function ContestDetailPage({
         </div>
         <ContestCountdownBadge startAt={contest.startAt} endAt={contest.endAt} />
       </div>
-      <ContestNavigation slug={contest.slug} active="overview" />
+      <ContestNavigation slug={contest.slug} active="overview" practice={practice} />
+      {practice && (
+        <p className="mt-4 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 p-3 text-sm text-[var(--teal)]">
+          Đang ở chế độ Practice: bài nộp không tính vào bảng xếp hạng contest.
+        </p>
+      )}
       <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">{contest.description}</p>
       <p className="mt-2 text-xs text-[var(--muted)]">
         {contest.startAt.toLocaleString("vi-VN")} → {contest.endAt.toLocaleString("vi-VN")}
@@ -67,13 +76,23 @@ export default async function ContestDetailPage({
       <p className="mt-2 inline-flex rounded-md border border-[var(--line)] bg-[var(--paper)] px-2.5 py-1 text-xs text-[var(--muted)]">
         Chế độ chấm: {contest.scoringMode === "VNOI" ? "VNOI · điểm từng test" : "ICPC · AC và penalty"}
       </p>
-      <p className="mt-2 inline-flex rounded-md border border-amber-300/40 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
-        🎟 AC {contest.gachaAcRewardMin}–{contest.gachaAcRewardMax} · PAC {contest.gachaPacRewardMin}–{contest.gachaPacRewardMax} lượt
-        {contest.specialGachaCard && ` · ${contest.specialGachaCard.name} ${contest.specialGachaDropRate}%`}
-      </p>
+      {!practice && (
+        <p className="mt-2 inline-flex rounded-md border border-amber-300/40 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
+          🎟 AC {contest.gachaAcRewardMin}–{contest.gachaAcRewardMax} · PAC {contest.gachaPacRewardMin}–{contest.gachaPacRewardMax} lượt
+          {contest.specialGachaCard && ` · ${contest.specialGachaCard.name} ${contest.specialGachaDropRate}%`}
+        </p>
+      )}
 
       {contest.passwordHash && !passwordUnlocked && (
         <ContestPasswordForm contestId={contest.id} />
+      )}
+      {!practice && contest.endAt <= new Date() && (
+        <Link
+          href={`/contests/${contest.slug}?practice=1`}
+          className="mt-4 inline-flex rounded-md bg-[var(--teal)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        >
+          Luyện tập contest này
+        </Link>
       )}
 
       {isOrganizer && (
@@ -104,12 +123,13 @@ export default async function ContestDetailPage({
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        {user && (
+        {user && !practice && (
           <RegisterContestButton contestId={contest.id} joined={joined} />
         )}
         <span className="text-sm text-[var(--muted)]">
-          {contest.problems.length} bài · {contest.registrations.length} thí sinh
-          {user && ` · Đã AC ${acceptedProblemIds.size}/${contest.problems.length} bài`}
+          {contest.problems.length} bài
+          {!practice && ` · ${contest.registrations.length} thí sinh`}
+          {!practice && user && ` · Đã AC ${acceptedProblemIds.size}/${contest.problems.length} bài`}
         </span>
       </div>
       <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
@@ -122,7 +142,7 @@ export default async function ContestDetailPage({
           <p className="mt-2 text-sm text-[var(--muted)]">Nhập mật khẩu contest để mở đề bài.</p>
         ) : (
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Mở mục <Link href={`/contests/${contest.slug}/problems`} className="text-[var(--teal)] hover:underline">Đề bài</Link> để xem các bài và bắt đầu nộp lời giải.
+            Mở mục <Link href={`/contests/${contest.slug}/problems${practice ? "?practice=1" : ""}`} className="text-[var(--teal)] hover:underline">Đề bài</Link> để xem các bài và bắt đầu nộp lời giải.
           </p>
         )}
       </div>

@@ -45,6 +45,14 @@ export default async function ContestsPage() {
           </Link>
         )}
       </div>
+      <Link
+        href="/contests/practice"
+        className="mt-4 inline-flex items-center gap-2 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 px-4 py-2.5 text-sm font-medium text-[var(--teal)] transition hover:bg-[var(--teal)]/15"
+      >
+        <span aria-hidden="true">⌁</span>
+        Practice Contest
+        <span className="text-xs font-normal text-[var(--muted)]">Luyện lại contest đã kết thúc</span>
+      </Link>
 
       <div className="mt-6 space-y-4">
         {contests.map((c) => (

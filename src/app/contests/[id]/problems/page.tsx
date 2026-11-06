@@ -11,10 +11,13 @@ export const dynamic = "force-dynamic";
 
 export default async function ContestProblemsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ practice?: string }>;
 }) {
-  const [{ id }, user] = await Promise.all([params, getCurrentUser()]);
+  const [{ id }, { practice: practiceParam }, user] = await Promise.all([params, searchParams, getCurrentUser()]);
+  const practice = practiceParam === "1";
   const contest = await prisma.contest.findFirst({
     where: { OR: [{ slug: id }, { id }] },
     include: {
@@ -39,16 +42,17 @@ export default async function ContestProblemsPage({
     },
   });
   if (!contest) notFound();
+  if (practice && contest.endAt > new Date()) notFound();
 
   const isOrganizer = user?.role === "ADMIN" || user?.id === contest.authorId;
   const passwordUnlocked = isOrganizer || await hasContestAccess(contest.id, contest.passwordHash);
-  const beforeStart = new Date() < contest.startAt;
+  const beforeStart = !practice && new Date() < contest.startAt;
   if ((!passwordUnlocked || beforeStart) && !isOrganizer) {
     return (
       <div>
         <p className="text-sm text-[var(--teal)]">Contest</p>
         <h1 className="text-2xl font-semibold text-[var(--navy)]">{contest.title}</h1>
-        <ContestNavigation slug={contest.slug} active="problems" />
+        <ContestNavigation slug={contest.slug} active="problems" practice={practice} />
         {contest.passwordHash && !passwordUnlocked && <ContestPasswordForm contestId={contest.id} />}
         {beforeStart && (
           <p className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 text-sm text-[var(--muted)]">
@@ -74,8 +78,13 @@ export default async function ContestProblemsPage({
     <div>
       <p className="text-sm text-[var(--teal)]">Contest</p>
       <h1 className="text-2xl font-semibold text-[var(--navy)]">{contest.title}</h1>
-      <ContestNavigation slug={contest.slug} active="problems" />
-      {user && (
+      <ContestNavigation slug={contest.slug} active="problems" practice={practice} />
+      {practice && (
+        <p className="mt-4 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 p-3 text-sm text-[var(--teal)]">
+          Chế độ Practice · bài nộp được chấm độc lập, không ảnh hưởng bảng xếp hạng.
+        </p>
+      )}
+      {user && !practice && (
         <p className="mt-4 text-sm text-[var(--muted)]">
           Đã AC {acceptedProblemIds.size}/{contest.problems.length} bài trong contest này.
         </p>
@@ -93,7 +102,7 @@ export default async function ContestProblemsPage({
               <th className="px-3 py-2">Bài</th>
               <th className="px-3 py-2">Độ khó</th>
               <th className="px-3 py-2">Điểm</th>
-              {user && <th className="px-3 py-2">Trạng thái</th>}
+              {user && !practice && <th className="px-3 py-2">Trạng thái</th>}
             </tr>
           </thead>
           <tbody>
@@ -122,7 +131,7 @@ export default async function ContestProblemsPage({
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
-                        href={`/problems/${contestProblem.problem.slug}?contest=${contest.id}`}
+                        href={`/problems/${contestProblem.problem.slug}?contest=${contest.id}${practice ? "&practice=1" : ""}`}
                         className="font-medium text-[var(--teal)] hover:underline"
                       >
                         {displayName}
@@ -153,7 +162,7 @@ export default async function ContestProblemsPage({
                     <DifficultyBadge difficulty={contestProblem.problem.difficulty} />
                   </td>
                   <td className="px-3 py-3">{contestProblem.points}</td>
-                  {user && (
+                  {user && !practice && (
                     <td className="px-3 py-3">
                       {accepted ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">✓ AC</span>
@@ -168,7 +177,7 @@ export default async function ContestProblemsPage({
             {contest.problems.length === 0 && (
               <tr>
                 <td
-                  colSpan={user ? 5 : 4}
+                  colSpan={user && !practice ? 5 : 4}
                   className="px-3 py-8 text-center text-sm text-[var(--muted)]"
                 >
                   Contest chưa có đề bài.
