@@ -83,7 +83,15 @@ export function RoadmapStageForm({
           <input required name="sortOrder" type="number" min={1} max={999} defaultValue={stage?.sortOrder ?? initialSortOrder} className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-3 py-2" />
         </label>
         <label className="text-sm font-medium">Cấp độ
-          <input required name="level" maxLength={60} defaultValue={stage?.level} className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-3 py-2" />
+          <select required name="level" defaultValue={
+            stage?.level.toLocaleLowerCase("vi").includes("nâng cao") ? "Nâng cao"
+              : stage?.level.toLocaleLowerCase("vi").includes("trung cấp") ? "Trung cấp"
+                : "Cơ bản"
+          } className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
+            <option value="Cơ bản">Cơ bản</option>
+            <option value="Trung cấp">Trung cấp</option>
+            <option value="Nâng cao">Nâng cao</option>
+          </select>
         </label>
       </div>
       <label className="block text-sm font-medium">Tên chặng

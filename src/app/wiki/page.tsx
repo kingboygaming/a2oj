@@ -19,7 +19,7 @@ export default async function WikiPage() {
         <div>
           <p className="text-xs font-semibold tracking-wide text-[var(--teal)]">LỘ TRÌNH HỌC</p>
           <h2 className="mt-1 text-xl font-semibold text-[var(--navy)]">Học thuật toán từ cơ bản đến nâng cao</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">Khám phá sáu chặng học gợi ý, kèm chủ đề, mốc tự kiểm tra và tài liệu tham khảo.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">Khám phá các cấp độ học, kèm chủ đề, mốc tự kiểm tra và tài liệu tham khảo.</p>
         </div>
         <span aria-hidden="true" className="text-lg text-[var(--teal)]">→</span>
       </div>
