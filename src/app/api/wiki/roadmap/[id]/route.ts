@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getRoadmapTrack } from "@/lib/roadmap-progress";
+import { roadmapDescendantIds } from "@/lib/roadmap-tree";
 
 const schema = z.object({
   sortOrder: z.coerce.number().int().min(1).max(999),
+  parentId: z.string().trim().min(1).nullable(),
   level: z.string().trim().min(1).max(60),
   title: z.string().trim().min(2).max(160),
   description: z.string().trim().min(5).max(500),
@@ -27,6 +30,50 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Thông tin chặng học chưa hợp lệ." }, { status: 400 });
+  }
+
+  if (parsed.data.parentId) {
+    const stages = await prisma.roadmapStage.findMany({ select: { id: true, parentId: true, sortOrder: true, createdAt: true } });
+    const parent = await prisma.roadmapStage.findUnique({
+      where: { id: parsed.data.parentId },
+      select: { id: true, parentId: true, level: true },
+    });
+    const [currentStage, childStages] = await Promise.all([
+      prisma.roadmapStage.findUnique({
+        where: { id },
+        select: { id: true, parentId: true },
+      }),
+      prisma.roadmapStage.findMany({ where: { parentId: id }, select: { id: true } }),
+    ]);
+    if (!currentStage) {
+      return NextResponse.json({ error: "Không tìm thấy chặng học." }, { status: 404 });
+    }
+    if (parsed.data.parentId === id || roadmapDescendantIds(stages, id).has(parsed.data.parentId)) {
+      return NextResponse.json({ error: "Không thể chọn chính chặng này hoặc nhánh con làm chặng cha." }, { status: 400 });
+    }
+    if (!parent || parent.parentId) {
+      return NextResponse.json({ error: "Chỉ có thể chọn một chặng lớn làm chặng cha." }, { status: 400 });
+    }
+    if (getRoadmapTrack(parent.level) !== getRoadmapTrack(parsed.data.level)) {
+      return NextResponse.json({ error: "Nhánh con phải thuộc cùng cấp độ với chặng lớn." }, { status: 400 });
+    }
+    if (currentStage.parentId === null && childStages.length > 0) {
+      return NextResponse.json({ error: "Hãy chuyển các nhánh con trước khi biến chặng lớn thành nhánh con." }, { status: 400 });
+    }
+  }
+
+  const currentStage = await prisma.roadmapStage.findUnique({
+    where: { id },
+    select: { parentId: true },
+  });
+  if (!currentStage) {
+    return NextResponse.json({ error: "Không tìm thấy chặng học." }, { status: 404 });
+  }
+  if (currentStage.parentId === null) {
+    const children = await prisma.roadmapStage.findMany({ where: { parentId: id }, select: { level: true } });
+    if (children.some((child) => getRoadmapTrack(child.level) !== getRoadmapTrack(parsed.data.level))) {
+      return NextResponse.json({ error: "Chặng lớn phải giữ cùng cấp độ với các nhánh con." }, { status: 400 });
+    }
   }
 
   const result = await prisma.roadmapStage.updateMany({

@@ -459,6 +459,84 @@ body {
   color: var(--roadmap-cyan);
 }
 
+.roadmap-subbranches {
+  margin-top: 18px;
+  padding: 14px 0 0 16px;
+  border-top: 1px solid var(--line);
+  border-left: 2px solid rgb(108 140 255 / 28%);
+}
+
+.roadmap-subbranches h4 {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .65px;
+  text-transform: uppercase;
+}
+
+.roadmap-subbranches ol {
+  display: grid;
+  gap: 5px;
+}
+
+.roadmap-subbranch-link {
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--muted);
+  transition: border-color .2s ease, background-color .2s ease, color .2s ease;
+}
+
+.roadmap-subbranch-link:hover {
+  border-color: rgb(108 140 255 / 28%);
+  background: rgb(108 140 255 / 8%);
+  color: var(--navy);
+}
+
+.roadmap-subbranch-number {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 27px;
+  border-radius: 8px;
+  background: rgb(108 140 255 / 12%);
+  color: var(--roadmap-accent-soft);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.roadmap-subbranch-number.done {
+  background: rgb(52 211 153 / 12%);
+  color: var(--roadmap-green);
+}
+
+.roadmap-subbranch-link strong {
+  display: block;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.roadmap-subbranch-link small {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.roadmap-subbranch-arrow {
+  color: var(--roadmap-accent-soft);
+}
+
 .roadmap-step.done .roadmap-tags span {
   border-color: rgb(52 211 153 / 25%);
   background: rgb(52 211 153 / 10%);
@@ -627,6 +705,17 @@ body {
 .roadmap-sidebar-group ol {
   display: grid;
   gap: 3px;
+}
+
+.roadmap-sidebar-children {
+  margin: 2px 0 6px 12px;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.roadmap-sidebar-child {
+  grid-template-columns: 31px minmax(0, 1fr);
+  font-size: 11px;
 }
 
 .roadmap-sidebar-item {

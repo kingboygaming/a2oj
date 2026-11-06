@@ -15,11 +15,13 @@ export default async function RoadmapPage() {
     getCurrentUser(),
     prisma.roadmapStage.findMany({
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { id: true, level: true, title: true, description: true, topics: true, checkpoint: true, resources: true },
+      select: { id: true, parentId: true, sortOrder: true, level: true, title: true, description: true, topics: true, checkpoint: true, resources: true },
     }),
   ]);
   const stages = savedStages.map((stage) => ({
     id: stage.id,
+    parentId: stage.parentId,
+    sortOrder: stage.sortOrder,
     level: stage.level,
     title: stage.title,
     description: stage.description,

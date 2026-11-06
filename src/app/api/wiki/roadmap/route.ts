@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getRoadmapTrack } from "@/lib/roadmap-progress";
 
 const schema = z.object({
   sortOrder: z.coerce.number().int().min(1).max(999),
+  parentId: z.string().trim().min(1).nullable(),
   level: z.string().trim().min(1).max(60),
   title: z.string().trim().min(2).max(160),
   description: z.string().trim().min(5).max(500),
@@ -26,6 +28,19 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Thông tin chặng học chưa hợp lệ." }, { status: 400 });
+  }
+
+  if (parsed.data.parentId) {
+    const parent = await prisma.roadmapStage.findUnique({
+      where: { id: parsed.data.parentId },
+      select: { id: true, parentId: true, level: true },
+    });
+    if (!parent || parent.parentId) {
+      return NextResponse.json({ error: "Chỉ có thể thêm nhánh con bên dưới một chặng lớn." }, { status: 400 });
+    }
+    if (getRoadmapTrack(parent.level) !== getRoadmapTrack(parsed.data.level)) {
+      return NextResponse.json({ error: "Nhánh con phải thuộc cùng cấp độ với chặng lớn." }, { status: 400 });
+    }
   }
 
   const stage = await prisma.roadmapStage.create({

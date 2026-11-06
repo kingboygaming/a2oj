@@ -139,6 +139,7 @@ model WikiArticle {
 model RoadmapStage {
   id          String   @id @default(cuid())
   sortOrder   Int
+  parentId    String?
   level       String
   title       String
   description String
@@ -148,8 +149,11 @@ model RoadmapStage {
   resources   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  parent      RoadmapStage?  @relation("RoadmapBranches", fields: [parentId], references: [id], onDelete: Cascade)
+  children    RoadmapStage[] @relation("RoadmapBranches")
 
   @@index([sortOrder])
+  @@index([parentId, sortOrder])
 }
 
 model Achievement {

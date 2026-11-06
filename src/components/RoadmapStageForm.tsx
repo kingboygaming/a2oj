@@ -3,10 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { RoadmapResource } from "@/lib/roadmap-defaults";
+import { getRoadmapTrack } from "@/lib/roadmap-progress";
 
 export type RoadmapStageFormData = {
   id: string;
   sortOrder: number;
+  parentId: string | null;
   level: string;
   title: string;
   description: string;
@@ -18,10 +20,18 @@ export type RoadmapStageFormData = {
 
 export function RoadmapStageForm({
   stage,
+  parents,
   initialSortOrder = 1,
+  initialParentId = "",
+  initialLevel = "Cơ bản",
+  allowParentSelection = true,
 }: {
   stage?: RoadmapStageFormData;
+  parents: { id: string; title: string; level: string }[];
   initialSortOrder?: number;
+  initialParentId?: string;
+  initialLevel?: string;
+  allowParentSelection?: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState("");
@@ -49,6 +59,7 @@ export function RoadmapStageForm({
     });
     const payload = {
       sortOrder: Number(form.get("sortOrder")),
+      parentId: String(form.get("parentId") ?? "") || null,
       level: form.get("level"),
       title: form.get("title"),
       description: form.get("description"),
@@ -85,15 +96,46 @@ export function RoadmapStageForm({
           <input required name="sortOrder" type="number" min={1} max={999} defaultValue={stage?.sortOrder ?? initialSortOrder} className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-3 py-2" />
         </label>
         <label className="text-sm font-medium">Cấp độ
-          <select required name="level" defaultValue={
-            stage?.level.toLocaleLowerCase("vi").includes("nâng cao") ? "Nâng cao"
-              : stage?.level.toLocaleLowerCase("vi").includes("trung cấp") ? "Trung cấp"
-                : "Cơ bản"
-          } className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
+          <select required name="level" defaultValue={(() => {
+            const level = stage?.level ?? initialLevel;
+            const track = getRoadmapTrack(level);
+            return track === "advanced" ? "Nâng cao" : track === "intermediate" ? "Trung cấp" : "Cơ bản";
+          })()} className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2">
             <option value="Cơ bản">Cơ bản</option>
             <option value="Trung cấp">Trung cấp</option>
             <option value="Nâng cao">Nâng cao</option>
           </select>
+        </label>
+        <label className="text-sm font-medium">Nhánh lớn
+          <select
+            name="parentId"
+            defaultValue={stage?.parentId ?? initialParentId}
+            disabled={!allowParentSelection}
+            onChange={(event) => {
+              const parentTrack = event.currentTarget.selectedOptions[0]?.dataset.track;
+              const levelSelect = event.currentTarget.form?.elements.namedItem("level");
+              if (parentTrack && levelSelect instanceof HTMLSelectElement) {
+                levelSelect.value = parentTrack;
+              }
+            }}
+            className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 disabled:opacity-60"
+          >
+            <option value="">Chặng lớn (không có chặng cha)</option>
+            {parents.map((parent) => (
+              <option
+                key={parent.id}
+                value={parent.id}
+                data-track={
+                  getRoadmapTrack(parent.level) === "advanced" ? "Nâng cao"
+                    : getRoadmapTrack(parent.level) === "intermediate" ? "Trung cấp"
+                      : "Cơ bản"
+                }
+              >
+                {parent.title} · {parent.level}
+              </option>
+            ))}
+          </select>
+          {!allowParentSelection && <span className="mt-1 block text-xs text-[var(--muted)]">Chặng này đang có nhánh con; hãy chuyển nhánh con trước khi đổi cấp.</span>}
         </label>
       </div>
       <label className="block text-sm font-medium">Tên chặng

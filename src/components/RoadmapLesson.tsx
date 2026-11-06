@@ -14,6 +14,7 @@ import {
 
 type LessonStage = {
   id: string;
+  parentId: string | null;
   sortOrder: number;
   level: string;
   title: string;
@@ -66,6 +67,7 @@ export function RoadmapLesson({
     () => stages.filter((item) => getRoadmapTrack(item.level) === track),
     [stages, track],
   );
+  const trackIndex = trackStages.findIndex((item) => item.id === stage.id);
   const completedIds = progress[track];
   const completedInTrack = completedIds.filter((id) => trackStages.some((item) => item.id === id)).length;
   const nextStage = stages[currentIndex + 1];
@@ -94,7 +96,7 @@ export function RoadmapLesson({
           <Link href="/wiki/roadmap" className="roadmap-back-link">← Tất cả lộ trình</Link>
           <div className="roadmap-study-heading">
             <div>
-              <p className="roadmap-study-eyebrow">{trackNames[track]} · Bước {currentIndex + 1} / {stages.length}</p>
+              <p className="roadmap-study-eyebrow">{trackNames[track]} · Bước {trackIndex + 1} / {trackStages.length}</p>
               <h1>{stage.title}</h1>
               <p className="roadmap-study-description">{stage.description}</p>
             </div>
@@ -116,7 +118,7 @@ export function RoadmapLesson({
               <span>{completedInTrack}/{trackStages.length}</span>
             </div>
             {(["basic", "intermediate", "advanced"] as const).map((trackId) => {
-              const items = stages.filter((item) => getRoadmapTrack(item.level) === trackId);
+              const items = stages.filter((item) => !item.parentId && getRoadmapTrack(item.level) === trackId);
               if (!items.length) return null;
               return (
                 <section key={trackId} className="roadmap-sidebar-group">
@@ -124,6 +126,8 @@ export function RoadmapLesson({
                   <ol>
                     {items.map((item) => {
                       const done = progress[trackId].includes(item.id);
+                      const itemIndex = items.indexOf(item);
+                      const children = stages.filter((child) => child.parentId === item.id);
                       return (
                         <li key={item.id}>
                           <Link
@@ -131,9 +135,28 @@ export function RoadmapLesson({
                             aria-current={item.id === stage.id ? "page" : undefined}
                             className={`roadmap-sidebar-item${item.id === stage.id ? " active" : ""}${done ? " done" : ""}`}
                           >
-                            <span className="roadmap-sidebar-number">{done ? "✓" : stages.indexOf(item) + 1}</span>
+                            <span className="roadmap-sidebar-number">{done ? "✓" : itemIndex + 1}</span>
                             <span>{item.title}</span>
                           </Link>
+                          {children.length > 0 && (
+                            <ol className="roadmap-sidebar-children">
+                              {children.map((child) => {
+                                const childDone = progress[trackId].includes(child.id);
+                                return (
+                                  <li key={child.id}>
+                                    <Link
+                                      href={`/wiki/roadmap/${child.id}`}
+                                      aria-current={child.id === stage.id ? "page" : undefined}
+                                      className={`roadmap-sidebar-item roadmap-sidebar-child${child.id === stage.id ? " active" : ""}${childDone ? " done" : ""}`}
+                                    >
+                                      <span className="roadmap-sidebar-number">{childDone ? "✓" : `${itemIndex + 1}.${children.indexOf(child) + 1}`}</span>
+                                      <span>{child.title}</span>
+                                    </Link>
+                                  </li>
+                                );
+                              })}
+                            </ol>
+                          )}
                         </li>
                       );
                     })}

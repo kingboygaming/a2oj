@@ -9,7 +9,15 @@ export default async function EditRoadmapStagePage({ params }: { params: Promise
   if (user?.role !== "ADMIN") notFound();
 
   const { id } = await params;
-  const stage = await prisma.roadmapStage.findUnique({ where: { id } });
+  const [stage, parents, childCount] = await Promise.all([
+    prisma.roadmapStage.findUnique({ where: { id } }),
+    prisma.roadmapStage.findMany({
+      where: { parentId: null, NOT: { id } },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { id: true, title: true, level: true },
+    }),
+    prisma.roadmapStage.count({ where: { parentId: id } }),
+  ]);
   if (!stage) notFound();
 
   return (
@@ -23,7 +31,7 @@ export default async function EditRoadmapStagePage({ params }: { params: Promise
         ...stage,
         topics: JSON.parse(stage.topics) as string[],
         resources: JSON.parse(stage.resources) as { label: string; href: string }[],
-      }} />
+      }} parents={parents} allowParentSelection={childCount === 0} />
     </div>
   );
 }

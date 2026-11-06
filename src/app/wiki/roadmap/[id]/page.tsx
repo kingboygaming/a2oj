@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { RoadmapLesson } from "@/components/RoadmapLesson";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { orderRoadmapStages } from "@/lib/roadmap-tree";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -18,7 +19,9 @@ export default async function RoadmapLessonPage({ params }: { params: Promise<{ 
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
+        parentId: true,
         sortOrder: true,
+        createdAt: true,
         level: true,
         title: true,
         description: true,
@@ -30,9 +33,11 @@ export default async function RoadmapLessonPage({ params }: { params: Promise<{ 
   ]);
   if (!currentStage) notFound();
 
-  const lessonStages = stages.map((stage) => ({
+  const lessonStages = orderRoadmapStages(stages).map((stage) => ({
     id: stage.id,
+    parentId: stage.parentId,
     sortOrder: stage.sortOrder,
+    createdAt: stage.createdAt,
     level: stage.level,
     title: stage.title,
     description: stage.description,

@@ -13,6 +13,8 @@ import {
 
 type RoadmapStage = {
   id: string;
+  parentId: string | null;
+  sortOrder: number;
   level: string;
   title: string;
   description: string;
@@ -68,12 +70,13 @@ export function RoadmapView({
   const progress = parseRoadmapProgress(storedProgress) ?? completedByTrack;
 
   const visibleStages = useMemo(
-    () => stages.filter((stage) => getRoadmapTrack(stage.level) === currentTrack),
+    () => stages.filter((stage) => !stage.parentId && getRoadmapTrack(stage.level) === currentTrack),
     [currentTrack, stages],
   );
+  const allTrackStages = stages.filter((stage) => getRoadmapTrack(stage.level) === currentTrack);
   const completedIds = progress[currentTrack];
-  const completedCount = completedIds.filter((id) => visibleStages.some((stage) => stage.id === id)).length;
-  const totalCount = visibleStages.length;
+  const completedCount = completedIds.filter((id) => allTrackStages.some((stage) => stage.id === id)).length;
+  const totalCount = allTrackStages.length;
   const percentage = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
   const track = tracks.find((item) => item.id === currentTrack) ?? tracks[0];
 
@@ -202,8 +205,32 @@ export function RoadmapView({
                     {stage.topics.map((topic) => <span key={topic}>{topic}</span>)}
                   </div>
                   <Link href={`/wiki/roadmap/${stage.id}`} className="roadmap-start-lesson">
-                    Bắt đầu học chặng này <span aria-hidden="true">→</span>
+                    Học nội dung chính <span aria-hidden="true">→</span>
                   </Link>
+                  {stages.some((item) => item.parentId === stage.id) && (
+                    <section className="roadmap-subbranches" aria-label={`Nhánh con của ${stage.title}`}>
+                      <h4>Nhánh học chuyên sâu</h4>
+                      <ol>
+                        {stages.filter((item) => item.parentId === stage.id).map((child, childIndex) => {
+                          const childDone = completedIds.includes(child.id);
+                          return (
+                            <li key={child.id}>
+                              <Link href={`/wiki/roadmap/${child.id}`} className="roadmap-subbranch-link">
+                                <span className={`roadmap-subbranch-number${childDone ? " done" : ""}`}>
+                                  {childDone ? "✓" : `${index + 1}.${childIndex + 1}`}
+                                </span>
+                                <span>
+                                  <strong>{child.title}</strong>
+                                  <small>{child.description}</small>
+                                </span>
+                                <span aria-hidden="true" className="roadmap-subbranch-arrow">→</span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </section>
+                  )}
                   <div id={`roadmap-details-${stage.id}`} className="roadmap-details" aria-hidden={!isOpen} inert={!isOpen}>
                     <p className="roadmap-checkpoint">
                       <strong>Mốc tự kiểm tra:</strong> {stage.checkpoint}
