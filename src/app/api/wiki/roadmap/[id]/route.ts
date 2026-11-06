@@ -9,6 +9,7 @@ const schema = z.object({
   title: z.string().trim().min(2).max(160),
   description: z.string().trim().min(5).max(500),
   topics: z.array(z.string().trim().min(2).max(160)).min(1).max(15),
+  content: z.string().trim().min(20).max(30000),
   checkpoint: z.string().trim().min(5).max(500),
   resources: z.array(z.object({
     label: z.string().trim().min(2).max(120),

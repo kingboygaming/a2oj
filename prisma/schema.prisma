@@ -143,6 +143,7 @@ model RoadmapStage {
   title       String
   description String
   topics      String
+  content     String   @default("")
   checkpoint  String
   resources   String
   createdAt   DateTime @default(now())

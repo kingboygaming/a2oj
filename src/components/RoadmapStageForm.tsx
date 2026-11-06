@@ -11,6 +11,7 @@ export type RoadmapStageFormData = {
   title: string;
   description: string;
   topics: string[];
+  content: string;
   checkpoint: string;
   resources: RoadmapResource[];
 };
@@ -52,6 +53,7 @@ export function RoadmapStageForm({
       title: form.get("title"),
       description: form.get("description"),
       topics,
+      content: form.get("content"),
       checkpoint: form.get("checkpoint"),
       resources,
     };
@@ -102,6 +104,9 @@ export function RoadmapStageForm({
       </label>
       <label className="block text-sm font-medium">Chủ đề (mỗi dòng một chủ đề)
         <textarea required name="topics" rows={5} defaultValue={stage?.topics.join("\n")} className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-3 py-2" />
+      </label>
+      <label className="block text-sm font-medium">Nội dung bài học (Markdown)
+        <textarea required name="content" minLength={20} maxLength={30000} rows={18} defaultValue={stage?.content} placeholder={"## Mục tiêu\n\nGiới thiệu mục tiêu bài học...\n\n## Nội dung\n\nGiải thích các kiến thức chính tại đây."} className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-3 py-2 font-mono text-sm" />
       </label>
       <label className="block text-sm font-medium">Mốc tự kiểm tra
         <textarea required name="checkpoint" minLength={5} maxLength={500} rows={2} defaultValue={stage?.checkpoint} className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-3 py-2" />

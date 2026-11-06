@@ -13,7 +13,10 @@ export const metadata: Metadata = {
 export default async function RoadmapPage() {
   const [user, savedStages] = await Promise.all([
     getCurrentUser(),
-    prisma.roadmapStage.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
+    prisma.roadmapStage.findMany({
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { id: true, level: true, title: true, description: true, topics: true, checkpoint: true, resources: true },
+    }),
   ]);
   const stages = savedStages.map((stage) => ({
     id: stage.id,

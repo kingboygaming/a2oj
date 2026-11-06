@@ -2,6 +2,14 @@
 
 import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore } from "react";
+import {
+  emptyRoadmapProgress,
+  getRoadmapTrack,
+  parseRoadmapProgress,
+  roadmapProgressStorageKey,
+  type RoadmapProgress,
+  type RoadmapTrackId,
+} from "@/lib/roadmap-progress";
 
 type RoadmapStage = {
   id: string;
@@ -19,11 +27,7 @@ const tracks = [
   { id: "advanced", label: "Nâng cao", icon: "🔥" },
 ] as const;
 
-type TrackId = (typeof tracks)[number]["id"];
-type TrackProgress = Record<TrackId, string[]>;
-
-const emptyProgress: TrackProgress = { basic: [], intermediate: [], advanced: [] };
-const progressStorageKey = "cp-roadmap-progress-v1";
+type TrackId = RoadmapTrackId;
 
 function subscribeToProgress(onChange: () => void) {
   window.addEventListener("storage", onChange);
@@ -36,33 +40,10 @@ function subscribeToProgress(onChange: () => void) {
 
 function getProgressSnapshot() {
   try {
-    return localStorage.getItem(progressStorageKey);
+    return localStorage.getItem(roadmapProgressStorageKey);
   } catch {
     return null;
   }
-}
-
-function parseProgress(value: string | null): TrackProgress | null {
-  if (!value) return null;
-  try {
-    const savedProgress: unknown = JSON.parse(value);
-    if (!savedProgress || typeof savedProgress !== "object") return null;
-    const progress = savedProgress as Record<string, unknown>;
-    return {
-      basic: Array.isArray(progress.basic) ? progress.basic.filter((id): id is string => typeof id === "string") : [],
-      intermediate: Array.isArray(progress.intermediate) ? progress.intermediate.filter((id): id is string => typeof id === "string") : [],
-      advanced: Array.isArray(progress.advanced) ? progress.advanced.filter((id): id is string => typeof id === "string") : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function getTrack(level: string): TrackId {
-  const normalizedLevel = level.trim().toLocaleLowerCase("vi");
-  if (normalizedLevel.includes("nâng cao") || normalizedLevel.includes("advanced")) return "advanced";
-  if (normalizedLevel.includes("trung cấp") || normalizedLevel.includes("intermediate")) return "intermediate";
-  return "basic";
 }
 
 function getProgressLabel(percentage: number) {
@@ -81,15 +62,13 @@ export function RoadmapView({
   isAdmin: boolean;
 }) {
   const [currentTrack, setCurrentTrack] = useState<TrackId>("basic");
-  const [completedByTrack, setCompletedByTrack] = useState<Record<TrackId, string[]>>({
-    ...emptyProgress,
-  });
+  const [completedByTrack, setCompletedByTrack] = useState<RoadmapProgress>({ ...emptyRoadmapProgress });
   const [openStageId, setOpenStageId] = useState<string | null>(null);
   const storedProgress = useSyncExternalStore(subscribeToProgress, getProgressSnapshot, () => null);
-  const progress = parseProgress(storedProgress) ?? completedByTrack;
+  const progress = parseRoadmapProgress(storedProgress) ?? completedByTrack;
 
   const visibleStages = useMemo(
-    () => stages.filter((stage) => getTrack(stage.level) === currentTrack),
+    () => stages.filter((stage) => getRoadmapTrack(stage.level) === currentTrack),
     [currentTrack, stages],
   );
   const completedIds = progress[currentTrack];
@@ -107,7 +86,7 @@ export function RoadmapView({
     };
     setCompletedByTrack(nextProgress);
     try {
-      localStorage.setItem(progressStorageKey, JSON.stringify(nextProgress));
+      localStorage.setItem(roadmapProgressStorageKey, JSON.stringify(nextProgress));
       window.dispatchEvent(new Event("roadmap-progress-change"));
     } catch {
       // Keep progress in component state if browser storage is unavailable.
@@ -222,6 +201,9 @@ export function RoadmapView({
                   <div className="roadmap-tags">
                     {stage.topics.map((topic) => <span key={topic}>{topic}</span>)}
                   </div>
+                  <Link href={`/wiki/roadmap/${stage.id}`} className="roadmap-start-lesson">
+                    Bắt đầu học chặng này <span aria-hidden="true">→</span>
+                  </Link>
                   <div id={`roadmap-details-${stage.id}`} className="roadmap-details" aria-hidden={!isOpen} inert={!isOpen}>
                     <p className="roadmap-checkpoint">
                       <strong>Mốc tự kiểm tra:</strong> {stage.checkpoint}
