@@ -4,7 +4,8 @@ import { useState } from "react";
 import { strToU8, zipSync } from "fflate";
 import { generateTestInputs, testGeneratorSchema, type TestGenerationMode } from "@/lib/test-generator";
 
-type GeneratedCase = { input: string; output: string };
+type GeneratedCase = { input: string; output: string; outputReady: boolean };
+type ReadyCase = { input: string; output: string };
 type Mode = TestGenerationMode;
 
 const initialSpecification = JSON.stringify({
@@ -17,10 +18,12 @@ const initialSpecification = JSON.stringify({
 
 export function TestGeneratorPanel({
   problemId,
+  runEndpoint,
   onAddCases,
 }: {
   problemId?: string;
-  onAddCases: (cases: GeneratedCase[]) => void;
+  runEndpoint?: string;
+  onAddCases: (cases: ReadyCase[]) => void;
 }) {
   const [specification, setSpecification] = useState(initialSpecification);
   const [source, setSource] = useState("");
@@ -50,10 +53,22 @@ export function TestGeneratorPanel({
     }
 
     try {
-      setGenerated(generateTestInputs(parsed.data, count, mode).map((input) => ({ input, output: "" })));
+      setGenerated(generateTestInputs(parsed.data, count, mode).map((input) => ({ input, output: "", outputReady: false })));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể sinh input.");
     }
+  }
+
+  function loadGraphExample() {
+    setSpecification(JSON.stringify({
+      variables: [
+        { name: "n", type: "int", min: 1, max: 100 },
+        { name: "a", type: "undirectedGraphMatrix", size: "n" },
+      ],
+      template: "{n}\n{a}\n",
+    }, null, 2));
+    setError("");
+    setMessage("Đã nạp mẫu đồ thị vô hướng: ma trận luôn đối xứng, đường chéo chính bằng 0.");
   }
 
   function downloadInputs() {
@@ -74,14 +89,14 @@ export function TestGeneratorPanel({
 
   function updateOutput(index: number, output: string) {
     setGenerated((current) => current.map((testCase, itemIndex) =>
-      itemIndex === index ? { ...testCase, output } : testCase,
+      itemIndex === index ? { ...testCase, output, outputReady: true } : testCase,
     ));
   }
 
   async function runReferenceSolution() {
     setError("");
     setMessage("");
-    if (!problemId) {
+    if (!runEndpoint && !problemId) {
       setError("Hãy lưu đề trước, sau đó mở lại để chạy lời giải.");
       return;
     }
@@ -96,7 +111,8 @@ export function TestGeneratorPanel({
 
     setRunPending(true);
     try {
-      const response = await fetch(`/api/problems/${encodeURIComponent(problemId)}/generate-tests`, {
+      const endpoint = runEndpoint ?? `/api/problems/${encodeURIComponent(problemId!)}/generate-tests`;
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language, source, inputs: generated.map((testCase) => testCase.input) }),
@@ -111,7 +127,11 @@ export function TestGeneratorPanel({
         setError("Máy chủ trả về output không hợp lệ.");
         return;
       }
-      setGenerated((current) => current.map((testCase, index) => ({ ...testCase, output: result.outputs[index] })));
+      setGenerated((current) => current.map((testCase, index) => ({
+        ...testCase,
+        output: result.outputs[index],
+        outputReady: true,
+      })));
     } catch (cause) {
       setError(
         cause instanceof DOMException && cause.name === "TimeoutError"
@@ -123,7 +143,7 @@ export function TestGeneratorPanel({
     }
   }
 
-  const missingOutputs = generated.filter((testCase) => !testCase.output.trim()).length;
+  const missingOutputs = generated.filter((testCase) => !testCase.outputReady).length;
 
   return (
     <section className="mt-4 rounded-xl border border-[var(--teal)]/30 bg-[var(--teal)]/5 p-4">
@@ -148,8 +168,15 @@ export function TestGeneratorPanel({
               spellCheck={false}
             />
           </label>
+          <button
+            type="button"
+            onClick={loadGraphExample}
+            className="mt-2 rounded-md border border-[var(--teal)] px-3 py-1.5 text-xs font-medium text-[var(--teal)] hover:bg-[var(--teal)]/10"
+          >
+            Nạp mẫu: đồ thị vô hướng dạng ma trận kề
+          </button>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Biến: <code>int</code>, <code>string</code>, <code>intArray</code>, <code>intMatrix</code>. Dùng {"{ten_bien}"} trong template; kích thước mảng có thể tham chiếu biến int đã khai báo trước đó.
+            Biến: <code>int</code>, <code>string</code>, <code>intArray</code>, <code>intMatrix</code>, <code>undirectedGraphMatrix</code>. Dùng {"{ten_bien}"} trong template; kích thước mảng có thể tham chiếu biến int đã khai báo trước đó.
           </p>
           <label className="mt-3 block text-xs font-medium">
             Lời giải tham chiếu
@@ -200,7 +227,7 @@ export function TestGeneratorPanel({
               <button type="button" onClick={downloadInputs} className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm font-medium text-[var(--navy)]">
                 Tải input (.zip)
               </button>
-              <button type="button" disabled={runPending || !problemId || !source.trim()} onClick={() => void runReferenceSolution()} className="rounded-md bg-[var(--teal)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+              <button type="button" disabled={runPending || (!problemId && !runEndpoint) || !source.trim()} onClick={() => void runReferenceSolution()} className="rounded-md bg-[var(--teal)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {runPending ? "Đang chạy..." : "Chạy code qua API dự phòng"}
               </button>
               <button type="button" disabled={missingOutputs > 0} onClick={() => { onAddCases(generated); setGenerated([]); setMessage("Đã thêm test vào danh sách; nhấn Lưu thay đổi để lưu bộ test."); }} className="rounded-md bg-[var(--surface-strong)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
@@ -214,7 +241,7 @@ export function TestGeneratorPanel({
                 <textarea readOnly rows={5} value={testCase.input} className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--background)] p-2 font-mono text-xs" />
               </label>
               <label className="text-xs font-medium">Output từ lời giải của bạn
-                <textarea required rows={5} maxLength={16_000} value={testCase.output} onChange={(event) => updateOutput(index, event.target.value)} placeholder="Dán output tương ứng tại đây" className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--background)] p-2 font-mono text-xs" />
+                <textarea required rows={5} maxLength={24_000} value={testCase.output} onChange={(event) => updateOutput(index, event.target.value)} placeholder="Dán output tương ứng tại đây" className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--background)] p-2 font-mono text-xs" />
               </label>
             </div>
           ))}

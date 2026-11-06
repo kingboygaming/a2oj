@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseTestCaseZip } from "@/lib/testcase-zip";
+import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
 
 export type TestCaseDraft = {
   input: string;
@@ -990,6 +991,29 @@ export function ContestForm({
               {zipMessages[problemIndex] && (
                 <p className="text-xs text-[var(--teal)] font-medium">
                   {zipMessages[problemIndex]}
+                </p>
+              )}
+
+              {problem.ioMode !== "FILE" && (
+                <TestGeneratorPanel
+                  runEndpoint="/api/contests/generate-output"
+                  onAddCases={(generated) => {
+                    updateProblem(problemIndex, {
+                      testCases: [
+                        ...problem.testCases,
+                        ...generated.map((testCase) => ({
+                          ...testCase,
+                          isSample: false,
+                          points: 100,
+                        })),
+                      ],
+                    });
+                  }}
+                />
+              )}
+              {problem.ioMode === "FILE" && (
+                <p className="rounded-md border border-amber-300/50 bg-amber-50 p-2 text-xs text-amber-800">
+                  Công cụ sinh output tự động chưa hỗ trợ bài dùng File I/O.
                 </p>
               )}
 

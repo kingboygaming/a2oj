@@ -194,13 +194,14 @@ Trang `/admin` và API duyệt đề đều kiểm tra role ở phía máy chủ
   {
     "variables": [
       { "name": "n", "type": "int", "min": 1, "max": 100 },
-      { "name": "a", "type": "intArray", "length": "n", "min": -1000, "max": 1000 }
+      { "name": "a", "type": "undirectedGraphMatrix", "size": "n" }
     ],
     "template": "{n}\n{a}\n"
   }
   ```
 
-  Các kiểu biến gồm `int`, `string`, `intArray`, `intMatrix`; template quyết định thứ tự và định dạng dòng. Chế độ hỗn hợp sinh test biên min/max trước rồi đến ngẫu nhiên. Mỗi input/output tối đa 16 KB, số test mỗi lượt tối đa 10 và tối đa 3 lần gọi API mỗi phút cho mỗi tài khoản. Kết quả được xem trước trước khi thêm vào bộ test; hãy rà soát test trước khi lưu.
+  Hoặc bấm **Nạp mẫu: đồ thị vô hướng dạng ma trận kề** trong giao diện. Các kiểu biến gồm `int`, `string`, `intArray`, `intMatrix`, `undirectedGraphMatrix`; template quyết định thứ tự và định dạng dòng. Chế độ hỗn hợp sinh test biên min/max trước rồi đến ngẫu nhiên. Kiểu đồ thị bảo đảm ma trận đối xứng và đường chéo chính bằng 0. Mỗi input/output tối đa 24 KB, số test mỗi lượt tối đa 10 và tối đa 3 lần gọi API mỗi phút cho mỗi tài khoản. Kết quả được xem trước trước khi thêm vào bộ test; hãy rà soát test trước khi lưu.
+- Trong form tạo/chỉnh sửa contest, giáo viên và quản trị viên cũng có thể dùng công cụ này cho bài mới tạo riêng trong contest. Output tự động hỗ trợ bài dùng stdin/stdout; bài dùng File I/O vẫn có thể sinh input và nhập output thủ công.
 - Code nháp trong Live IDE được tự lưu theo tài khoản, đề và ngôn ngữ trên trình duyệt; đổi ngôn ngữ sẽ khôi phục bản nháp riêng, và chỉ dùng code mẫu khi chưa có bản nháp.
 
 `JUDGE_MODE=auto` cho phần chấm bài nộp vẫn chạy trực tiếp trên tiến trình web, không phải sandbox; không dùng chế độ này cho người dùng không đáng tin cậy. Docker runner giúp cô lập Live IDE nhưng không thay thế cập nhật Docker/kernel thường xuyên hoặc bảo vệ tuyệt đối trước lỗ hổng container.

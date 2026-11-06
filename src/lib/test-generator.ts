@@ -31,6 +31,11 @@ const variableSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     name: variableNameSchema,
+    type: z.literal("undirectedGraphMatrix"),
+    size: dimensionSchema,
+  }),
+  z.object({
+    name: variableNameSchema,
     type: z.literal("string"),
     minLength: z.number().int().min(0).max(10_000),
     maxLength: z.number().int().min(0).max(10_000),
@@ -59,6 +64,8 @@ export const testGeneratorSchema = z.object({
       ? [variable.length]
       : variable.type === "intMatrix"
         ? [variable.rows, variable.columns]
+        : variable.type === "undirectedGraphMatrix"
+          ? [variable.size]
         : [];
     for (const dimension of dimensions) {
       if (typeof dimension === "string" && !integerVariables.has(dimension)) {
@@ -70,6 +77,17 @@ export const testGeneratorSchema = z.object({
       }
     }
     if (variable.type === "int") integerVariables.add(variable.name);
+    if (
+      variable.type === "undirectedGraphMatrix" &&
+      typeof variable.size === "number" &&
+      variable.size > 100
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["variables", index, "size"],
+        message: "Ma trận kề đồ thị không được vượt quá 100 đỉnh.",
+      });
+    }
   }
 
   const placeholders = [...specification.template.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]);
@@ -130,6 +148,25 @@ export function generateTestInputs(
           chooseInteger(variable.min, variable.max, edge && mode === "edge" && index % 2 ? edge === "min" ? "max" : "min" : edge),
         );
         values.set(variable.name, array);
+      } else if (variable.type === "undirectedGraphMatrix") {
+        const size = resolveDimension(variable.size, values);
+        if (size > 100) {
+          throw new Error("Ma trận kề đồ thị không được vượt quá 100 đỉnh.");
+        }
+        const matrix = Array.from({ length: size }, () => Array<number>(size).fill(0));
+        for (let row = 0; row < size; row += 1) {
+          for (let column = row + 1; column < size; column += 1) {
+            const connected = edge === "min"
+              ? false
+              : edge === "max"
+                ? true
+                : Math.random() < 0.5;
+            const value = Number(connected);
+            matrix[row][column] = value;
+            matrix[column][row] = value;
+          }
+        }
+        values.set(variable.name, matrix);
       } else if (variable.type === "intMatrix") {
         const rows = resolveDimension(variable.rows, values);
         const columns = resolveDimension(variable.columns, values);
@@ -160,8 +197,8 @@ export function generateTestInputs(
     let cursor = 0;
     const append = (part: string) => {
       inputBytes += new TextEncoder().encode(part).byteLength;
-      if (inputBytes > 16_000) {
-        throw new Error(`Test ${testIndex + 1} vượt quá giới hạn 16 KB.`);
+      if (inputBytes > 24_000) {
+        throw new Error(`Test ${testIndex + 1} vượt quá giới hạn 24 KB.`);
       }
       inputParts.push(part);
     };
@@ -184,8 +221,8 @@ export function generateTestInputs(
     }
     append(specification.template.slice(cursor));
     const input = inputParts.join("").trimEnd() + "\n";
-    if (new TextEncoder().encode(input).byteLength > 16_000) {
-      throw new Error(`Test ${testIndex + 1} vượt quá giới hạn 16 KB.`);
+    if (new TextEncoder().encode(input).byteLength > 24_000) {
+      throw new Error(`Test ${testIndex + 1} vượt quá giới hạn 24 KB.`);
     }
     return input;
   });

@@ -10,7 +10,7 @@ export const maxDuration = 60;
 const requestSchema = z.object({
   language: z.enum(["CPP", "PYTHON"]),
   source: z.string().min(1).max(64_000),
-  inputs: z.array(z.string().min(1).max(16_000)).min(1).max(10),
+  inputs: z.array(z.string().min(1).max(24_000)).min(1).max(10),
 });
 
 const RUNS_PER_MINUTE = 3;
@@ -33,7 +33,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!user) return NextResponse.json({ error: "Cần đăng nhập." }, { status: 401 });
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 240_000) {
+  if (contentLength > 500_000) {
     return NextResponse.json({ error: "Yêu cầu vượt quá giới hạn kích thước." }, { status: 413 });
   }
   const [{ id }, json] = await Promise.all([
@@ -72,8 +72,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       parsed.data.inputs,
       Math.min(problem.timeLimitMs, 3_000),
     );
-    if (outputs.some((output) => Buffer.byteLength(output, "utf8") > 16_000)) {
-      return NextResponse.json({ error: "Output của lời giải vượt quá giới hạn 16 KB cho mỗi test." }, { status: 422 });
+    if (outputs.some((output) => Buffer.byteLength(output, "utf8") > 24_000)) {
+      return NextResponse.json({ error: "Output của lời giải vượt quá giới hạn 24 KB cho mỗi test." }, { status: 422 });
     }
     return NextResponse.json({ outputs });
   } catch (error) {
