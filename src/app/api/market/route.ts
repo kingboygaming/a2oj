@@ -15,7 +15,10 @@ export async function GET(request: Request) {
   const listings = await prisma.cardMarketListing.findMany({
     where: {
       status: "ACTIVE",
-      pricePoints: { gte: minPrice, lte: maxPrice },
+      OR: [
+        { priceCoins: { gte: minPrice, lte: maxPrice } },
+        { pricePoints: { gte: minPrice, lte: maxPrice } },
+      ],
       ...(rarity && rarity !== "ALL" ? { card: { rarity } } : {}),
       ...(q
         ? {
@@ -62,17 +65,19 @@ export async function GET(request: Request) {
     },
     orderBy:
       sort === "price_asc"
-        ? { pricePoints: "asc" }
+        ? [{ priceCoins: "asc" }, { pricePoints: "asc" }]
         : sort === "price_desc"
-        ? { pricePoints: "desc" }
+        ? [{ priceCoins: "desc" }, { pricePoints: "desc" }]
         : { createdAt: "desc" },
     take: 100,
   });
 
   const formatted = listings.map(({ card, ...listing }) => {
     const { imageMimeType, ...cardData } = card;
+    const effectiveCoins = listing.priceCoins > 0 ? listing.priceCoins : listing.pricePoints * 10;
     return {
       ...listing,
+      priceCoins: effectiveCoins,
       card: {
         ...cardData,
         imageUrl: imageMimeType ? `/api/gacha/cards/${card.id}/image` : null,
@@ -85,7 +90,8 @@ export async function GET(request: Request) {
 
 const createListingSchema = z.object({
   cardId: z.string().min(1),
-  pricePoints: z.number().int().min(1).max(100_000),
+  priceCoins: z.number().int().min(1).max(1_000_000).optional(),
+  pricePoints: z.number().int().min(1).max(100_000).optional(),
   notes: z.string().max(200).optional(),
 });
 
@@ -102,7 +108,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Dữ liệu đăng bán không hợp lệ." }, { status: 400 });
   }
 
-  const { cardId, pricePoints, notes = "" } = parsed.data;
+  const { cardId, priceCoins, pricePoints, notes = "" } = parsed.data;
+  const finalCoins = priceCoins ?? (pricePoints ? pricePoints * 10 : 50);
 
   // Use a transaction to safely deduct card count and create listing
   const result = await prisma.$transaction(async (tx) => {
@@ -131,7 +138,8 @@ export async function POST(request: Request) {
       data: {
         sellerId: user.id,
         cardId,
-        pricePoints,
+        priceCoins: finalCoins,
+        pricePoints: Math.round(finalCoins / 10),
         notes,
         status: "ACTIVE",
       },

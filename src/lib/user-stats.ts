@@ -91,7 +91,7 @@ export async function getUserPersonalStatistics(userId: string) {
     }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { gachaTickets: true },
+      select: { gachaTickets: true, a2Coins: true },
     }),
   ]);
 
@@ -203,6 +203,7 @@ export async function getUserPersonalStatistics(userId: string) {
     currentStreak,
     longestStreak,
     activityPoints: userRecord?.gachaTickets ?? 0,
+    a2Coins: userRecord?.a2Coins ?? 0,
     skillCategories,
   };
 }

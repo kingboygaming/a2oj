@@ -5,6 +5,7 @@ interface ProfileOverviewStatsProps {
   totalSubmissions: number;
   currentStreak: number;
   activityPoints: number;
+  a2Coins?: number;
   className?: string;
 }
 
@@ -13,6 +14,7 @@ export function ProfileOverviewStats({
   totalSubmissions,
   currentStreak,
   activityPoints,
+  a2Coins = 0,
   className = "",
 }: ProfileOverviewStatsProps) {
   const acRate =
@@ -21,7 +23,7 @@ export function ProfileOverviewStats({
       : 0;
 
   return (
-    <div className={`grid grid-cols-2 gap-3.5 sm:grid-cols-4 ${className}`}>
+    <div className={`grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5 ${className}`}>
       {/* 1. AC Problems */}
       <Card
         hover
@@ -85,7 +87,27 @@ export function ProfileOverviewStats({
         <p className="mt-1 text-xs text-[var(--muted)]">Liên tiếp có bài nộp</p>
       </Card>
 
-      {/* 4. Activity Points */}
+      {/* 4. A2 Coin */}
+      <Card
+        hover
+        variant="glass"
+        className="group relative overflow-hidden p-4 sm:p-5 border-amber-500/30"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">
+            Ví A2 Coin
+          </span>
+          <span className="flex size-8 items-center justify-center rounded-xl bg-amber-500 text-white font-black text-xs shadow-md">
+            A2
+          </span>
+        </div>
+        <div className="text-2xl sm:text-3xl font-black text-amber-500 tabular-nums">
+          {a2Coins.toLocaleString("vi-VN")}
+        </div>
+        <p className="mt-1 text-xs text-amber-500/70">Tiền tệ Marketplace & Shop</p>
+      </Card>
+
+      {/* 5. Attendance Points */}
       <Card
         hover
         variant="glass"
@@ -102,7 +124,7 @@ export function ProfileOverviewStats({
         <div className="text-2xl sm:text-3xl font-extrabold text-yellow-500 tabular-nums">
           {activityPoints.toLocaleString("vi-VN")}
         </div>
-        <p className="mt-1 text-xs text-[var(--muted)]">Đổi thưởng & Gacha shop</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">Đổi sang A2 Coin (1:10)</p>
       </Card>
     </div>
   );

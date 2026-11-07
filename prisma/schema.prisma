@@ -59,6 +59,7 @@ model User {
   nameColorAchievementId String?
   achievementNotificationsInitialized Boolean @default(false)
   gachaTickets Int @default(0)
+  a2Coins      Int @default(0)
   chessRating Int @default(1200)
   chessGamesPlayed Int @default(0)
   chessWins Int @default(0)
@@ -455,7 +456,8 @@ model CardMarketListing {
   id          String   @id @default(cuid())
   sellerId    String
   cardId      String
-  pricePoints Int
+  priceCoins  Int      @default(0) // price in A2 Coins
+  pricePoints Int      @default(0) // backward compatibility
   status      String   @default("ACTIVE") // ACTIVE, SOLD, CANCELLED
   notes       String?  @default("")
   createdAt   DateTime @default(now())
@@ -477,6 +479,7 @@ model CardTradeOffer {
   listingId       String
   proposerId      String
   offeredCardId   String
+  offeredCoins    Int      @default(0)
   offeredPoints   Int      @default(0)
   message         String?  @default("")
   status          String   @default("PENDING") // PENDING, ACCEPTED, REJECTED, CANCELLED
@@ -494,7 +497,8 @@ model PointTransaction {
   id          String   @id @default(cuid())
   userId      String
   amount      Int      // positive for credit, negative for debit
-  type        String   // SHOP_PURCHASE, MARKET_BUY, MARKET_SELL, TRADE_FEE, REWARD
+  currency    String   @default("A2_COIN") // A2_COIN, ATTENDANCE_POINT
+  type        String   // CONVERT_POINT_TO_COIN, SHOP_PURCHASE, MARKET_BUY, MARKET_SELL, DISMANTLE_CARD
   description String
   referenceId String?
   createdAt   DateTime @default(now())

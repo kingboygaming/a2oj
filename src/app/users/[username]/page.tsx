@@ -139,6 +139,7 @@ export default async function PublicProfilePage({
         totalSubmissions={stats.totalSubmissions}
         currentStreak={stats.currentStreak}
         activityPoints={stats.activityPoints}
+        a2Coins={stats.a2Coins}
       />
 
       <ActivityHeatmap

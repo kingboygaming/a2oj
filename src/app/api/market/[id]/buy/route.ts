@@ -31,28 +31,30 @@ export async function POST(
       return { error: "Bạn không thể tự mua thẻ do chính mình đăng bán." };
     }
 
-    // Check buyer's points (gachaTickets)
+    const priceInCoins = listing.priceCoins > 0 ? listing.priceCoins : listing.pricePoints * 10;
+
+    // Check buyer's A2 Coins
     const buyer = await tx.user.findUniqueOrThrow({
       where: { id: user.id },
-      select: { gachaTickets: true },
+      select: { a2Coins: true, gachaTickets: true },
     });
 
-    if (buyer.gachaTickets < listing.pricePoints) {
+    if (buyer.a2Coins < priceInCoins) {
       return {
-        error: `Bạn không đủ điểm. Cần ${listing.pricePoints} điểm, bạn có ${buyer.gachaTickets} điểm.`,
+        error: `Bạn không đủ A2 Coin (Cần ${priceInCoins.toLocaleString("vi-VN")} A2C, bạn có ${buyer.a2Coins.toLocaleString("vi-VN")} A2C). Bạn có thể đổi Điểm chuyên cần sang A2 Coin để tiếp tục!`,
       };
     }
 
-    // 1. Deduct points from buyer
+    // 1. Deduct A2 Coins from buyer
     await tx.user.update({
       where: { id: user.id },
-      data: { gachaTickets: { decrement: listing.pricePoints } },
+      data: { a2Coins: { decrement: priceInCoins } },
     });
 
-    // 2. Add points to seller
+    // 2. Add A2 Coins to seller
     await tx.user.update({
       where: { id: listing.sellerId },
-      data: { gachaTickets: { increment: listing.pricePoints } },
+      data: { a2Coins: { increment: priceInCoins } },
     });
 
     // 3. Mark listing as SOLD
@@ -82,22 +84,24 @@ export async function POST(
       data: [
         {
           userId: user.id,
-          amount: -listing.pricePoints,
+          amount: -priceInCoins,
+          currency: "A2_COIN",
           type: "MARKET_BUY",
-          description: `Mua thẻ "${listing.card.name}" từ ${listing.seller.displayName}`,
+          description: `Mua thẻ "${listing.card.name}" từ ${listing.seller.displayName} (-${priceInCoins.toLocaleString("vi-VN")} A2C)`,
           referenceId: listingId,
         },
         {
           userId: listing.sellerId,
-          amount: listing.pricePoints,
+          amount: priceInCoins,
+          currency: "A2_COIN",
           type: "MARKET_SELL",
-          description: `Bán thẻ "${listing.card.name}" cho ${user.displayName}`,
+          description: `Bán thẻ "${listing.card.name}" cho ${user.displayName} (+${priceInCoins.toLocaleString("vi-VN")} A2C)`,
           referenceId: listingId,
         },
       ],
     });
 
-    return { success: true, cardName: listing.card.name };
+    return { success: true, cardName: listing.card.name, priceInCoins };
   });
 
   if ("error" in result) {

@@ -1,9 +1,13 @@
+-- AlterTable User add a2Coins
+ALTER TABLE "User" ADD COLUMN "a2Coins" INTEGER NOT NULL DEFAULT 0;
+
 -- CreateTable CardMarketListing
 CREATE TABLE "CardMarketListing" (
     "id" TEXT NOT NULL,
     "sellerId" TEXT NOT NULL,
     "cardId" TEXT NOT NULL,
-    "pricePoints" INTEGER NOT NULL,
+    "priceCoins" INTEGER NOT NULL DEFAULT 0,
+    "pricePoints" INTEGER NOT NULL DEFAULT 0,
     "status" TEXT NOT NULL DEFAULT 'ACTIVE',
     "notes" TEXT DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -19,6 +23,7 @@ CREATE TABLE "CardTradeOffer" (
     "listingId" TEXT NOT NULL,
     "proposerId" TEXT NOT NULL,
     "offeredCardId" TEXT NOT NULL,
+    "offeredCoins" INTEGER NOT NULL DEFAULT 0,
     "offeredPoints" INTEGER NOT NULL DEFAULT 0,
     "message" TEXT DEFAULT '',
     "status" TEXT NOT NULL DEFAULT 'PENDING',
@@ -32,6 +37,7 @@ CREATE TABLE "PointTransaction" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "amount" INTEGER NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'A2_COIN',
     "type" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "referenceId" TEXT,

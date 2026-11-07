@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 const tradeOfferSchema = z.object({
   offeredCardId: z.string().min(1),
+  offeredCoins: z.number().int().min(0).max(1_000_000).default(0),
   offeredPoints: z.number().int().min(0).max(100_000).default(0),
   message: z.string().max(200).optional().default(""),
 });
@@ -26,7 +27,8 @@ export async function POST(
     return NextResponse.json({ error: "Dữ liệu đề nghị đổi không hợp lệ." }, { status: 400 });
   }
 
-  const { offeredCardId, offeredPoints, message } = parsed.data;
+  const { offeredCardId, offeredCoins, offeredPoints, message } = parsed.data;
+  const coinsToSend = offeredCoins > 0 ? offeredCoins : offeredPoints * 10;
 
   const result = await prisma.$transaction(async (tx) => {
     const listing = await tx.cardMarketListing.findUnique({
@@ -50,14 +52,14 @@ export async function POST(
       return { error: "Bạn không sở hữu thẻ bài này để đem ra trao đổi." };
     }
 
-    // Check if proposer has enough points if offeredPoints > 0
-    if (offeredPoints > 0) {
+    // Check if proposer has enough coins if coinsToSend > 0
+    if (coinsToSend > 0) {
       const proposerAccount = await tx.user.findUniqueOrThrow({
         where: { id: user.id },
-        select: { gachaTickets: true },
+        select: { a2Coins: true, gachaTickets: true },
       });
-      if (proposerAccount.gachaTickets < offeredPoints) {
-        return { error: `Bạn không đủ ${offeredPoints} điểm để đính kèm.` };
+      if (proposerAccount.a2Coins < coinsToSend) {
+        return { error: `Bạn không đủ ${coinsToSend} A2 Coins để đính kèm.` };
       }
     }
 
@@ -67,7 +69,8 @@ export async function POST(
         listingId,
         proposerId: user.id,
         offeredCardId,
-        offeredPoints,
+        offeredCoins: coinsToSend,
+        offeredPoints: Math.round(coinsToSend / 10),
         message,
         status: "PENDING",
       },
