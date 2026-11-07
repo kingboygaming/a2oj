@@ -16,6 +16,12 @@ const entertainmentLinks = [
     description: "Tạo phòng hoặc nhập mã tham gia",
     icon: "🎴",
   },
+  {
+    href: "/market",
+    label: "Chợ Thẻ & Shop Điểm",
+    description: "Trao đổi thẻ và mua sắm bằng điểm AC",
+    icon: "🏛️",
+  },
 ];
 
 export function EntertainmentMenu() {

@@ -81,6 +81,11 @@ model User {
   chessWhiteMatches ChessMatch[] @relation("ChessWhitePlayer")
   chessBlackMatches ChessMatch[] @relation("ChessBlackPlayer")
   featuredGachaCard GachaCard? @relation("FeaturedGachaCard", fields: [featuredGachaCardId], references: [id], onDelete: SetNull)
+  marketSales CardMarketListing[] @relation("CardSeller")
+  marketPurchases CardMarketListing[] @relation("CardBuyer")
+  tradeOffers CardTradeOffer[]
+  pointTransactions PointTransaction[]
+
 }
 
 model ChessMatch {
@@ -362,6 +367,9 @@ model GachaCard {
   featuredBy  User[] @relation("FeaturedGachaCard")
   problemDrops Problem[] @relation("ProblemSpecialGachaCard")
   contestDrops Contest[] @relation("ContestSpecialGachaCard")
+  marketListings CardMarketListing[]
+  tradeOffers CardTradeOffer[]
+
 }
 
 model GachaBannerCard {
@@ -442,3 +450,57 @@ model GachaRewardClaim {
   @@index([userId, createdAt])
   @@index([submissionId])
 }
+
+model CardMarketListing {
+  id          String   @id @default(cuid())
+  sellerId    String
+  cardId      String
+  pricePoints Int
+  status      String   @default("ACTIVE") // ACTIVE, SOLD, CANCELLED
+  notes       String?  @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  buyerId     String?
+
+  seller User      @relation("CardSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyer  User?     @relation("CardBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  card   GachaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  tradeOffers CardTradeOffer[]
+
+  @@index([status, createdAt])
+  @@index([sellerId])
+  @@index([cardId])
+}
+
+model CardTradeOffer {
+  id              String   @id @default(cuid())
+  listingId       String
+  proposerId      String
+  offeredCardId   String
+  offeredPoints   Int      @default(0)
+  message         String?  @default("")
+  status          String   @default("PENDING") // PENDING, ACCEPTED, REJECTED, CANCELLED
+  createdAt       DateTime @default(now())
+
+  listing     CardMarketListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  proposer    User              @relation(fields: [proposerId], references: [id], onDelete: Cascade)
+  offeredCard GachaCard         @relation(fields: [offeredCardId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, status])
+  @@index([proposerId])
+}
+
+model PointTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int      // positive for credit, negative for debit
+  type        String   // SHOP_PURCHASE, MARKET_BUY, MARKET_SELL, TRADE_FEE, REWARD
+  description String
+  referenceId String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
