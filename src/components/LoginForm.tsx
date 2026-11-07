@@ -30,33 +30,45 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5">
-      <label className="block text-sm">
-        Tài khoản
+    <form onSubmit={onSubmit} className="mt-5 space-y-4">
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-1.5">
+          Tên tài khoản
+        </label>
         <input
-          className="mt-1 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2"
+          required
+          className="w-full rounded-xl border border-[var(--line)] bg-[var(--background)] px-3.5 py-2.5 text-sm text-[var(--navy)] placeholder-[var(--muted)] transition-all focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/20"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoComplete="username"
+          placeholder="Nhập tên đăng nhập..."
         />
-      </label>
-      <label className="block text-sm">
-        Mật khẩu
+      </div>
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-1.5">
+          Mật khẩu
+        </label>
         <input
+          required
           type="password"
-          className="mt-1 w-full rounded-md border border-[var(--line)] bg-white px-3 py-2"
+          className="w-full rounded-xl border border-[var(--line)] bg-[var(--background)] px-3.5 py-2.5 text-sm text-[var(--navy)] placeholder-[var(--muted)] transition-all focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/20"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
+          placeholder="••••••••"
         />
-      </label>
-      {error && <p className="text-sm text-rose-700">{error}</p>}
+      </div>
+      {error && (
+        <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-400">
+          {error}
+        </div>
+      )}
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-md bg-[var(--surface-strong)] py-2.5 text-sm font-medium text-white disabled:opacity-60"
+        className="w-full rounded-xl bg-[var(--teal)] py-2.5 text-sm font-semibold text-white shadow-lg shadow-[var(--teal)]/25 transition-all hover:opacity-95 hover:shadow-xl hover:shadow-[var(--teal)]/30 active:scale-[0.99] disabled:opacity-50"
       >
-        {pending ? "Đang vào..." : "Vào lớp"}
+        {pending ? "Đang xử lý..." : "Đăng nhập"}
       </button>
     </form>
   );

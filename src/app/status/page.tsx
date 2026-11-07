@@ -2,6 +2,8 @@ import Link from "next/link";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { SubmissionScopeToggle } from "@/components/SubmissionScopeToggle";
 import { EmptyState } from "@/components/EmptyState";
+import { Card } from "@/components/Card";
+import { Badge } from "@/components/Badge";
 import { getCurrentUser } from "@/lib/auth";
 import {
   getPublicSubmissionPage,
@@ -29,26 +31,32 @@ export default async function PublicStatusPage({
   const rankColors = await getRankColorClasses(submissions.map((submission) => submission.user.id));
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-wide text-[var(--teal)]">
-            {mine ? `Bài nộp của ${user?.displayName ?? ""}` : "Toàn hệ thống"}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-[var(--navy)]">
-            {mine ? "Lịch sử bài nộp" : "Bài nộp công khai"}
-          </h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            {total} bài nộp · {PUBLIC_SUBMISSIONS_PAGE_SIZE} bài/trang · trang{" "}
-            {currentPage}/{totalPages}.
-            {!mine && " Mã nguồn và log chấm không hiển thị công khai."}
-          </p>
+    <div className="space-y-6">
+      {/* Enhanced Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-gradient-to-br from-[var(--paper)] via-[var(--background)] to-[var(--paper)] p-6 sm:p-8">
+        <div className="absolute inset-0 bg-gradient-to-r from-[var(--teal)]/10 via-transparent to-[var(--amber)]/10 pointer-events-none" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl" aria-hidden="true">📊</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--teal)]">
+                {mine ? `Bài nộp của ${user?.displayName ?? ""}` : "Thời gian thực"}
+              </span>
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-[var(--navy)]">
+              {mine ? "Lịch sử nộp bài" : "Nhật ký chấm bài"}
+            </h1>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Tổng cộng <span className="font-semibold text-[var(--teal)]">{total.toLocaleString("vi-VN")}</span> bài nộp · {PUBLIC_SUBMISSIONS_PAGE_SIZE} bài/trang · Trang {currentPage}/{totalPages}
+              {!mine && " · Bài nộp được cập nhật tự động"}
+            </p>
+          </div>
+          <SubmissionScopeToggle mine={mine} loggedIn={Boolean(user)} />
         </div>
-        <SubmissionScopeToggle mine={mine} loggedIn={Boolean(user)} />
       </div>
 
       {submissions.length === 0 ? (
-        <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+        <Card variant="glass">
           <EmptyState
             type="no-submissions"
             title={mine ? "Bạn chưa nộp bài nào" : "Chưa có bài nộp nào"}
@@ -62,95 +70,119 @@ export default async function PublicStatusPage({
               href: "/problems",
             }}
           />
-        </div>
+        </Card>
       ) : (
         <>
-          <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Thời gian</th>
-                  <th className="px-3 py-2 font-medium">Thí sinh</th>
-                  <th className="px-3 py-2 font-medium">Bài tập</th>
-                  <th className="px-3 py-2 font-medium">Ngôn ngữ</th>
-                  <th className="px-3 py-2 font-medium">Kết quả</th>
-                  <th className="px-3 py-2 text-right font-medium">Điểm</th>
-                  <th className="px-3 py-2 text-right font-medium">Thời gian chạy</th>
-                </tr>
-              </thead>
-              <tbody>
-                {submissions.map((submission) => (
-                  <tr key={submission.id} className="border-t border-[var(--line)]">
-                    <td className="whitespace-nowrap px-3 py-2 text-xs text-[var(--muted)]">
-                      {submission.createdAt.toLocaleString("vi-VN")}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <Link
-                        href={`/users/${encodeURIComponent(submission.user.username)}`}
-                        className={`${rankColors[submission.user.id] ?? "text-slate-600 dark:text-slate-300"} hover:underline`}
-                      >
-                        {submission.user.displayName}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Link
-                        href={`/problems/${submission.problem.slug}`}
-                        className="font-medium text-[var(--teal)] hover:underline"
-                      >
-                        <span className="font-mono text-xs">
-                          {submission.problem.slug}
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      {submission.language === "CPP" ? "C++17" : "Python 3"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <VerdictBadge verdict={submission.verdict} />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {submission.problem.scoringMode === "VNOI" ||
-                      submission.problem.judgeType === "HEURISTIC"
-                        ? submission.score
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {submission.timeMs === null ? "—" : `${submission.timeMs} ms`}
-                    </td>
+          <Card variant="default" className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--line)] bg-[var(--surface-strong)] text-xs text-[var(--cream)] uppercase tracking-wider">
+                    <th className="px-5 py-3.5 font-semibold">Thời gian</th>
+                    <th className="px-4 py-3.5 font-semibold">Thí sinh</th>
+                    <th className="px-4 py-3.5 font-semibold">Bài tập</th>
+                    <th className="px-4 py-3.5 font-semibold">Ngôn ngữ</th>
+                    <th className="px-4 py-3.5 font-semibold">Kết quả</th>
+                    <th className="px-4 py-3.5 text-right font-semibold">Điểm</th>
+                    <th className="px-5 py-3.5 text-right font-semibold">Thời gian chạy</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-[var(--line)]/50">
+                  {submissions.map((submission) => (
+                    <tr 
+                      key={submission.id} 
+                      className="transition-colors hover:bg-[var(--teal)]/5 group"
+                    >
+                      <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-[var(--muted)]">
+                        {submission.createdAt.toLocaleDateString("vi-VN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          day: "2-digit",
+                          month: "2-digit",
+                        })}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        <Link
+                          href={`/users/${encodeURIComponent(submission.user.username)}`}
+                          className={`font-semibold ${rankColors[submission.user.id] ?? "text-slate-600 dark:text-slate-300"} hover:underline transition-colors`}
+                        >
+                          {submission.user.displayName}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <Link
+                          href={`/problems/${submission.problem.slug}`}
+                          className="inline-flex items-center gap-1.5 font-medium text-[var(--teal)] hover:underline"
+                        >
+                          <Badge variant="default" size="sm" className="font-mono font-bold">
+                            {submission.problem.slug}
+                          </Badge>
+                        </Link>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3.5">
+                        <span className="rounded-md bg-[var(--background)] px-2 py-1 font-mono text-xs font-medium text-[var(--muted)] border border-[var(--line)]/50">
+                          {submission.language === "CPP" ? "C++17" : "Python 3"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <VerdictBadge verdict={submission.verdict} />
+                      </td>
+                      <td className="px-4 py-3.5 text-right font-mono text-sm font-semibold tabular-nums text-[var(--navy)]">
+                        {submission.problem.scoringMode === "VNOI" ||
+                        submission.problem.judgeType === "HEURISTIC"
+                          ? submission.score
+                          : "—"}
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-mono text-xs tabular-nums text-[var(--muted)]">
+                        {submission.timeMs === null ? "—" : `${submission.timeMs} ms`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
 
-          <nav
-            aria-label="Phân trang bài nộp"
-            className="mt-4 flex items-center justify-between"
-          >
-            {currentPage > 1 ? (
-              <Link
-                href={statusPageHref(currentPage - 1, mine)}
-                className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm hover:border-[var(--navy)]/40"
-              >
-                ← Trang trước
-              </Link>
-            ) : (
-              <span />
-            )}
-            <span className="text-sm text-[var(--muted)]">
-              {currentPage} / {totalPages}
-            </span>
-            {currentPage < totalPages ? (
-              <Link
-                href={statusPageHref(currentPage + 1, mine)}
-                className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm hover:border-[var(--navy)]/40"
-              >
-                Trang sau →
-              </Link>
-            ) : (
-              <span />
-            )}
-          </nav>
+          {totalPages > 1 && (
+            <nav
+              aria-label="Phân trang bài nộp"
+              className="flex flex-wrap items-center justify-center gap-3 pt-2"
+            >
+              {currentPage > 1 ? (
+                <Link
+                  href={statusPageHref(currentPage - 1, mine)}
+                  className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--paper)] px-4 py-2 text-sm font-medium text-[var(--teal)] transition-all hover:border-[var(--teal)] hover:shadow-lg hover:shadow-[var(--teal)]/10"
+                >
+                  <span aria-hidden="true">←</span> Trang trước
+                </Link>
+              ) : (
+                <span className="flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm text-[var(--muted)] opacity-40 cursor-not-allowed">
+                  <span aria-hidden="true">←</span> Trang trước
+                </span>
+              )}
+
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-[var(--teal)] px-3.5 py-1.5 text-sm font-bold text-white shadow-md shadow-[var(--teal)]/30">
+                  {currentPage}
+                </span>
+                <span className="text-sm text-[var(--muted)]">/</span>
+                <span className="text-sm font-medium text-[var(--navy)]">{totalPages}</span>
+              </div>
+
+              {currentPage < totalPages ? (
+                <Link
+                  href={statusPageHref(currentPage + 1, mine)}
+                  className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--paper)] px-4 py-2 text-sm font-medium text-[var(--teal)] transition-all hover:border-[var(--teal)] hover:shadow-lg hover:shadow-[var(--teal)]/10"
+                >
+                  Trang sau <span aria-hidden="true">→</span>
+                </Link>
+              ) : (
+                <span className="flex items-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2 text-sm text-[var(--muted)] opacity-40 cursor-not-allowed">
+                  Trang sau <span aria-hidden="true">→</span>
+                </span>
+              )}
+            </nav>
+          )}
         </>
       )}
     </div>
@@ -165,7 +197,7 @@ function statusPageHref(page: number, mine: boolean) {
 
 function LoginRequired() {
   return (
-    <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+    <Card variant="glass">
       <EmptyState
         type="login-required"
         title="Yêu cầu đăng nhập"
@@ -179,6 +211,6 @@ function LoginRequired() {
           href: "/register",
         }}
       />
-    </div>
+    </Card>
   );
 }

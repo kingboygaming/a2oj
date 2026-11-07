@@ -93,6 +93,30 @@ Comprehensive redesign of the A2OJ Online Judge platform to create a more modern
   - Footer with teacher information and arrow indicator
   - Card hover effects with shadow and border highlight
 
+### **Submissions & Status Page** (`src/app/status/page.tsx`)
+- **Enhanced Header**: Gradient background banner with live statistics and submission counter.
+- **Card-Based Table**: Encapsulated within a sleek Card container with subtle borders and rounded corners.
+- **Table Polish**: High contrast headers, interactive row hover highlights, monospace font for timestamps and slugs.
+- **Modern Pagination**: Active page highlighted with teal glow, custom disabled and hover states.
+
+### **Wiki Knowledge Base** (`src/app/wiki/page.tsx`)
+- **Modern Hero Banner**: Gradient background with icon badge and CTA for educators to create new articles.
+- **Roadmap Feature Card**: Interactive banner with glow and hover animation pointing to `/wiki/roadmap`.
+- **Card Grid for Articles**: Dual-column card layout with Category badges, draft indicators, and author attribution.
+- **Reference Resources**: Curated 3-column resource cards with external link indicators.
+
+### **Authentication Pages & Forms** (`src/app/login`, `src/app/register`, `LoginForm`, `RegisterForm`)
+- **Glassmorphism Auth Cards**: Centered card layout with A2 gradient mark.
+- **Theme-Aware Inputs**: Background and border custom properties replacing hardcoded white styles.
+- **Form UX**: Clear labels, floating hints, and responsive submit buttons with loading indicators.
+
+### **Navigation Header** (`src/components/Header.tsx`)
+- **Visual Brand**: A2 badge with subtle drop shadow.
+- **Navigation Links**: Icon integration, horizontal scroll for mobile, smooth underline indicators.
+- **Entertainment Dropdown**: Accessible and styled with glassmorphism backdrop blur.
+- **Theme & LED Integration**: Full preservation of `.site-header` dynamic RGB strip across all themes.
+
+
 ## Design System Improvements
 
 ### Colors & Theming

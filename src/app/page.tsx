@@ -7,6 +7,7 @@ import { HomeRefreshButton } from "@/components/HomeRefreshButton";
 import { getGlobalAcmLeaderboard } from "@/lib/global-leaderboard";
 import { Markdown } from "@/components/Markdown";
 import { getRankColorClasses } from "@/lib/ranks";
+import { StatCard } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
 
@@ -181,11 +182,11 @@ export default async function HomePage() {
         </aside>
       </div>
 
-      <section aria-label="Thống kê A2OJ" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Bài tập" value={problemCount} href="/problems" icon="{}" accent="text-sky-400" />
-        <Stat label="Kỳ thi" value={contestCount} href="/contests" icon="⌁" accent="text-violet-400" />
-        <Stat label="Bài nộp" value={submissionCount} href="/status" icon="↗" accent="text-emerald-400" />
-        <Stat label="Thí sinh" value={standings.length} href="/leaderboard" icon="♙" accent="text-amber-400" />
+      <section aria-label="Thống kê A2OJ" className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatCard label="Bài tập có sẵn" value={problemCount} href="/problems" icon="{}" accent="text-sky-400" />
+        <StatCard label="Kỳ thi / Contest" value={contestCount} href="/contests" icon="⌁" accent="text-violet-400" />
+        <StatCard label="Lượt bài nộp" value={submissionCount} href="/status" icon="↗" accent="text-emerald-400" />
+        <StatCard label="Thí sinh tham gia" value={standings.length} href="/leaderboard" icon="♙" accent="text-amber-400" />
       </section>
 
       <section aria-labelledby="highlights-heading">
