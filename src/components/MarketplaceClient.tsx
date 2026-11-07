@@ -10,6 +10,7 @@ import { ConvertTab } from "./marketplace/ConvertTab";
 import { HistoryTab } from "./marketplace/HistoryTab";
 import { ListCardModal } from "./marketplace/ListCardModal";
 import { TradeOfferModal } from "./marketplace/TradeOfferModal";
+import { GiftUnboxModal } from "./marketplace/GiftUnboxModal";
 
 export type { MarketListingView, OwnedCardView, TransactionView };
 
@@ -57,6 +58,9 @@ export function MarketplaceClient({
 
   // Dismantle state
   const [dismantlingCardId, setDismantlingCardId] = useState<string | null>(null);
+
+  // Unbox modal state
+  const [unboxResult, setUnboxResult] = useState<import("./marketplace/GiftUnboxModal").UnboxResult | null>(null);
 
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
@@ -229,7 +233,30 @@ export function MarketplaceClient({
 
       if (data.newBalanceCoins !== undefined) setCoins(data.newBalanceCoins);
       if (data.newBalanceTickets !== undefined) setPoints(data.newBalanceTickets);
-      notify("success", data.message);
+
+      // Add newly awarded cards to local inventory view
+      if (data.awardedCards && data.awardedCards.length > 0) {
+        setMyCards((prev) => {
+          const updated = [...prev];
+          for (const newCard of data.awardedCards) {
+            const idx = updated.findIndex((c) => c.card.id === newCard.id);
+            if (idx >= 0) {
+              updated[idx] = { ...updated[idx], count: updated[idx].count + 1 };
+            } else {
+              updated.unshift({ card: newCard, count: 1 });
+            }
+          }
+          return updated;
+        });
+      }
+
+      // Trigger the interactive 3D gift unbox modal!
+      setUnboxResult({
+        itemName: data.itemName || "Gói Quà Gacha Shop",
+        packId,
+        ticketsAwarded: data.ticketsAwarded || 0,
+        awardedCards: data.awardedCards || [],
+      });
     } catch (err: unknown) {
       notify("error", (err as Error).message || "Lỗi mua vật phẩm.");
     }
@@ -330,6 +357,13 @@ export function MarketplaceClient({
         isSubmitting={isSubmitting}
         coins={coins}
       />
+      {/* Unbox Gift Modal */}
+      <GiftUnboxModal
+        result={unboxResult}
+        onClose={() => setUnboxResult(null)}
+        onGoToInventory={() => setActiveTab("inventory")}
+      />
+
     </div>
   );
 }

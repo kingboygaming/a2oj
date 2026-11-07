@@ -100,7 +100,18 @@ export async function POST(request: Request) {
     if ("guaranteedRarity" in item && item.guaranteedRarity) {
       const candidates = await tx.gachaCard.findMany({
         where: { rarity: item.guaranteedRarity },
-        select: { id: true, name: true, rarity: true },
+        select: {
+          id: true,
+          name: true,
+          rarity: true,
+          description: true,
+          attack: true,
+          defense: true,
+          element: true,
+          icon: true,
+          imageMimeType: true,
+          battleType: true,
+        },
         take: 50,
       });
 
@@ -111,7 +122,11 @@ export async function POST(request: Request) {
           create: { userId: user.id, cardId: picked.id, count: 1 },
           update: { count: { increment: 1 } },
         });
-        awardedCards.push(picked);
+        const { imageMimeType, ...cardData } = picked;
+        awardedCards.push({
+          ...cardData,
+          imageUrl: imageMimeType ? `/api/gacha/cards/${picked.id}/image` : null,
+        } as any);
       }
     }
 
