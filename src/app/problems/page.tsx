@@ -2,6 +2,9 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { EmptyState } from "@/components/EmptyState";
+import { Card, CardContent, CardHeader } from "@/components/Card";
+import { Badge, DifficultyBadge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 
 export const dynamic = "force-dynamic";
 const PAGE_SIZE = 10;
@@ -89,62 +92,92 @@ export default async function ProblemListPage({
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--navy)]">Danh sách bài tập</h1>
-          <p className="text-sm text-[var(--muted)]">
-            {totalProblems} đề
-            {user && ` · ${problems.filter((problem) => problem.submissions.length > 0).length} bài đã giải trên trang này`}
-          </p>
-        </div>
-        <form className="flex flex-wrap gap-2">
-          <input
-            name="q"
-            defaultValue={q}
-            placeholder="Tìm slug hoặc tiêu đề"
-            className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm"
-          />
-          <select
-            name="difficulty"
-            defaultValue={difficulty ?? ""}
-            aria-label="Lọc theo độ khó"
-            className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm"
-          >
-            <option value="">Mọi độ khó</option>
-            {DIFFICULTIES.map((value) => (
-              <option key={value} value={value}>
-                {DIFFICULTY_LABELS[value]}
-              </option>
-            ))}
-          </select>
-          <select
-            name="tag"
-            defaultValue={tag ?? ""}
-            aria-label="Lọc theo tag"
-            className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm"
-          >
-            <option value="">Mọi tag</option>
-            {tags.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-          </select>
-          {user && (
-            <select
-              name="solved"
-              defaultValue={solvedFilter ?? ""}
-              aria-label="Lọc theo trạng thái giải"
-              className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm"
-            >
-              <option value="">Mọi trạng thái</option>
-              <option value="solved">Đã giải</option>
-              <option value="unsolved">Chưa giải</option>
-            </select>
+    <div className="space-y-6">
+      {/* Enhanced Header with gradient */}
+      <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-gradient-to-br from-[var(--paper)] via-[var(--background)] to-[var(--paper)] p-8">
+        <div className="absolute inset-0 bg-gradient-to-r from-[var(--teal)]/5 via-transparent to-[var(--amber)]/5" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl" aria-hidden="true">📚</span>
+              <h1 className="text-3xl font-bold text-[var(--navy)]">Danh sách bài tập</h1>
+            </div>
+            <p className="text-sm text-[var(--muted)]">
+              <span className="font-semibold text-[var(--teal)]">{totalProblems}</span> bài tập
+              {user && ` · ${problems.filter((problem) => problem.submissions.length > 0).length} bài đã giải trên trang này`}
+            </p>
+          </div>
+          {user?.role === "ADMIN" && (
+            <Button href="/admin/problems" variant="secondary" icon="⚙️">
+              Quản lý đề
+            </Button>
           )}
-          <button className="rounded-md bg-[var(--surface-strong)] px-3 py-2 text-sm text-white">Tìm</button>
-        </form>
+        </div>
       </div>
 
+      {/* Modern Search & Filters */}
+      <Card variant="glass">
+        <CardContent>
+          <form className="space-y-4">
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg text-[var(--muted)]" aria-hidden="true">🔍</span>
+              <input
+                type="text"
+                name="q"
+                defaultValue={q}
+                placeholder="Tìm kiếm bài tập theo tiêu đề hoặc slug..."
+                className="w-full rounded-xl border border-[var(--line)] bg-[var(--background)] px-4 py-3.5 pl-12 text-sm text-[var(--navy)] placeholder:text-[var(--muted)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/20 transition-all"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <select
+                name="difficulty"
+                defaultValue={difficulty ?? ""}
+                aria-label="Lọc theo độ khó"
+                className="rounded-xl border border-[var(--line)] bg-[var(--background)] px-4 py-3 text-sm text-[var(--navy)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/20 transition-all"
+              >
+                <option value="">🎯 Mọi độ khó</option>
+                {DIFFICULTIES.map((value) => (
+                  <option key={value} value={value}>
+                    {DIFFICULTY_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                name="tag"
+                defaultValue={tag ?? ""}
+                aria-label="Lọc theo tag"
+                className="rounded-xl border border-[var(--line)] bg-[var(--background)] px-4 py-3 text-sm text-[var(--navy)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/20 transition-all"
+              >
+                <option value="">🏷️ Mọi tag</option>
+                {tags.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select>
+
+              {user && (
+                <select
+                  name="solved"
+                  defaultValue={solvedFilter ?? ""}
+                  aria-label="Lọc theo trạng thái giải"
+                  className="rounded-xl border border-[var(--line)] bg-[var(--background)] px-4 py-3 text-sm text-[var(--navy)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/20 transition-all"
+                >
+                  <option value="">📊 Mọi trạng thái</option>
+                  <option value="solved">✓ Đã giải</option>
+                  <option value="unsolved">○ Chưa giải</option>
+                </select>
+              )}
+
+              <Button type="submit" variant="primary" icon="→" iconPosition="right" className="w-full">
+                Tìm kiếm
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
       {problems.length === 0 ? (
-        <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+        <Card>
           <EmptyState
             type={q || difficulty || tag || solvedFilter ? "no-results" : "no-problems"}
             title={
@@ -163,107 +196,154 @@ export default async function ProblemListPage({
                 : { label: "Đóng góp bài tập mới", href: "/problems/new" }
             }
           />
-        </div>
+        </Card>
       ) : (
         <>
-          <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--paper)]">
-            <table className="w-full min-w-[700px] text-left text-sm">
-            <thead className="bg-[var(--surface-strong)] text-[var(--cream)]">
-              <tr>
-                <th className="px-3 py-2 font-medium">Mã</th>
-                <th className="px-3 py-2 font-medium">Tiêu đề</th>
-                <th className="px-3 py-2 font-medium">Độ khó</th>
-                {user && <th className="px-3 py-2 font-medium">Trạng thái</th>}
-                <th className="px-3 py-2 font-medium">Nộp</th>
-              </tr>
-            </thead>
-            <tbody>
-              {problems.map((p) => (
-                <tr key={p.id} className="border-t border-[var(--line)] transition hover:bg-[var(--background)]">
-                  <td className="px-3 py-2 font-mono text-xs">{p.slug}</td>
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/problems/${p.slug}`}
-                      prefetch={true}
-                      className="font-medium text-[var(--teal)] hover:underline"
-                    >
-                      {p.title}
-                    </Link>
-                    {p.tags.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {p.tags.map((item) => <Link key={item.id} href={`/problems?tag=${encodeURIComponent(item.name)}`} className="rounded-full bg-[var(--teal)]/10 px-2 py-0.5 text-[11px] text-[var(--teal)] hover:bg-[var(--teal)]/20">{item.name}</Link>)}
+          {/* Modern Card-based Problem List */}
+          <div className="grid gap-4">
+            {problems.map((p) => (
+              <Card key={p.id} hover className="group">
+                <div className="p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      {/* Status badges */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-lg bg-[var(--surface-strong)] px-2.5 py-1 font-mono text-xs font-semibold text-[var(--muted)]">
+                          {p.slug}
+                        </span>
+                        {(!p.published || p.contestOnly) && (
+                          <>
+                            {!p.published && (
+                              <Badge variant="warning" size="sm" icon="⚠">
+                                CHƯA DUYỆT
+                              </Badge>
+                            )}
+                            {p.contestOnly && (
+                              <Badge variant="purple" size="sm" icon="🏆">
+                                CHỈ CONTEST
+                              </Badge>
+                            )}
+                          </>
+                        )}
+                        {p.ioMode === "FILE" && (
+                          <Badge variant="info" size="sm" icon="📄">
+                            FILE I/O
+                          </Badge>
+                        )}
+                        {p.judgeType === "HEURISTIC" && (
+                          <Badge variant="purple" size="sm" icon="🎯">
+                            Heuristic
+                          </Badge>
+                        )}
+                        <Badge variant="teal" size="sm">
+                          {p.scoringMode === "VNOI" ? "VNOI" : "ICPC"}
+                        </Badge>
                       </div>
-                    )}
-                    {p.ioMode === "FILE" && (
-                      <span className="ml-2 inline-flex items-center rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                        📁 {p.inputFile || `${p.slug.toUpperCase()}.INP`}
-                      </span>
-                    )}
-                    {p.judgeType === "HEURISTIC" && (
-                      <span className="ml-2 inline-flex items-center rounded bg-purple-500/10 px-1.5 py-0.5 text-[11px] font-medium text-purple-700 dark:text-purple-400">
-                        🎯 Heuristic
-                      </span>
-                    )}
-                    <span className="ml-2 inline-flex items-center rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-400">
-                      {p.scoringMode === "VNOI" ? "VNOI" : "ICPC"}
-                    </span>
-                    {!p.published && (
-                      <>
-                        <span className="ml-2 text-xs text-amber-800">chờ duyệt</span>
+
+                      {/* Title */}
+                      <Link
+                        href={`/problems/${p.slug}`}
+                        prefetch={true}
+                        className="block text-lg font-semibold text-[var(--navy)] hover:text-[var(--teal)] transition-colors group-hover:text-[var(--teal)]"
+                      >
+                        {p.title}
+                      </Link>
+
+                      {/* Tags */}
+                      {p.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {p.tags.slice(0, 5).map((item) => (
+                            <Link
+                              key={item.id}
+                              href={`/problems?tag=${encodeURIComponent(item.name)}`}
+                              className="inline-flex items-center rounded-full bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-400 ring-1 ring-inset ring-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                            >
+                              #{item.name}
+                            </Link>
+                          ))}
+                          {p.tags.length > 5 && (
+                            <span className="inline-flex items-center text-xs text-[var(--muted)]">
+                              +{p.tags.length - 5} thêm
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Metadata */}
+                      <div className="flex items-center gap-4 text-xs text-[var(--muted)]">
+                        <span className="flex items-center gap-1.5">
+                          <span aria-hidden="true">📊</span>
+                          {p._count.submissions} bài nộp
+                        </span>
                         {(staff || p.authorId === user?.id) && (
                           <Link
                             href={`/problems/${p.slug}/edit`}
-                            className="ml-2 text-xs font-medium text-[var(--teal)] hover:underline"
+                            className="flex items-center gap-1 font-medium text-[var(--teal)] hover:underline"
                           >
-                            [Chỉnh sửa]
+                            <span aria-hidden="true">✏️</span>
+                            Chỉnh sửa
                           </Link>
                         )}
-                      </>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <DifficultyBadge difficulty={p.difficulty} />
-                  </td>
-                  {user && (
-                    <td className="px-3 py-2">
-                      {p.submissions.length > 0 ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
-                          ✓ Đã giải
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-md bg-slate-500/10 px-2 py-0.5 text-xs text-slate-400 ring-1 ring-inset ring-slate-500/20">
-                          Chưa giải
-                        </span>
+                      </div>
+                    </div>
+
+                    {/* Right side: Difficulty & Status */}
+                    <div className="flex flex-col items-end gap-2.5 shrink-0">
+                      <DifficultyBadge difficulty={p.difficulty as "EASY" | "MEDIUM" | "HARD"} />
+                      {user && (
+                        p.submissions.length > 0 ? (
+                          <Badge variant="success" icon="✓" size="md">
+                            Đã giải
+                          </Badge>
+                        ) : (
+                          <Badge variant="default" size="md">
+                            Chưa giải
+                          </Badge>
+                        )
                       )}
-                    </td>
-                  )}
-                  <td className="px-3 py-2">{p._count.submissions}</td>
-                </tr>
-              ))}
-            </tbody>
-            </table>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))}
           </div>
           {totalPages > 1 && (
-            <nav aria-label="Phân trang bài tập" className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <nav aria-label="Phân trang bài tập" className="flex flex-wrap items-center justify-center gap-3">
               {currentPage > 1 ? (
-                <Link href={pageHref(currentPage - 1)} className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--teal)] hover:bg-[var(--paper)]">
-                  ← Trang trước
+                <Link 
+                  href={pageHref(currentPage - 1)} 
+                  className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-4 py-2.5 text-sm font-medium text-[var(--teal)] transition-all hover:border-[var(--teal)] hover:shadow-lg hover:shadow-[var(--teal)]/20"
+                >
+                  <span aria-hidden="true">←</span>
+                  Trang trước
                 </Link>
               ) : (
-                <span className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--muted)] opacity-50">
-                  ← Trang trước
+                <span className="flex items-center gap-2 rounded-lg border border-[var(--line)] px-4 py-2.5 text-sm text-[var(--muted)] opacity-50">
+                  <span aria-hidden="true">←</span>
+                  Trang trước
                 </span>
               )}
-              <span className="px-2 text-sm text-[var(--muted)]" aria-live="polite">
-                Trang {currentPage}/{totalPages}
-              </span>
+              
+              <div className="flex items-center gap-2">
+                <span className="rounded-lg bg-[var(--teal)] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-[var(--teal)]/30" aria-live="polite">
+                  {currentPage}
+                </span>
+                <span className="text-sm text-[var(--muted)]">/</span>
+                <span className="text-sm font-medium text-[var(--navy)]">{totalPages}</span>
+              </div>
+
               {currentPage < totalPages ? (
-                <Link href={pageHref(currentPage + 1)} className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--teal)] hover:bg-[var(--paper)]">
-                  Trang sau →
+                <Link 
+                  href={pageHref(currentPage + 1)} 
+                  className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-4 py-2.5 text-sm font-medium text-[var(--teal)] transition-all hover:border-[var(--teal)] hover:shadow-lg hover:shadow-[var(--teal)]/20"
+                >
+                  Trang sau
+                  <span aria-hidden="true">→</span>
                 </Link>
               ) : (
-                <span className="rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--muted)] opacity-50">
-                  Trang sau →
+                <span className="flex items-center gap-2 rounded-lg border border-[var(--line)] px-4 py-2.5 text-sm text-[var(--muted)] opacity-50">
+                  Trang sau
+                  <span aria-hidden="true">→</span>
                 </span>
               )}
             </nav>
@@ -271,25 +351,5 @@ export default async function ProblemListPage({
         </>
       )}
     </div>
-  );
-}
-
-function DifficultyBadge({ difficulty }: { difficulty: string }) {
-  if (difficulty === "EASY")
-    return (
-      <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
-        Dễ
-      </span>
-    );
-  if (difficulty === "MEDIUM")
-    return (
-      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 ring-1 ring-inset ring-amber-500/30">
-        Trung bình
-      </span>
-    );
-  return (
-    <span className="inline-flex items-center rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-400 ring-1 ring-inset ring-rose-500/30">
-      Khó
-    </span>
   );
 }

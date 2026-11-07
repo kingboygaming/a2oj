@@ -4,6 +4,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { canManageContests } from "@/lib/auth";
 import { ContestCountdownBadge } from "@/components/ContestCountdownBadge";
 import { EmptyState } from "@/components/EmptyState";
+import { Card } from "@/components/Card";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 
 export const dynamic = "force-dynamic";
 
@@ -30,81 +33,144 @@ export default async function ContestsPage() {
   const canCreate = user && canManageContests(user.role);
 
   return (
-    <div>
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--navy)]">Contest</h1>
-          <p className="text-sm text-[var(--muted)]">Kỳ thi nội bộ và bảng xếp hạng</p>
+    <div className="space-y-6">
+      {/* Enhanced Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-gradient-to-br from-[var(--paper)] via-[var(--background)] to-[var(--paper)] p-8">
+        <div className="absolute inset-0 bg-gradient-to-r from-[var(--teal)]/5 via-transparent to-[var(--amber)]/5" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl" aria-hidden="true">🏆</span>
+              <h1 className="text-3xl font-bold text-[var(--navy)]">Contest</h1>
+            </div>
+            <p className="text-sm text-[var(--muted)]">
+              Kỳ thi nội bộ và bảng xếp hạng · <span className="font-semibold text-[var(--teal)]">{contests.length}</span> kỳ thi
+            </p>
+          </div>
+          {canCreate && (
+            <Button href="/contests/new" variant="primary" icon="+" iconPosition="left">
+              Tạo kỳ thi mới
+            </Button>
+          )}
         </div>
-        {canCreate && (
-          <Link
-            href="/contests/new"
-            className="rounded-md bg-[var(--surface-strong)] px-3 py-2 text-sm text-white"
-          >
-            Tạo kỳ thi
-          </Link>
-        )}
       </div>
+
+      {/* Practice Contest Banner */}
       <Link
         href="/contests/practice"
-        className="mt-4 inline-flex items-center gap-2 rounded-lg border border-[var(--teal)]/30 bg-[var(--teal)]/10 px-4 py-2.5 text-sm font-medium text-[var(--teal)] transition hover:bg-[var(--teal)]/15"
+        className="group block overflow-hidden rounded-xl border-2 border-[var(--teal)]/30 bg-gradient-to-r from-[var(--teal)]/10 via-[var(--teal)]/5 to-transparent p-6 transition-all hover:border-[var(--teal)]/50 hover:shadow-lg hover:shadow-[var(--teal)]/20"
       >
-        <span aria-hidden="true">⌁</span>
-        Practice Contest
-        <span className="text-xs font-normal text-[var(--muted)]">Luyện lại contest đã kết thúc</span>
+        <div className="flex items-center gap-4">
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[var(--teal)]/20 text-2xl font-bold text-[var(--teal)] transition-transform group-hover:scale-110">
+            ⌁
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-lg font-bold text-[var(--navy)] group-hover:text-[var(--teal)] transition-colors">
+              Practice Contest
+            </h3>
+            <p className="text-sm text-[var(--muted)]">
+              Luyện lại các contest đã kết thúc để nâng cao kỹ năng
+            </p>
+          </div>
+          <span className="text-2xl text-[var(--teal)] transition-transform group-hover:translate-x-1" aria-hidden="true">→</span>
+        </div>
       </Link>
 
-      <div className="mt-6 space-y-4">
-        {contests.map((c) => (
-          <Link
-            key={c.id}
-            href={`/contests/${c.slug}`}
-            className="block rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 transition-all hover:border-[var(--navy)]/40 hover:shadow-sm"
-          >
-            {/* Header: Title & Timer Countdown Badge */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-[var(--navy)]">{c.title}</h2>
-              <ContestCountdownBadge startAt={c.startAt} endAt={c.endAt} />
-            </div>
+      {/* Contest List */}
+      <div className="grid gap-5">
+        {contests.map((c) => {
+          const now = Date.now();
+          const isUpcoming = now < c.startAt.getTime();
+          const isOngoing = now >= c.startAt.getTime() && now <= c.endAt.getTime();
+          const isEnded = now > c.endAt.getTime();
 
-            {/* Author / GV */}
-            <p className="mt-1.5 text-xs text-[var(--muted)]">
-              GV: <span className="font-medium text-[var(--navy)]">{c.author.displayName}</span>
-              {c.description && <span className="ml-2 font-normal text-[var(--muted)]">· {c.description}</span>}
-            </p>
+          return (
+            <Card key={c.id} hover className="group">
+              <Link href={`/contests/${c.slug}`} className="block p-6">
+                {/* Header */}
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      {isOngoing && (
+                        <Badge variant="success" icon="●" pulse>
+                          ĐANG DIỄN RA
+                        </Badge>
+                      )}
+                      {isUpcoming && (
+                        <Badge variant="info" icon="📅">
+                          SẮP DIỄN RA
+                        </Badge>
+                      )}
+                      {isEnded && (
+                        <Badge variant="default" icon="✓">
+                          ĐÃ KẾT THÚC
+                        </Badge>
+                      )}
+                      <Badge variant={c.scoringMode === "VNOI" ? "teal" : "purple"} size="sm">
+                        {c.scoringMode === "VNOI" ? "VNOI" : "ICPC"}
+                      </Badge>
+                    </div>
+                    <h2 className="text-xl font-bold text-[var(--navy)] group-hover:text-[var(--teal)] transition-colors mb-2">
+                      {c.title}
+                    </h2>
+                    {c.description && (
+                      <p className="text-sm text-[var(--muted)] line-clamp-2">{c.description}</p>
+                    )}
+                  </div>
+                  <ContestCountdownBadge startAt={c.startAt} endAt={c.endAt} />
+                </div>
 
-            {/* Table-style Info Bar */}
-            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[var(--line)]/70 pt-3 text-xs sm:grid-cols-5">
-              <div>
-                <span className="block font-medium text-[var(--muted)]">Bắt đầu</span>
-                <span className="font-mono text-slate-700">{formatDateTime(c.startAt)}</span>
-              </div>
-              <div>
-                <span className="block font-medium text-[var(--muted)]">Kết thúc</span>
-                <span className="font-mono text-slate-700">{formatDateTime(c.endAt)}</span>
-              </div>
-              <div>
-                <span className="block font-medium text-[var(--muted)]">Loại kỳ thi</span>
-                <span className="text-slate-700">Kỳ thi nội bộ ({c._count.problems} bài)</span>
-              </div>
-              <div>
-                <span className="block font-medium text-[var(--muted)]">Cách tính điểm</span>
-                <span className="text-slate-700">
-                  {c.scoringMode === "VNOI"
-                    ? "VNOI (Tổng điểm cao nhất)"
-                    : "ICPC (AC + penalty)"}
-                </span>
-              </div>
-              <div>
-                <span className="block font-medium text-[var(--muted)]">Người tạo</span>
-                <span className="font-mono text-slate-700">@{c.author.username}</span>
-              </div>
-            </div>
-          </Link>
-        ))}
+                {/* Info Grid */}
+                <div className="grid gap-4 rounded-lg border border-[var(--line)]/50 bg-[var(--background)]/50 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                      <span aria-hidden="true">🎯</span>
+                      Số bài
+                    </div>
+                    <div className="text-lg font-bold text-[var(--navy)]">{c._count.problems}</div>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                      <span aria-hidden="true">👥</span>
+                      Người đăng ký
+                    </div>
+                    <div className="text-lg font-bold text-[var(--navy)]">{c._count.registrations}</div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                      <span aria-hidden="true">📅</span>
+                      Bắt đầu
+                    </div>
+                    <div className="font-mono text-xs text-[var(--navy)]">{formatDateTime(c.startAt)}</div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                      <span aria-hidden="true">🏁</span>
+                      Kết thúc
+                    </div>
+                    <div className="font-mono text-xs text-[var(--navy)]">{formatDateTime(c.endAt)}</div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="mt-4 flex items-center justify-between border-t border-[var(--line)]/30 pt-4">
+                  <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                    <span>GV:</span>
+                    <span className="font-semibold text-[var(--navy)]">{c.author.displayName}</span>
+                    <span className="text-[var(--muted)]">@{c.author.username}</span>
+                  </div>
+                  <span className="text-[var(--teal)] transition-transform group-hover:translate-x-1" aria-hidden="true">→</span>
+                </div>
+              </Link>
+            </Card>
+          );
+        })}
 
         {contests.length === 0 && (
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+          <Card>
             <EmptyState
               type="no-contests"
               title="Chưa có kỳ thi nào"
@@ -121,7 +187,7 @@ export default async function ContestsPage() {
                     }
               }
             />
-          </div>
+          </Card>
         )}
       </div>
     </div>
