@@ -9,6 +9,7 @@ import { getUserRankSummary, recordNewAchievementUnlocks } from "@/lib/ranks";
 import { AchievementUnlockToast } from "./AchievementUnlockToast";
 import { LoginDialog } from "./LoginDialog";
 import { Button } from "./Button";
+import { EntertainmentMenu } from "./EntertainmentMenu";
 
 const mainLinks = [
   { href: "/problems", label: "Bài tập", icon: "📝" },
@@ -18,11 +19,6 @@ const mainLinks = [
   { href: "/gacha", label: "Gacha", icon: "🎁" },
   { href: "/wiki", label: "Wiki", icon: "📚" },
   { href: "/leaderboard", label: "Xếp hạng", icon: "📈" },
-];
-
-const entertainmentLinks = [
-  { href: "/chess", label: "Chess Arena", description: "Đấu cờ vua trực tiếp trên cùng máy", icon: "♟️" },
-  { href: "/battle", label: "Đấu bài PvP", description: "Tạo phòng hoặc nhập mã tham gia", icon: "🎴" },
 ];
 
 export async function Header() {
@@ -61,48 +57,24 @@ export async function Header() {
           {/* Main Navigation */}
           <nav
             aria-label="Điều hướng chính"
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-sm"
           >
-            {mainLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                prefetch={true}
-                className="group relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-medium text-[var(--cream)]/85 transition-all hover:bg-white/10 hover:text-white"
-              >
-                <span className="text-xs opacity-75" aria-hidden="true">{link.icon}</span>
-                <span>{link.label}</span>
-              </Link>
-            ))}
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {mainLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  prefetch={true}
+                  className="group relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-medium text-[var(--cream)]/85 transition-all hover:bg-white/10 hover:text-white"
+                >
+                  <span className="text-xs opacity-75" aria-hidden="true">{link.icon}</span>
+                  <span>{link.label}</span>
+                </Link>
+              ))}
+            </div>
 
-            {/* Entertainment Dropdown */}
-            <details className="group relative shrink-0">
-              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg px-2.5 py-1.5 font-medium text-[var(--cream)]/85 transition-all hover:bg-white/10 hover:text-white [&::-webkit-details-marker]:hidden">
-                <span className="text-xs" aria-hidden="true">🎮</span>
-                <span>Giải trí</span>
-                <span className="text-[10px] transition-transform group-open:rotate-180">⌄</span>
-              </summary>
-              <div className="absolute left-0 top-full z-[120] mt-1.5 w-64 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-1.5 text-[var(--cream)] shadow-2xl backdrop-blur-xl">
-                {entertainmentLinks.map((link) => (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    prefetch={true}
-                    className="group flex items-start gap-2.5 rounded-lg p-2.5 transition-colors hover:bg-white/10"
-                  >
-                    <span className="text-base" aria-hidden="true">{link.icon}</span>
-                    <div>
-                      <div className="font-semibold text-sm text-[var(--cream)] group-hover:text-[var(--teal)] transition-colors">
-                        {link.label}
-                      </div>
-                      <div className="text-xs text-[var(--cream)]/60">
-                        {link.description}
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </details>
+            {/* Entertainment Dropdown - outside overflow-x-auto so dropdown is never clipped */}
+            <EntertainmentMenu />
           </nav>
 
           {/* User Actions & Toolbar */}
