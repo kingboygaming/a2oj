@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { Card } from "@/components/Card";
@@ -35,8 +36,23 @@ export function GiftUnboxModal({
   onGoToInventory: () => void;
 }) {
   const [isOpened, setIsOpened] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  if (!result) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!result) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [result]);
+
+  if (!result || !mounted) return null;
 
   const boxIcons: Record<string, string> = {
     single_ticket: "🎫",
@@ -46,49 +62,52 @@ export function GiftUnboxModal({
   };
   const icon = (result.packId && boxIcons[result.packId]) || "🎁";
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md animate-in fade-in-0 duration-200">
-      <Card
-        variant="glass"
-        className="relative w-full max-w-lg overflow-hidden border-2 border-amber-500/40 p-6 sm:p-8 text-center shadow-2xl shadow-amber-500/10"
-      >
-        <div className="absolute inset-0 bg-gradient-to-b from-amber-500/10 via-transparent to-purple-500/10 pointer-events-none" />
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex min-h-dvh w-screen items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md animate-in fade-in-0 duration-200">
+      <div className="relative my-auto w-full max-w-lg">
+        <Card
+          variant="glass"
+          className="relative w-full overflow-hidden border-2 border-amber-500/40 p-6 sm:p-8 text-center shadow-2xl shadow-amber-500/10"
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-amber-500/10 via-transparent to-purple-500/10 pointer-events-none" />
 
-        {!isOpened ? (
-          <div className="relative z-10 py-4 space-y-6">
-            <div className="space-y-2">
-              <Badge variant="warning" size="md" className="font-bold">
-                PHẦN THƯỞNG MỚI ĐỔI
-              </Badge>
-              <h2 className="text-2xl sm:text-3xl font-black text-[var(--navy)]">
-                {result.itemName}
-              </h2>
-              <p className="text-xs text-[var(--muted)]">
-                Bạn đã đổi thành công gói quà. Nhấn nút bên dưới để mở hộp và khám phá vật phẩm!
-              </p>
-            </div>
-
-            <div className="relative my-8 flex justify-center">
-              <div className="absolute size-32 rounded-full bg-amber-500/25 blur-2xl animate-pulse" />
-              <div className="relative flex size-28 sm:size-32 items-center justify-center rounded-3xl border-2 border-amber-400/50 bg-gradient-to-br from-amber-500/30 via-[var(--paper)] to-amber-900/40 text-6xl sm:text-7xl shadow-2xl shadow-amber-500/30 hover:scale-105 transition-transform duration-300">
-                <span className="animate-bounce">{icon}</span>
+          {!isOpened ? (
+            <div className="relative z-10 py-4 space-y-6">
+              <div className="space-y-2">
+                <Badge variant="warning" size="md" className="font-bold">
+                  PHẦN THƯỞNG MỚI ĐỔI
+                </Badge>
+                <h2 className="text-2xl sm:text-3xl font-black text-[var(--navy)]">
+                  {result.itemName}
+                </h2>
+                <p className="text-xs text-[var(--muted)]">
+                  Bạn đã đổi thành công gói quà. Nhấn nút bên dưới để mở hộp và khám phá vật phẩm!
+                </p>
               </div>
-            </div>
 
-            <Button
-              variant="primary"
-              size="lg"
-              className="w-full font-black text-base py-3.5 shadow-xl shadow-amber-500/25 bg-gradient-to-r from-amber-500 to-yellow-400 hover:opacity-95 text-slate-950 uppercase tracking-wider"
-              onClick={() => setIsOpened(true)}
-            >
-              ✨ BẤM ĐỂ MỞ HỘP QUÀ NGAY! ✨
-            </Button>
-          </div>
-        ) : (
-          renderOpenedView()
-        )}
-      </Card>
-    </div>
+              <div className="relative my-8 flex justify-center">
+                <div className="absolute size-32 rounded-full bg-amber-500/25 blur-2xl animate-pulse" />
+                <div className="relative flex size-28 sm:size-32 items-center justify-center rounded-3xl border-2 border-amber-400/50 bg-gradient-to-br from-amber-500/30 via-[var(--paper)] to-amber-900/40 text-6xl sm:text-7xl shadow-2xl shadow-amber-500/30 hover:scale-105 transition-transform duration-300">
+                  <span className="animate-bounce">{icon}</span>
+                </div>
+              </div>
+
+              <Button
+                variant="primary"
+                size="lg"
+                className="w-full font-black text-base py-3.5 shadow-xl shadow-amber-500/25 bg-gradient-to-r from-amber-500 to-yellow-400 hover:opacity-95 text-slate-950 uppercase tracking-wider"
+                onClick={() => setIsOpened(true)}
+              >
+                ✨ BẤM ĐỂ MỞ HỘP QUÀ NGAY! ✨
+              </Button>
+            </div>
+          ) : (
+            renderOpenedView()
+          )}
+        </Card>
+      </div>
+    </div>,
+    document.body
   );
 
   function renderOpenedView() {
