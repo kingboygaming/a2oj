@@ -912,6 +912,7 @@ async function executeOnWandbox(
 
   const options = language === "CPP" ? "-O3 -std=c++17" : undefined;
   let lastResponse: WandboxResponse | null = null;
+  let lastError: unknown;
 
   for (const compiler of compilers) {
     try {
@@ -921,13 +922,15 @@ async function executeOnWandbox(
       }
       lastResponse = resp;
       await new Promise((resolve) => setTimeout(resolve, 300));
-    } catch {
+    } catch (error) {
+      lastError = error;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 
   if (lastResponse) return lastResponse;
-  throw new Error("Không thể kết nối đến máy chủ chấm Wandbox.");
+  const reason = lastError instanceof Error ? lastError.message : String(lastError ?? "Lỗi không xác định");
+  throw new Error(`Không thể kết nối đến máy chủ chấm Wandbox: ${reason}`);
 }
 
 /**
@@ -1066,11 +1069,117 @@ export async function runReferenceCodeOnWandbox(
   return results.map((result) => result.program_output ?? "");
 }
 
+export async function runReferenceCodeOnJudge0(
+  language: Language,
+  source: string,
+  inputs: string[],
+  timeLimitMs: number,
+): Promise<string[]> {
+  if (inputs.length < 1 || inputs.length > 10) {
+    throw new Error("Số input phải từ 1 đến 10.");
+  }
+
+  const baseUrl = (process.env.JUDGE0_URL || "https://ce.judge0.com").replace(/\/+$/, "");
+  const languageId = language === "CPP"
+    ? Number(process.env.JUDGE0_CPP_ID || 105)
+    : Number(process.env.JUDGE0_PYTHON_ID || 100);
+  const executionTimeLimitMs = effectiveTimeLimitMs(language, timeLimitMs);
+  const cpuTimeLimit = Math.max(0.5, Math.min(15, Number((executionTimeLimitMs / 1000).toFixed(2))));
+  const wallTimeLimit = Math.max(1.5, Math.min(30, Number(((executionTimeLimitMs * 2 + 1000) / 1000).toFixed(2))));
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (process.env.JUDGE0_KEY) {
+    headers["X-Auth-Token"] = process.env.JUDGE0_KEY;
+    headers["X-RapidAPI-Key"] = process.env.JUDGE0_KEY;
+  }
+
+  const postRes = await fetch(`${baseUrl}/submissions/batch?base64_encoded=false`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      submissions: inputs.map((stdin) => ({
+        source_code: source,
+        language_id: languageId,
+        stdin,
+        compiler_options: language === "CPP" ? "-O3 -std=c++17" : undefined,
+        cpu_time_limit: cpuTimeLimit,
+        wall_time_limit: wallTimeLimit,
+      })),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!postRes.ok) {
+    throw new Error(`Judge0 POST batch HTTP ${postRes.status}`);
+  }
+
+  const tokenData = await postRes.json() as Array<{ token?: string }>;
+  const tokens = Array.isArray(tokenData)
+    ? tokenData.map((item) => item.token).filter((token): token is string => Boolean(token))
+    : [];
+  if (tokens.length !== inputs.length) {
+    throw new Error("Judge0 không trả đủ mã theo dõi cho các input.");
+  }
+
+  const pollDeadline = Date.now() + 25_000;
+  let pollInterval = 150;
+  while (Date.now() < pollDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    const response = await fetch(
+      `${baseUrl}/submissions/batch?tokens=${tokens.join(",")}&base64_encoded=false`,
+      { headers, signal: AbortSignal.timeout(10_000) },
+    );
+    if (!response.ok) {
+      throw new Error(`Judge0 GET batch HTTP ${response.status}`);
+    }
+
+    const data = await response.json() as { submissions?: Judge0SubmissionResult[] };
+    if (Array.isArray(data.submissions) && data.submissions.length === inputs.length) {
+      if (data.submissions.every((submission) => submission.status && submission.status.id >= 3)) {
+        const compileError = data.submissions.find((submission) => submission.status.id === 6);
+        if (compileError) {
+          throw new Error((compileError.compile_output || compileError.message || "Lời giải không biên dịch được.").slice(0, 2000));
+        }
+
+        const failed = data.submissions.find((submission) => submission.status.id !== 3 && submission.status.id !== 4);
+        if (failed) {
+          const details = failed.stderr || failed.message || failed.status.description || "Không chạy được lời giải.";
+          throw new Error(details.slice(0, 2000));
+        }
+
+        return data.submissions.map((submission) => submission.stdout ?? "");
+      }
+    }
+    pollInterval = Math.min(pollInterval + 150, 750);
+  }
+
+  throw new Error("Judge0 quá thời gian chờ xử lý lời giải.");
+}
+
 function isLocalRunnerUnavailable(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message === "NO_PYTHON"
     || message === "NO_CXX"
+    || /\bspawn .* (?:ENOENT|EACCES)\b/.test(message)
     || /^Lỗi biên dịch C\+\+: exit \d+$/.test(message);
+}
+
+async function runReferenceCodeOnCloud(
+  language: Language,
+  source: string,
+  inputs: string[],
+  timeLimitMs: number,
+): Promise<string[]> {
+  try {
+    return await runReferenceCodeOnWandbox(language, source, inputs, timeLimitMs);
+  } catch (wandboxError) {
+    console.warn("Wandbox reference execution failed; falling back to Judge0:", wandboxError);
+    try {
+      return await runReferenceCodeOnJudge0(language, source, inputs, timeLimitMs);
+    } catch (judge0Error) {
+      const wandboxMessage = wandboxError instanceof Error ? wandboxError.message : String(wandboxError);
+      const judge0Message = judge0Error instanceof Error ? judge0Error.message : String(judge0Error);
+      throw new Error(`Wandbox: ${wandboxMessage}\nJudge0: ${judge0Message}`);
+    }
+  }
 }
 
 export async function runReferenceCodeWithFallback(
@@ -1081,7 +1190,7 @@ export async function runReferenceCodeWithFallback(
   preferLocal: boolean,
 ): Promise<string[]> {
   if (!preferLocal) {
-    return runReferenceCodeOnWandbox(language, source, inputs, timeLimitMs);
+    return runReferenceCodeOnCloud(language, source, inputs, timeLimitMs);
   }
 
   try {
@@ -1093,7 +1202,7 @@ export async function runReferenceCodeWithFallback(
 
     console.warn("Local reference execution failed; falling back to Wandbox:", localError);
     try {
-      return await runReferenceCodeOnWandbox(language, source, inputs, timeLimitMs);
+      return await runReferenceCodeOnCloud(language, source, inputs, timeLimitMs);
     } catch (cloudError) {
       const localMessage = localError instanceof Error ? localError.message : String(localError);
       const cloudMessage = cloudError instanceof Error ? cloudError.message : String(cloudError);

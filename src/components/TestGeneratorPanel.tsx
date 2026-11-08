@@ -162,10 +162,10 @@ export function TestGeneratorPanel({
           Khai báo input và dán lời giải tham chiếu; hệ thống sẽ sinh input rồi tự chạy code để tạo output. Không cần Docker.
         </p>
         <p className="mt-1 text-xs text-amber-700">
-          Khi chạy tự động, hệ thống ưu tiên chạy local nếu được cấu hình; nếu thiếu compiler hoặc local không khởi chạy được, hệ thống sẽ thử dịch vụ cloud dự phòng (Wandbox). Dịch vụ miễn phí có thể giới hạn hoặc quá tải; bạn cũng có thể chạy code trên máy rồi dán output thủ công.
+          Khi chạy tự động, hệ thống ưu tiên chạy local nếu được cấu hình; nếu không chạy local được, hệ thống sẽ thử Wandbox rồi Judge0. Code sẽ được gửi tới dịch vụ cloud dự phòng; dịch vụ miễn phí có thể giới hạn hoặc quá tải.
         </p>
         <p className="mt-1 text-xs text-emerald-700">
-          <strong>Mẹo:</strong> Với <code>JUDGE_MODE=auto</code>, hệ thống thử chạy trên máy chủ cục bộ trước; chỉ khi thiếu compiler hoặc compiler không khởi chạy được mới chuyển sang cloud.
+          <strong>Mẹo:</strong> Với <code>JUDGE_MODE=auto</code>, hệ thống thử chạy trên máy chủ cục bộ trước; nếu local và cả hai dịch vụ cloud đều không khả dụng, bạn có thể chạy code trên máy rồi dán output thủ công.
         </p>
       </div>
 

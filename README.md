@@ -188,7 +188,7 @@ Trang `/admin` và API duyệt đề đều kiểm tra role ở phía máy chủ
 - Trong `.env` local, `JUDGE_MODE=auto` sẽ biên dịch/chạy C++ hoặc Python trên máy phát triển.
 - Judge chạy chương trình với từng test case không phải sample trong database và so sánh output chuẩn hóa với đáp án đã lưu.
 - Live IDE có nút chạy thử với input tùy chỉnh hoặc chạy toàn bộ sample (tối đa 20 sample mỗi lượt). Khi bật `ENABLE_IDE_DOCKER_RUN="true"`, endpoint chạy trong Docker runner cô lập; cần đăng nhập, giới hạn 5 lượt/phút mỗi tài khoản, source tối đa 64 KB, input tùy chỉnh tối đa 16 KB và thời gian chạy tối đa 3 giây cho mỗi sample.
-- Trong form chỉnh sửa đề, ADMIN hoặc tác giả của đề chưa duyệt có thể sinh tối đa 10 input theo cấu hình JSON ngay trên trình duyệt. Có thể tải ZIP để chạy lời giải thủ công, hoặc gọi API chấm cloud Wandbox đang dùng làm dự phòng để tạo output tự động; không cần Docker. API miễn phí có thể giới hạn hoặc quá tải, và code sẽ được gửi tới dịch vụ này. Ví dụ:
+- Trong form chỉnh sửa đề, ADMIN hoặc tác giả của đề chưa duyệt có thể sinh tối đa 10 input theo cấu hình JSON ngay trên trình duyệt. Có thể tải ZIP để chạy lời giải thủ công, hoặc tạo output tự động qua cloud: Wandbox, sau đó Judge0 nếu Wandbox không khả dụng; không cần Docker. Các API miễn phí có thể giới hạn hoặc quá tải, và code sẽ được gửi tới dịch vụ cloud được gọi. Ví dụ:
 
   ```json
   {
