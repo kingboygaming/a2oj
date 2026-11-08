@@ -930,6 +930,117 @@ async function executeOnWandbox(
   throw new Error("Không thể kết nối đến máy chủ chấm Wandbox.");
 }
 
+/**
+ * Chạy code tham chiếu cục bộ (khi JUDGE_MODE=auto) để sinh output tự động.
+ * Tương tự gradeWithCompiler nhưng chỉ trả về output, không so sánh.
+ */
+export async function runReferenceCodeLocally(
+  language: Language,
+  source: string,
+  inputs: string[],
+  timeLimitMs: number,
+): Promise<string[]> {
+  if (inputs.length < 1 || inputs.length > 10) {
+    throw new Error("Số input phải từ 1 đến 10.");
+  }
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tinoj-ref-"));
+  const executionTimeLimitMs = effectiveTimeLimitMs(language, timeLimitMs);
+
+  try {
+    if (language === "PYTHON") {
+      const srcPath = path.join(dir, "main.py");
+      await fs.writeFile(srcPath, source, "utf8");
+      const py = (await commandExists("python")) ? "python" : "python3";
+      if (!(await commandExists(py))) {
+        throw new Error("NO_PYTHON");
+      }
+
+      const outputs = await Promise.all(
+        inputs.map(async (input, index) => {
+          const testDir = path.join(dir, `test_${index}`);
+          await fs.mkdir(testDir, { recursive: true });
+          const run = await runTimed(py, [srcPath], input, executionTimeLimitMs + 500, testDir);
+
+          if (!run.ok) {
+            // Check for syntax errors
+            if (/\b(?:SyntaxError|IndentationError|TabError)\b/.test(run.stderr)) {
+              throw new Error(`Lỗi biên dịch Python: ${run.stderr.slice(0, 2000)}`);
+            }
+            throw new Error(`Lỗi chạy chương trình (test ${index + 1}): ${run.stderr.slice(0, 2000) || run.stdout.slice(0, 2000)}`);
+          }
+
+          if (run.tle) {
+            throw new Error(`Test ${index + 1} vượt quá thời gian cho phép (${executionTimeLimitMs}ms).`);
+          }
+
+          return run.stdout;
+        }),
+      );
+
+      return outputs;
+    }
+
+    // C++
+    const srcPath = path.join(dir, "main.cpp");
+    const exePath = path.join(dir, process.platform === "win32" ? "main.exe" : "main");
+    await fs.writeFile(srcPath, source, "utf8");
+
+    const compilers = (await Promise.all(
+      ["g++", "clang++"].map(async (compiler) =>
+        (await commandExists(compiler)) ? compiler : null,
+      ),
+    )).filter((compiler): compiler is string => compiler !== null);
+
+    if (compilers.length === 0) {
+      throw new Error("NO_CXX");
+    }
+
+    // Try to compile with each available compiler
+    let compiled = false;
+    let lastCompileError = "";
+    for (const compiler of compilers) {
+      const compile = await runTimed(
+        compiler,
+        ["-O3", "-std=c++17", "-pipe", srcPath, "-o", exePath],
+        "",
+        15000,
+        dir,
+      );
+      if (compile.ok) {
+        compiled = true;
+        break;
+      }
+      lastCompileError = compile.stderr || compile.stdout;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (!compiled) {
+      throw new Error(`Lỗi biên dịch C++: ${lastCompileError.slice(0, 2000)}`);
+    }
+
+    const outputs = await Promise.all(
+      inputs.map(async (input, index) => {
+        const run = await runTimed(exePath, [], input, executionTimeLimitMs + 500, dir);
+
+        if (!run.ok) {
+          throw new Error(`Lỗi chạy chương trình (test ${index + 1}): ${run.stderr.slice(0, 2000) || run.stdout.slice(0, 2000)}`);
+        }
+
+        if (run.tle) {
+          throw new Error(`Test ${index + 1} vượt quá thời gian cho phép (${executionTimeLimitMs}ms).`);
+        }
+
+        return run.stdout;
+      }),
+    );
+
+    return outputs;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export async function runReferenceCodeOnWandbox(
   language: Language,
   source: string,
@@ -953,6 +1064,42 @@ export async function runReferenceCodeOnWandbox(
     throw new Error(details.slice(0, 2000));
   }
   return results.map((result) => result.program_output ?? "");
+}
+
+function isLocalRunnerUnavailable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === "NO_PYTHON"
+    || message === "NO_CXX"
+    || /^Lỗi biên dịch C\+\+: exit \d+$/.test(message);
+}
+
+export async function runReferenceCodeWithFallback(
+  language: Language,
+  source: string,
+  inputs: string[],
+  timeLimitMs: number,
+  preferLocal: boolean,
+): Promise<string[]> {
+  if (!preferLocal) {
+    return runReferenceCodeOnWandbox(language, source, inputs, timeLimitMs);
+  }
+
+  try {
+    return await runReferenceCodeLocally(language, source, inputs, timeLimitMs);
+  } catch (localError) {
+    if (!isLocalRunnerUnavailable(localError)) {
+      throw localError;
+    }
+
+    console.warn("Local reference execution failed; falling back to Wandbox:", localError);
+    try {
+      return await runReferenceCodeOnWandbox(language, source, inputs, timeLimitMs);
+    } catch (cloudError) {
+      const localMessage = localError instanceof Error ? localError.message : String(localError);
+      const cloudMessage = cloudError instanceof Error ? cloudError.message : String(cloudError);
+      throw new Error(`Chạy local thất bại: ${localMessage}\nChạy dự phòng thất bại: ${cloudMessage}`);
+    }
+  }
 }
 
 async function gradeWithWandbox(

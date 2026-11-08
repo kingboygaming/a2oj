@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { canManageContests, getCurrentUser } from "@/lib/auth";
-import { runReferenceCodeOnWandbox } from "@/lib/judge";
+import { runReferenceCodeWithFallback } from "@/lib/judge";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -9,11 +9,16 @@ export const maxDuration = 60;
 const requestSchema = z.object({
   language: z.enum(["CPP", "PYTHON"]),
   source: z.string().min(1).max(64_000),
-  inputs: z.array(z.string().min(1).max(24_000)).min(1).max(10),
+  inputs: z.array(z.string().max(24_000)).min(1).max(10),
 });
 
 const RUNS_PER_MINUTE = 3;
 const runTimestamps = new Map<string, number[]>();
+
+function isLocalJudgeMode(): boolean {
+  const mode = process.env.JUDGE_MODE?.toLowerCase();
+  return mode === "auto";
+}
 
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
@@ -54,12 +59,14 @@ export async function POST(request: Request) {
   runTimestamps.set(user.id, recent);
 
   try {
-    const outputs = await runReferenceCodeOnWandbox(
+    const outputs = await runReferenceCodeWithFallback(
       parsed.data.language,
       parsed.data.source,
       parsed.data.inputs,
       3_000,
+      isLocalJudgeMode(),
     );
+
     if (outputs.some((output) => Buffer.byteLength(output, "utf8") > 24_000)) {
       return NextResponse.json({ error: "Output của lời giải vượt quá giới hạn 24 KB cho mỗi test." }, { status: 422 });
     }

@@ -153,7 +153,10 @@ export function TestGeneratorPanel({
           Khai báo biến, miền giá trị và template input. Web sinh input ngay trên trình duyệt. Để tự tạo output, dùng API chấm cloud dự phòng của website; không cần Docker.
         </p>
         <p className="mt-1 text-xs text-amber-700">
-          Khi chạy tự động, code được gửi tới dịch vụ chấm cloud (Wandbox) mà website đang dùng làm dự phòng. Dịch vụ miễn phí có thể giới hạn hoặc quá tải; bạn cũng có thể chạy code trên máy rồi dán output thủ công.
+          Khi chạy tự động, hệ thống ưu tiên chạy local nếu được cấu hình; nếu thiếu compiler hoặc local không khởi chạy được, hệ thống sẽ thử dịch vụ cloud dự phòng (Wandbox). Dịch vụ miễn phí có thể giới hạn hoặc quá tải; bạn cũng có thể chạy code trên máy rồi dán output thủ công.
+        </p>
+        <p className="mt-1 text-xs text-emerald-700">
+          <strong>Mẹo:</strong> Với <code>JUDGE_MODE=auto</code>, hệ thống thử chạy trên máy chủ cục bộ trước; chỉ khi thiếu compiler hoặc compiler không khởi chạy được mới chuyển sang cloud.
         </p>
       </div>
 
@@ -228,7 +231,7 @@ export function TestGeneratorPanel({
                 Tải input (.zip)
               </button>
               <button type="button" disabled={runPending || (!problemId && !runEndpoint) || !source.trim()} onClick={() => void runReferenceSolution()} className="rounded-md bg-[var(--teal)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
-                {runPending ? "Đang chạy..." : "Chạy code qua API dự phòng"}
+                {runPending ? "Đang chạy..." : "Tự động tạo output (local/cloud)"}
               </button>
               <button type="button" disabled={missingOutputs > 0} onClick={() => { onAddCases(generated); setGenerated([]); setMessage("Đã thêm test vào danh sách; nhấn Lưu thay đổi để lưu bộ test."); }} className="rounded-md bg-[var(--surface-strong)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
                 {missingOutputs > 0 ? `Còn thiếu ${missingOutputs} output` : `Thêm ${generated.length} test vào đề`}
