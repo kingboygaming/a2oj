@@ -3,6 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, hasContestAccess } from "@/lib/auth";
 import { SCORING_MODES } from "@/lib/scoring";
+import {
+  getProblemPdfStorage,
+  verifyProblemPdf,
+} from "@/lib/problem-statement-pdf";
 
 export const maxDuration = 60;
 
@@ -35,7 +39,6 @@ export async function GET(
   if (!problem) {
     return NextResponse.json({ error: "Không tìm thấy bài." }, { status: 404 });
   }
-
   const staff = user?.role === "TEACHER" || user?.role === "ADMIN";
   if (!problem.published && !staff && user?.id !== problem.authorId) {
     return NextResponse.json({ error: "Bài chưa được duyệt." }, { status: 403 });
@@ -74,7 +77,9 @@ export async function GET(
       : { ...t, input: "", output: "", hidden: true },
   );
 
-  const { contestLinks: _contestLinks, ...safeProblem } = problem;
+  const safeProblem = Object.fromEntries(
+    Object.entries(problem).filter(([key]) => key !== "contestLinks"),
+  );
   return NextResponse.json({ ...safeProblem, testCases });
 }
 
@@ -107,6 +112,7 @@ const updateSchema = z.object({
   achievementScoreThreshold: z.number().int().min(1).max(10000).nullable().optional(),
   inputFile: z.string().trim().max(100).nullable().optional(),
   outputFile: z.string().trim().max(100).nullable().optional(),
+  statementPdfPath: z.string().max(300).nullable().optional(),
   testCases: z.array(testCaseSchema).min(1),
   tags: z.array(z.string().trim().toLowerCase().min(2).max(32)).max(10).optional().default([]).transform((tags) => [...new Set(tags)]),
 }).superRefine((data, context) => {
@@ -127,7 +133,7 @@ export async function PATCH(
   const { id } = await context.params;
   const problem = await prisma.problem.findFirst({
     where: { OR: [{ id }, { slug: id }] },
-    select: { id: true, authorId: true, published: true },
+    select: { id: true, authorId: true, published: true, statementPdfPath: true },
   });
 
   if (!problem) {
@@ -156,6 +162,18 @@ export async function PATCH(
       { error: "Dữ liệu đề bài không hợp lệ.", details: parsed.error.flatten() },
       { status: 400 },
     );
+  }
+  if (
+    parsed.data.statementPdfPath &&
+    parsed.data.statementPdfPath !== problem.statementPdfPath
+  ) {
+    try {
+      await verifyProblemPdf(parsed.data.statementPdfPath, user.id);
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "Không thể xác minh PDF đề bài.",
+      }, { status: 400 });
+    }
   }
   if (parsed.data.specialGachaCardId) {
     const card = await prisma.gachaCard.findFirst({
@@ -199,6 +217,9 @@ export async function PATCH(
           achievementScoreThreshold: parsed.data.judgeType === "HEURISTIC" && parsed.data.achievementBadgeTitle ? parsed.data.achievementScoreThreshold ?? 90 : null,
           inputFile: parsed.data.ioMode === "FILE" ? (parsed.data.inputFile || `${parsed.data.slug.toUpperCase()}.INP`) : null,
           outputFile: parsed.data.ioMode === "FILE" ? (parsed.data.outputFile || `${parsed.data.slug.toUpperCase()}.OUT`) : null,
+          ...(Object.hasOwn(parsed.data, "statementPdfPath")
+            ? { statementPdfPath: parsed.data.statementPdfPath }
+            : {}),
           tags: {
             set: [],
             connectOrCreate: [...new Set(parsed.data.tags)].map((name) => ({ where: { name }, create: { name } })),
@@ -219,6 +240,17 @@ export async function PATCH(
     },
     { timeout: 60_000 },
   );
+
+  if (
+    problem.statementPdfPath &&
+    parsed.data.statementPdfPath !== undefined &&
+    parsed.data.statementPdfPath !== problem.statementPdfPath
+  ) {
+    const { error } = await getProblemPdfStorage().remove([problem.statementPdfPath]);
+    if (error) {
+      console.error("Could not remove replaced problem PDF:", error);
+    }
+  }
 
   return NextResponse.json({ success: true, slug: parsed.data.slug });
 }

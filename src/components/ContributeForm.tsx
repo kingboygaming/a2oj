@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseTestCaseZip } from "@/lib/testcase-zip";
+import { PDF_STATEMENT_PLACEHOLDER } from "@/lib/problem-statement-pdf-constants";
 import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
+
+const DEFAULT_STATEMENT_TEMPLATE = "Cho $n$. Tính ...\n\n## Input\n\n## Output\n";
 
 type Case = {
   input: string;
@@ -24,6 +27,7 @@ type ProblemDraft = {
   ioMode?: string | null;
   inputFile?: string | null;
   outputFile?: string | null;
+  statementPdfPath?: string | null;
   judgeType?: string | null;
   scoringMode?: string | null;
   gachaAcRewardMin?: number;
@@ -53,7 +57,7 @@ export function ContributeForm({
   const [slug, setSlug] = useState(problem?.slug ?? "");
   const [title, setTitle] = useState(problem?.title ?? "");
   const [statement, setStatement] = useState(
-    problem?.statement ?? "Cho $n$. Tính ...\n\n## Input\n\n## Output\n",
+    problem?.statement ?? DEFAULT_STATEMENT_TEMPLATE,
   );
   const [difficulty, setDifficulty] = useState(problem?.difficulty ?? "EASY");
   const [tagsInput, setTagsInput] = useState(problem?.tags?.map((tag) => tag.name).join(", ") ?? "");
@@ -82,6 +86,10 @@ export function ContributeForm({
   const [achievementBadgeDescription, setAchievementBadgeDescription] = useState(problem?.achievementBadgeDescription ?? "");
   const [achievementScoreThreshold, setAchievementScoreThreshold] = useState(problem?.achievementScoreThreshold ?? 90);
   const [outputFile, setOutputFile] = useState(problem?.outputFile ?? "");
+  const [statementPdfFile, setStatementPdfFile] = useState<File | null>(null);
+  const [uploadedPdfPath, setUploadedPdfPath] = useState("");
+  const [hasStatementPdf, setHasStatementPdf] = useState(Boolean(problem?.statementPdfPath));
+  const [removeStatementPdf, setRemoveStatementPdf] = useState(false);
   const [cases, setCases] = useState<Case[]>(
     problem?.testCases ?? [
       { input: "", output: "", isSample: true, points: 0 },
@@ -140,6 +148,41 @@ export function ContributeForm({
         return;
       }
 
+      const hasPdfAfterSave = Boolean(
+        statementPdfFile || uploadedPdfPath || (hasStatementPdf && !removeStatementPdf),
+      );
+      if (
+        (!statement.trim() || statement.trim() === PDF_STATEMENT_PLACEHOLDER) &&
+        !hasPdfAfterSave
+      ) {
+        setError("Hãy nhập nội dung đề hoặc đính kèm file PDF.");
+        return;
+      }
+
+      let nextStatementPdfPath = removeStatementPdf && !statementPdfFile
+        ? null
+        : problem?.statementPdfPath ?? null;
+      if (statementPdfFile) {
+        if (!uploadedPdfPath) {
+          const formData = new FormData();
+          formData.append("file", statementPdfFile);
+          const uploadInfoResponse = await fetch("/api/problem-statement-uploads", {
+            method: "POST",
+            body: formData,
+          });
+          const uploadInfo = await uploadInfoResponse.json();
+          if (!uploadInfoResponse.ok) {
+            setError(uploadInfo.error ?? "Không thể tải PDF lên.");
+            return;
+          }
+
+          setUploadedPdfPath(uploadInfo.path);
+          nextStatementPdfPath = uploadInfo.path;
+        } else {
+          nextStatementPdfPath = uploadedPdfPath;
+        }
+      }
+
       const res = await fetch(
         problem ? `/api/problems/${problem.id}` : "/api/problems",
         {
@@ -148,7 +191,8 @@ export function ContributeForm({
           body: JSON.stringify({
             slug,
             title,
-            statement,
+            statement: statement.trim() || PDF_STATEMENT_PLACEHOLDER,
+            statementPdfPath: nextStatementPdfPath,
             difficulty,
             tags: [...new Set(tagsInput.split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean))],
             timeLimitMs,
@@ -192,6 +236,10 @@ export function ContributeForm({
         return;
       }
 
+      setHasStatementPdf(Boolean(nextStatementPdfPath));
+      setRemoveStatementPdf(false);
+      setStatementPdfFile(null);
+      setUploadedPdfPath("");
       const nextSlug = data.slug ?? slug;
       if (returnUrl) {
         const targetUrl = problem?.slug
@@ -505,15 +553,66 @@ export function ContributeForm({
         )}
       </div>
       <label className="block text-sm">
-        Đề bài (Markdown + KaTeX)
+        Đề bài (Markdown + KaTeX){hasStatementPdf || statementPdfFile ? " — có thể để trống khi dùng PDF" : ""}
         <textarea
-          required
+          required={!statementPdfFile && (!hasStatementPdf || removeStatementPdf)}
           rows={12}
           className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 font-mono text-sm"
           value={statement}
           onChange={(e) => setStatement(e.target.value)}
         />
       </label>
+      <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--paper)] p-4">
+        <label className="block text-sm font-medium text-[var(--navy)]">
+          Đề bài từ file PDF (không cần nhập lại nội dung dài)
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            className="mt-2 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[var(--surface-strong)] file:px-3 file:py-2 file:text-white"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              event.target.value = "";
+              setError("");
+              setUploadedPdfPath("");
+              setStatementPdfFile(null);
+              if (!file) return;
+              if (!file.name.toLowerCase().endsWith(".pdf")) {
+                setError("Chỉ hỗ trợ file có đuôi .pdf.");
+                return;
+              }
+              if (file.size === 0 || file.size > 4 * 1024 * 1024) {
+                setError("PDF đề bài phải có dung lượng tối đa 4 MB.");
+                return;
+              }
+              if (!problem && statement === DEFAULT_STATEMENT_TEMPLATE) {
+                setStatement(PDF_STATEMENT_PLACEHOLDER);
+              }
+              setStatementPdfFile(file);
+              setRemoveStatementPdf(false);
+            }}
+          />
+        </label>
+        <p className="mt-2 text-xs text-[var(--muted)]">
+          PDF tối đa 4 MB được lưu riêng tư trên Supabase Storage và hiển thị trực tiếp trong trang bài. Không trích xuất/OCR nội dung.
+        </p>
+        {(statementPdfFile || hasStatementPdf) && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-[var(--teal)]">
+              {statementPdfFile ? `PDF mới: ${statementPdfFile.name}` : "Đã có PDF đính kèm"}
+            </span>
+            {hasStatementPdf && (
+              <label className="inline-flex items-center gap-2 text-rose-700">
+                <input
+                  type="checkbox"
+                  checked={removeStatementPdf}
+                  onChange={(event) => setRemoveStatementPdf(event.target.checked)}
+                />
+                Gỡ PDF khi lưu
+              </label>
+            )}
+          </div>
+        )}
+      </div>
 
       <div>
         <div className="flex items-center justify-between">

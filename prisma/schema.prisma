@@ -210,6 +210,7 @@ model Problem {
   ioMode        String           @default("STDIO")
   inputFile     String?
   outputFile    String?
+  statementPdfPath String?
   authorId      String
   author        User             @relation("Author", fields: [authorId], references: [id])
   createdAt     DateTime         @default(now())
@@ -507,4 +508,3 @@ model PointTransaction {
 
   @@index([userId, createdAt])
 }
-

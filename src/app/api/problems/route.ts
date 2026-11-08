@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { canPublish, getCurrentUser } from "@/lib/auth";
 import { SCORING_MODES } from "@/lib/scoring";
+import { verifyProblemPdf } from "@/lib/problem-statement-pdf";
 
 export const maxDuration = 60;
 
@@ -72,6 +73,7 @@ const createSchema = z.object({
   achievementScoreThreshold: z.number().int().min(1).max(10000).nullable().optional(),
   inputFile: z.string().trim().max(100).nullable().optional(),
   outputFile: z.string().trim().max(100).nullable().optional(),
+  statementPdfPath: z.string().max(300).nullable().optional(),
   testCases: z.array(testSchema).min(1),
   tags: z.array(z.string().trim().toLowerCase().min(2).max(32)).max(10).optional().default([]).transform((tags) => [...new Set(tags)]),
 }).superRefine((data, context) => {
@@ -90,6 +92,15 @@ export async function POST(request: Request) {
   const parsed = createSchema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Dữ liệu đề bài không hợp lệ.", details: parsed.error.flatten() }, { status: 400 });
+  }
+  if (parsed.data.statementPdfPath) {
+    try {
+      await verifyProblemPdf(parsed.data.statementPdfPath, user.id);
+    } catch (error) {
+      return NextResponse.json({
+        error: error instanceof Error ? error.message : "Không thể xác minh PDF đề bài.",
+      }, { status: 400 });
+    }
   }
   if (parsed.data.specialGachaCardId) {
     const card = await prisma.gachaCard.findFirst({
@@ -113,6 +124,7 @@ export async function POST(request: Request) {
       timeLimitMs: parsed.data.timeLimitMs ?? 1000,
       memoryLimitMb: parsed.data.memoryLimitMb ?? 256,
       ioMode: parsed.data.ioMode ?? "STDIO",
+      statementPdfPath: parsed.data.statementPdfPath ?? null,
       judgeType: parsed.data.judgeType ?? "STANDARD",
       scoringMode: parsed.data.scoringMode,
       gachaAcRewardMin: parsed.data.gachaAcRewardMin,

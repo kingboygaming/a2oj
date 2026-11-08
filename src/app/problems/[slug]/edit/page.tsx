@@ -78,6 +78,7 @@ export default async function EditContributedProblemPage({
           ioMode: problem.ioMode,
           inputFile: problem.inputFile,
           outputFile: problem.outputFile,
+          statementPdfPath: problem.statementPdfPath,
           testCases: problem.testCases.map(({ input, output, isSample, points }) => ({
             input,
             output,

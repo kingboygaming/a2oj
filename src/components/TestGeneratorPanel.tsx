@@ -16,6 +16,110 @@ const initialSpecification = JSON.stringify({
   template: "{n}\n{a}\n",
 }, null, 2);
 
+const templatePresets = [
+  {
+    name: "ma trận kề vô hướng",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 1, max: 30 },
+        { name: "graph", type: "undirectedGraphMatrix", size: "n" },
+      ],
+      template: "{n}\n{graph}\n",
+    },
+  },
+  {
+    name: "danh sách cạnh vô hướng",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 2, max: 30 },
+        { name: "edges", type: "graphEdgeList", vertices: "n", minEdges: 0, maxEdges: 100 },
+      ],
+      template: "{n}\n{edges}\n",
+    },
+  },
+  {
+    name: "danh sách cạnh có hướng, có trọng số",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 2, max: 30 },
+        { name: "edges", type: "graphEdgeList", vertices: "n", directed: true, weighted: true, minEdges: 0, maxEdges: 150, minWeight: 1, maxWeight: 1000 },
+      ],
+      template: "{n}\n{edges}\n",
+    },
+  },
+  {
+    name: "danh sách cạnh vô hướng có trọng số",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 2, max: 30 },
+        { name: "edges", type: "graphEdgeList", vertices: "n", weighted: true, minEdges: 0, maxEdges: 100, minWeight: 1, maxWeight: 1000 },
+      ],
+      template: "{n}\n{edges}\n",
+    },
+  },
+  {
+    name: "danh sách kề",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 1, max: 30 },
+        { name: "adjacency", type: "graphAdjacencyList", vertices: "n" },
+      ],
+      template: "{n}\n{adjacency}\n",
+    },
+  },
+  {
+    name: "danh sách kề có hướng",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 1, max: 30 },
+        { name: "adjacency", type: "graphAdjacencyList", vertices: "n", directed: true },
+      ],
+      template: "{n}\n{adjacency}\n",
+    },
+  },
+  {
+    name: "danh sách kề kèm bậc từng đỉnh",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 1, max: 30 },
+        { name: "adjacency", type: "graphAdjacencyList", vertices: "n", includeDegree: true },
+      ],
+      template: "{n}\n{adjacency}\n",
+    },
+  },
+  {
+    name: "cây dạng danh sách cạnh",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 1, max: 100 },
+        { name: "edges", type: "treeEdgeList", vertices: "n" },
+      ],
+      template: "{n}\n{edges}\n",
+    },
+  },
+  {
+    name: "hoán vị",
+    specification: {
+      variables: [
+        { name: "n", type: "int", min: 1, max: 1000 },
+        { name: "p", type: "permutation", size: "n" },
+      ],
+      template: "{n}\n{p}\n",
+    },
+  },
+  {
+    name: "lưới ký tự",
+    specification: {
+      variables: [
+        { name: "rows", type: "int", min: 1, max: 30 },
+        { name: "columns", type: "int", min: 1, max: 30 },
+        { name: "grid", type: "characterGrid", rows: "rows", columns: "columns", alphabet: ".#" },
+      ],
+      template: "{rows} {columns}\n{grid}\n",
+    },
+  },
+];
+
 export function TestGeneratorPanel({
   problemId,
   runEndpoint,
@@ -26,6 +130,7 @@ export function TestGeneratorPanel({
   onAddCases: (cases: ReadyCase[]) => void;
 }) {
   const [specification, setSpecification] = useState(initialSpecification);
+  const [selectedPreset, setSelectedPreset] = useState("");
   const [source, setSource] = useState("");
   const [language, setLanguage] = useState<"CPP" | "PYTHON">("CPP");
   const [count, setCount] = useState(5);
@@ -67,16 +172,12 @@ export function TestGeneratorPanel({
     }
   }
 
-  function loadGraphExample() {
-    setSpecification(JSON.stringify({
-      variables: [
-        { name: "n", type: "int", min: 1, max: 100 },
-        { name: "a", type: "undirectedGraphMatrix", size: "n" },
-      ],
-      template: "{n}\n{a}\n",
-    }, null, 2));
+  function loadPreset() {
+    const preset = templatePresets.find((item) => item.name === selectedPreset);
+    if (!preset) return;
+    setSpecification(JSON.stringify(preset.specification, null, 2));
     setError("");
-    setMessage("Đã nạp mẫu đồ thị vô hướng: ma trận luôn đối xứng, đường chéo chính bằng 0.");
+    setMessage(`Đã nạp mẫu ${preset.name}.`);
   }
 
   function downloadInputs() {
@@ -180,15 +281,29 @@ export function TestGeneratorPanel({
               spellCheck={false}
             />
           </label>
-          <button
-            type="button"
-            onClick={loadGraphExample}
-            className="mt-2 rounded-md border border-[var(--teal)] px-3 py-1.5 text-xs font-medium text-[var(--teal)] hover:bg-[var(--teal)]/10"
-          >
-            Nạp mẫu: đồ thị vô hướng dạng ma trận kề
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <select
+              value={selectedPreset}
+              onChange={(event) => setSelectedPreset(event.target.value)}
+              className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-xs"
+              aria-label="Chọn mẫu cấu hình sinh test"
+            >
+              <option value="">Mẫu cấu hình sinh test...</option>
+              {templatePresets.map((preset) => (
+                <option key={preset.name} value={preset.name}>{preset.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!selectedPreset}
+              onClick={loadPreset}
+              className="rounded-md border border-[var(--teal)] px-3 py-1.5 text-xs font-medium text-[var(--teal)] hover:bg-[var(--teal)]/10 disabled:opacity-50"
+            >
+              Nạp mẫu
+            </button>
+          </div>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Biến: <code>int</code>, <code>string</code>, <code>intArray</code>, <code>intMatrix</code>, <code>undirectedGraphMatrix</code>. Dùng {"{ten_bien}"} trong template; kích thước mảng có thể tham chiếu biến int đã khai báo trước đó.
+            Dùng {"{ten_bien}"} trong template; kích thước có thể tham chiếu biến int khai báo trước đó. Danh sách cạnh tự ghi số cạnh ở dòng đầu; danh sách kề ghi một dòng mỗi đỉnh; cây sinh đúng n−1 cạnh.
           </p>
           <label className="mt-3 block text-xs font-medium">
             Lời giải tham chiếu

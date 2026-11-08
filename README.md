@@ -55,6 +55,10 @@ Sảnh cờ có nút đấu với Stockfish 19 chạy trong Web Worker trên tr�
 
 Chơi online cần bật Supabase Realtime và cấu hình `NEXT_PUBLIC_SUPABASE_URL` cùng `NEXT_PUBLIC_SUPABASE_ANON_KEY` (hoặc `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) trong môi trường local/Vercel. Phòng dùng Presence/Broadcast nên chỉ tồn tại khi chủ phòng còn kết nối; danh sách phòng không được lưu lâu dài. Khi ván đang diễn ra, phòng công khai có thể được xem ở chế độ khán giả; người chơi cũng có thể chia sẻ liên kết chỉ xem, khán giả được đồng bộ lại lịch sử nước đi khi vào giữa trận. Các trường Elo và dữ liệu trận rated được tạo bởi migration PostgreSQL trong `prisma/migrations`; trên Vercel, build production áp dụng migration như các thay đổi schema khác.
 
+### Đính kèm PDF đề bài
+
+Form tạo/chỉnh sửa bài hỗ trợ đính kèm PDF tối đa 4 MB; PDF được hiển thị trực tiếp trong trang bài. Tạo bucket Supabase Storage riêng tư tên `problem-statements` (hoặc đặt `SUPABASE_PROBLEM_PDF_BUCKET`), giới hạn dung lượng bucket ở 4 MB/file và MIME type `application/pdf`. Cấu hình `SUPABASE_SERVICE_ROLE_KEY` ở server. File được gửi qua API ứng dụng và upload bằng service-role key server-side; không bật public access, không cấp quyền upload cho `anon`, và không đưa service-role key vào biến `NEXT_PUBLIC_*`.
+
 ### Bật Live IDE cho website trên Vercel
 
 Vercel không cung cấp Docker daemon để chạy code. Muốn bật Live IDE, cần một máy chủ riêng có Docker và chạy `docker/ide-runner/server.py`; ứng dụng Vercel gọi máy chủ đó qua HTTPS bằng chữ ký HMAC. Không mở cổng Docker hoặc cổng runner trực tiếp ra Internet.
@@ -187,6 +191,7 @@ Trang `/admin` và API duyệt đề đều kiểm tra role ở phía máy chủ
 - Mặc định `JUDGE_MODE=mock`: không thực thi mã nguồn được nộp lên.
 - Trong `.env` local, `JUDGE_MODE=auto` sẽ biên dịch/chạy C++ hoặc Python trên máy phát triển.
 - Judge chạy chương trình với từng test case không phải sample trong database và so sánh output chuẩn hóa với đáp án đã lưu.
+- Bộ sinh input có mẫu sẵn cho ma trận/danh sách kề, danh sách cạnh có hướng/vô hướng và trọng số, cây, hoán vị, lưới ký tự; hỗ trợ cả input graph/ma trận tự cấu hình bằng JSON.
 - Live IDE có nút chạy thử với input tùy chỉnh hoặc chạy toàn bộ sample (tối đa 20 sample mỗi lượt). Khi bật `ENABLE_IDE_DOCKER_RUN="true"`, endpoint chạy trong Docker runner cô lập; cần đăng nhập, giới hạn 5 lượt/phút mỗi tài khoản, source tối đa 64 KB, input tùy chỉnh tối đa 16 KB và thời gian chạy tối đa 3 giây cho mỗi sample.
 - Trong form chỉnh sửa đề, ADMIN hoặc tác giả của đề chưa duyệt có thể sinh tối đa 10 input theo cấu hình JSON ngay trên trình duyệt. Có thể tải ZIP để chạy lời giải thủ công, hoặc tạo output tự động qua cloud: Wandbox, sau đó Judge0 nếu Wandbox không khả dụng; không cần Docker. Các API miễn phí có thể giới hạn hoặc quá tải, và code sẽ được gửi tới dịch vụ cloud được gọi. Ví dụ:
 

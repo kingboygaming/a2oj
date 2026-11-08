@@ -9,6 +9,10 @@ import { getProblemSubmissionPage } from "@/lib/problem-submissions";
 import { ProblemSubmissionsList } from "@/components/ProblemSubmissionsList";
 import { ContestPasswordForm } from "@/components/ContestPasswordForm";
 import { getRankColorClasses } from "@/lib/ranks";
+import {
+  getProblemPdfStorage,
+  PDF_STATEMENT_PLACEHOLDER,
+} from "@/lib/problem-statement-pdf";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +134,19 @@ export default async function ProblemDetailPage({
         )}
       </div>
     );
+  }
+
+  let statementPdfUrl: string | null = null;
+  if (problem.statementPdfPath) {
+    const { data, error } = await getProblemPdfStorage().createSignedUrl(
+      problem.statementPdfPath,
+      60 * 60,
+    );
+    if (error) {
+      console.error("Could not create signed problem PDF URL:", error);
+      throw new Error("Không thể tải PDF đề bài.");
+    }
+    statementPdfUrl = data.signedUrl;
   }
 
   const samples = problem.testCases.filter((t) => t.isSample);
@@ -264,7 +281,29 @@ export default async function ProblemDetailPage({
             </div>
           </div>
           <div className="p-5 sm:p-7">
-            <Markdown source={problem.statement} />
+            {problem.statement !== PDF_STATEMENT_PLACEHOLDER && (
+              <Markdown source={problem.statement} />
+            )}
+            {statementPdfUrl && (
+              <section className="mt-6 overflow-hidden rounded-xl border border-[var(--line)]">
+                <div className="flex items-center justify-between gap-3 bg-[var(--background)] px-4 py-3">
+                  <h2 className="font-semibold text-[var(--navy)]">Đề bài PDF</h2>
+                  <a
+                    href={statementPdfUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-medium text-[var(--teal)] hover:underline"
+                  >
+                    Mở hoặc tải PDF
+                  </a>
+                </div>
+                <iframe
+                  src={statementPdfUrl}
+                  title={`Đề bài ${problem.title} dạng PDF`}
+                  className="h-[75vh] min-h-[480px] w-full bg-white"
+                />
+              </section>
+            )}
             {samples.length > 0 && (
               <div className="mt-8 border-t border-[var(--line)] pt-6">
                 <div className="mb-3 flex items-center justify-between gap-3">
