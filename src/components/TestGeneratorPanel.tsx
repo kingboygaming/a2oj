@@ -35,7 +35,7 @@ export function TestGeneratorPanel({
   const [message, setMessage] = useState("");
   const [runPending, setRunPending] = useState(false);
 
-  function generate() {
+  async function generate() {
     setError("");
     setMessage("");
     setGenerated([]);
@@ -53,7 +53,15 @@ export function TestGeneratorPanel({
     }
 
     try {
-      setGenerated(generateTestInputs(parsed.data, count, mode).map((input) => ({ input, output: "", outputReady: false })));
+      const cases = generateTestInputs(parsed.data, count, mode).map((input) => ({ input, output: "", outputReady: false }));
+      setGenerated(cases);
+      if (source.trim() && (runEndpoint || problemId)) {
+        await runReferenceSolution(cases);
+      } else if (source.trim()) {
+        setMessage("Đã sinh input. Hãy lưu đề rồi mở lại để tự động tạo output.");
+      } else {
+        setMessage("Đã sinh input. Dán lời giải tham chiếu để tự động tạo output.");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể sinh input.");
     }
@@ -93,7 +101,7 @@ export function TestGeneratorPanel({
     ));
   }
 
-  async function runReferenceSolution() {
+  async function runReferenceSolution(testCases: GeneratedCase[] = generated) {
     setError("");
     setMessage("");
     if (!runEndpoint && !problemId) {
@@ -104,7 +112,7 @@ export function TestGeneratorPanel({
       setError("Hãy dán lời giải tham chiếu đã AC.");
       return;
     }
-    if (generated.length === 0) {
+    if (testCases.length === 0) {
       setError("Hãy sinh input trước.");
       return;
     }
@@ -115,7 +123,7 @@ export function TestGeneratorPanel({
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language, source, inputs: generated.map((testCase) => testCase.input) }),
+        body: JSON.stringify({ language, source, inputs: testCases.map((testCase) => testCase.input) }),
         signal: AbortSignal.timeout(90_000),
       });
       const result = await response.json();
@@ -123,15 +131,16 @@ export function TestGeneratorPanel({
         setError(result.error ?? "Không thể chạy lời giải tham chiếu.");
         return;
       }
-      if (!Array.isArray(result.outputs) || result.outputs.length !== generated.length || !result.outputs.every((output: unknown) => typeof output === "string")) {
+      if (!Array.isArray(result.outputs) || result.outputs.length !== testCases.length || !result.outputs.every((output: unknown) => typeof output === "string")) {
         setError("Máy chủ trả về output không hợp lệ.");
         return;
       }
-      setGenerated((current) => current.map((testCase, index) => ({
+      setGenerated(testCases.map((testCase, index) => ({
         ...testCase,
         output: result.outputs[index],
         outputReady: true,
       })));
+      setMessage(`Đã tạo output cho ${testCases.length} test.`);
     } catch (cause) {
       setError(
         cause instanceof DOMException && cause.name === "TimeoutError"
@@ -150,7 +159,7 @@ export function TestGeneratorPanel({
       <div>
         <h3 className="font-semibold text-[var(--navy)]">Sinh input test</h3>
         <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-          Khai báo biến, miền giá trị và template input. Web sinh input ngay trên trình duyệt. Để tự tạo output, dùng API chấm cloud dự phòng của website; không cần Docker.
+          Khai báo input và dán lời giải tham chiếu; hệ thống sẽ sinh input rồi tự chạy code để tạo output. Không cần Docker.
         </p>
         <p className="mt-1 text-xs text-amber-700">
           Khi chạy tự động, hệ thống ưu tiên chạy local nếu được cấu hình; nếu thiếu compiler hoặc local không khởi chạy được, hệ thống sẽ thử dịch vụ cloud dự phòng (Wandbox). Dịch vụ miễn phí có thể giới hạn hoặc quá tải; bạn cũng có thể chạy code trên máy rồi dán output thủ công.
@@ -213,8 +222,8 @@ export function TestGeneratorPanel({
                 <option value="edge">Min/max luân phiên</option>
               </select>
             </label>
-            <button type="button" disabled={count < 1 || count > 10} onClick={generate} className="rounded-md bg-[var(--teal)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-              Sinh input
+            <button type="button" disabled={runPending || count < 1 || count > 10} onClick={() => void generate()} className="rounded-md bg-[var(--teal)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+              {runPending ? "Đang sinh input + output..." : source.trim() && (runEndpoint || problemId) ? "Sinh input + output" : "Sinh input"}
             </button>
           </div>
       </div>
@@ -224,7 +233,7 @@ export function TestGeneratorPanel({
         <div className="mt-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p role="status" className="text-sm font-medium text-emerald-700">
-              Đã sinh {generated.length} input. Chạy lời giải trên máy bạn, nhập output rồi mới thêm test.
+              Đã sinh {generated.length} input{missingOutputs === 0 ? " và output" : ""}. {missingOutputs > 0 ? "Bạn có thể chạy lời giải để tạo output hoặc nhập output thủ công." : "Có thể thêm test vào đề."}
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={downloadInputs} className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm font-medium text-[var(--navy)]">
