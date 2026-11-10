@@ -1,9 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseTestCaseZip } from "@/lib/testcase-zip";
+import {
+  MAX_PROBLEM_STATEMENT_PDF_SIZE,
+  PDF_STATEMENT_PLACEHOLDER,
+} from "@/lib/problem-statement-pdf-constants";
 import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
+
+const DEFAULT_CONTEST_STATEMENT =
+  "Cho số nguyên $n$. In ra kết quả...\n\n## Input\n\n## Output\n";
+
+async function uploadProblemPdf(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/api/problem-statement-uploads", {
+    method: "POST",
+    body: formData,
+  });
+  const data: { path?: unknown; error?: unknown } = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      typeof data.error === "string" ? data.error : "Không thể tải PDF lên.",
+    );
+  }
+  if (typeof data.path !== "string") {
+    throw new Error("Máy chủ không trả về đường dẫn PDF.");
+  }
+  return data.path;
+}
 
 export type TestCaseDraft = {
   input: string;
@@ -16,6 +42,7 @@ export type ProblemDraft = {
   slug: string;
   title: string;
   statement: string;
+  statementPdfFile?: File | null;
   difficulty: "EASY" | "MEDIUM" | "HARD";
   timeLimitMs: number;
   memoryLimitMb: number;
@@ -63,7 +90,8 @@ function createProblemDraft(): ProblemDraft {
   return {
     slug: "",
     title: "",
-    statement: "Cho số nguyên $n$. In ra kết quả...\n\n## Input\n\n## Output\n",
+    statement: DEFAULT_CONTEST_STATEMENT,
+    statementPdfFile: null,
     difficulty: "EASY",
     timeLimitMs: 1000,
     memoryLimitMb: 256,
@@ -111,6 +139,7 @@ export function ContestForm({
   specialCards?: { id: string; name: string; rarity: string }[];
 }) {
   const router = useRouter();
+  const statementPdfInputs = useRef<Record<number, HTMLInputElement | null>>({});
   const isEditing = Boolean(initialData);
 
   const [slug, setSlug] = useState(initialData?.slug ?? "");
@@ -294,13 +323,20 @@ export function ContestForm({
         }
       }
 
-      const formattedNewProblems = newProblems.map((prob) => {
+      const formattedNewProblems = await Promise.all(newProblems.map(async (prob) => {
         const jType = prob.judgeType ?? "STANDARD";
         const mode = prob.ioMode ?? "STDIO";
         const defaultInpFile = prob.slug ? `${prob.slug.toUpperCase()}.INP` : "INPUT.INP";
         const defaultOutFile = prob.slug ? `${prob.slug.toUpperCase()}.OUT` : "OUTPUT.OUT";
+        const { statementPdfFile, ...problemData } = prob;
+        const statementPdfPath = statementPdfFile
+          ? await uploadProblemPdf(statementPdfFile)
+          : null;
         return {
-          ...prob,
+          ...problemData,
+          statement: problemData.statement.trim() ||
+            (statementPdfPath ? PDF_STATEMENT_PLACEHOLDER : ""),
+          statementPdfPath,
           judgeType: jType,
           scoringMode,
           gachaAcRewardMin,
@@ -313,7 +349,7 @@ export function ContestForm({
           inputFile: jType !== "INTERACTIVE" && mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
           outputFile: jType !== "INTERACTIVE" && mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
         };
-      });
+      }));
 
       const res = await fetch(endpoint, {
         method,
@@ -346,8 +382,12 @@ export function ContestForm({
       }
       router.push(`/contests/${data.slug}`);
       router.refresh();
-    } catch {
-      setError("Không thể kết nối đến máy chủ. Hãy kiểm tra lại và thử lại.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Không thể kết nối đến máy chủ. Hãy kiểm tra lại và thử lại.",
+      );
     } finally {
       setPending(false);
     }
@@ -982,14 +1022,67 @@ export function ContestForm({
             <label className="block text-xs font-medium">
               Đề bài (Markdown + KaTeX)
               <textarea
-                required
-                minLength={10}
+                required={!problem.statementPdfFile}
+                minLength={problem.statementPdfFile ? undefined : 10}
                 rows={5}
                 className="mt-1 w-full rounded border border-[var(--line)] p-2 font-mono text-xs"
                 value={problem.statement}
                 onChange={(e) => updateProblem(problemIndex, { statement: e.target.value })}
               />
             </label>
+            <div className="rounded-lg border border-dashed border-[var(--line)] p-3 text-xs">
+              <label className="block font-medium">
+                Đề bài PDF (không cần nhập lại nội dung dài)
+                <input
+                  ref={(element) => {
+                    statementPdfInputs.current[problemIndex] = element;
+                  }}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="mt-2 block w-full text-xs"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] ?? null;
+                    if (!file) return;
+                    if (!file.name.toLowerCase().endsWith(".pdf")) {
+                      setError("Chỉ hỗ trợ file có đuôi .pdf.");
+                      event.currentTarget.value = "";
+                      return;
+                    }
+                    if (file.size === 0 || file.size > MAX_PROBLEM_STATEMENT_PDF_SIZE) {
+                      setError("PDF đề bài phải có dung lượng tối đa 20 MB.");
+                      event.currentTarget.value = "";
+                      return;
+                    }
+                    setError("");
+                    updateProblem(problemIndex, {
+                      statementPdfFile: file,
+                      ...(problem.statement === DEFAULT_CONTEST_STATEMENT
+                        ? { statement: PDF_STATEMENT_PLACEHOLDER }
+                        : {}),
+                    });
+                  }}
+                />
+              </label>
+              <p className="mt-2 text-[var(--muted)]">
+                PDF tối đa 20 MB. Đề bài sẽ được lưu riêng tư và hiển thị trong trang bài của contest.
+              </p>
+              {problem.statementPdfFile && (
+                <div className="mt-2 flex items-center gap-3 text-[var(--teal)]">
+                  <span className="break-all">PDF đã chọn: {problem.statementPdfFile.name}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 text-rose-700 hover:underline"
+                    onClick={() => {
+                      updateProblem(problemIndex, { statementPdfFile: null });
+                      const input = statementPdfInputs.current[problemIndex];
+                      if (input) input.value = "";
+                    }}
+                  >
+                    Gỡ PDF
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Testcase & Import ZIP */}
             <div className="space-y-3 rounded-lg border border-dashed border-[var(--line)] p-3 bg-gray-50/50">

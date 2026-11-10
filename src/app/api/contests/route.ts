@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { canManageContests, getCurrentUser } from "@/lib/auth";
 import { hashContestPassword } from "@/lib/contest-password";
 import { SCORING_MODES } from "@/lib/scoring";
+import { verifyProblemPdf } from "@/lib/problem-statement-pdf";
 
 export async function GET() {
   const contests = await prisma.contest.findMany({
@@ -43,6 +44,7 @@ const schema = z.object({
       slug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9-]+$/),
       title: z.string().trim().min(2).max(120),
       statement: z.string().trim().min(10),
+      statementPdfPath: z.string().max(300).nullable().optional(),
       difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
       timeLimitMs: z.number().int().positive(),
       memoryLimitMb: z.number().int().positive(),
@@ -89,6 +91,20 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Dữ liệu contest không hợp lệ." }, { status: 400 });
+  }
+  try {
+    for (const problem of parsed.data.newProblems) {
+      if (problem.statementPdfPath) {
+        await verifyProblemPdf(problem.statementPdfPath, user.id);
+      }
+    }
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Không thể xác minh PDF đề bài.",
+      },
+      { status: 400 },
+    );
   }
   if (parsed.data.specialGachaCardId) {
     const card = await prisma.gachaCard.findFirst({

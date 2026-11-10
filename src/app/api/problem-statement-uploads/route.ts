@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > MAX_PROBLEM_STATEMENT_PDF_SIZE + 64 * 1024) {
-    return NextResponse.json({ error: "PDF đề bài phải có dung lượng tối đa 4 MB." }, { status: 413 });
+    return NextResponse.json({ error: "PDF đề bài phải có dung lượng tối đa 20 MB." }, { status: 413 });
   }
   let formData: FormData;
   try {
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Hãy chọn file PDF đề bài." }, { status: 400 });
   }
   if (file.size > MAX_PROBLEM_STATEMENT_PDF_SIZE) {
-    return NextResponse.json({ error: "PDF đề bài phải có dung lượng tối đa 4 MB." }, { status: 413 });
+    return NextResponse.json({ error: "PDF đề bài phải có dung lượng tối đa 20 MB." }, { status: 413 });
   }
   if (!file.name.toLowerCase().endsWith(".pdf")) {
     return NextResponse.json({ error: "Chỉ hỗ trợ tệp có đuôi .pdf." }, { status: 400 });

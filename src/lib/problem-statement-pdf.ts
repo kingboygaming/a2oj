@@ -1,11 +1,13 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
-import { PDF_STATEMENT_PLACEHOLDER } from "@/lib/problem-statement-pdf-constants";
+import {
+  MAX_PROBLEM_STATEMENT_PDF_SIZE,
+  PDF_STATEMENT_PLACEHOLDER,
+} from "@/lib/problem-statement-pdf-constants";
 
 export const PROBLEM_STATEMENT_PDF_BUCKET =
   process.env.SUPABASE_PROBLEM_PDF_BUCKET || "problem-statements";
-export const MAX_PROBLEM_STATEMENT_PDF_SIZE = 4 * 1024 * 1024;
-export { PDF_STATEMENT_PLACEHOLDER };
+export { MAX_PROBLEM_STATEMENT_PDF_SIZE, PDF_STATEMENT_PLACEHOLDER };
 
 export function getProblemPdfStorage() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -38,7 +40,7 @@ export async function verifyProblemPdf(path: string, userId: string): Promise<vo
     throw new Error(`Không thể xác minh PDF đã tải lên: ${error.message}`);
   }
   if (file.size === 0 || file.size > MAX_PROBLEM_STATEMENT_PDF_SIZE) {
-    throw new Error("PDF đề bài phải có dung lượng tối đa 4 MB.");
+    throw new Error("PDF đề bài phải có dung lượng tối đa 20 MB.");
   }
 
   const bytes = new Uint8Array(await file.slice(0, 1024).arrayBuffer());

@@ -57,7 +57,7 @@ Chơi online cần bật Supabase Realtime và cấu hình `NEXT_PUBLIC_SUPABASE
 
 ### Đính kèm PDF đề bài
 
-Form tạo/chỉnh sửa bài hỗ trợ đính kèm PDF tối đa 4 MB; PDF được hiển thị trực tiếp trong trang bài. Tạo bucket Supabase Storage riêng tư tên `problem-statements` (hoặc đặt `SUPABASE_PROBLEM_PDF_BUCKET`), giới hạn dung lượng bucket ở 4 MB/file và MIME type `application/pdf`. Cấu hình `SUPABASE_SERVICE_ROLE_KEY` ở server. File được gửi qua API ứng dụng và upload bằng service-role key server-side; không bật public access, không cấp quyền upload cho `anon`, và không đưa service-role key vào biến `NEXT_PUBLIC_*`.
+Form tạo/chỉnh sửa bài và form tạo contest hỗ trợ đính kèm PDF tối đa 20 MB; PDF được hiển thị trực tiếp trong trang bài. Tạo bucket Supabase Storage riêng tư tên `problem-statements` (hoặc đặt `SUPABASE_PROBLEM_PDF_BUCKET`), giới hạn dung lượng bucket ở ít nhất 20 MB/file và MIME type `application/pdf`. Cấu hình `SUPABASE_SERVICE_ROLE_KEY` ở server. File được gửi qua API ứng dụng và upload bằng service-role key server-side; không bật public access, không cấp quyền upload cho `anon`, và không đưa service-role key vào biến `NEXT_PUBLIC_*`.
 
 ### Bật Live IDE cho website trên Vercel
 

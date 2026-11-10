@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseTestCaseZip } from "@/lib/testcase-zip";
-import { PDF_STATEMENT_PLACEHOLDER } from "@/lib/problem-statement-pdf-constants";
+import {
+  MAX_PROBLEM_STATEMENT_PDF_SIZE,
+  PDF_STATEMENT_PLACEHOLDER,
+} from "@/lib/problem-statement-pdf-constants";
 import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
 
 const DEFAULT_STATEMENT_TEMPLATE = "Cho $n$. Tính ...\n\n## Input\n\n## Output\n";
@@ -611,17 +614,18 @@ export function ContributeForm({
             className="mt-2 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[var(--surface-strong)] file:px-3 file:py-2 file:text-white"
             onChange={(event) => {
               const file = event.target.files?.[0] ?? null;
-              event.target.value = "";
               setError("");
               setUploadedPdfPath("");
               setStatementPdfFile(null);
               if (!file) return;
               if (!file.name.toLowerCase().endsWith(".pdf")) {
                 setError("Chỉ hỗ trợ file có đuôi .pdf.");
+                event.currentTarget.value = "";
                 return;
               }
-              if (file.size === 0 || file.size > 4 * 1024 * 1024) {
-                setError("PDF đề bài phải có dung lượng tối đa 4 MB.");
+              if (file.size === 0 || file.size > MAX_PROBLEM_STATEMENT_PDF_SIZE) {
+                setError("PDF đề bài phải có dung lượng tối đa 20 MB.");
+                event.currentTarget.value = "";
                 return;
               }
               if (!problem && statement === DEFAULT_STATEMENT_TEMPLATE) {
@@ -633,7 +637,7 @@ export function ContributeForm({
           />
         </label>
         <p className="mt-2 text-xs text-[var(--muted)]">
-          PDF tối đa 4 MB được lưu riêng tư trên Supabase Storage và hiển thị trực tiếp trong trang bài. Không trích xuất/OCR nội dung.
+          PDF tối đa 20 MB được lưu riêng tư trên Supabase Storage và hiển thị trực tiếp trong trang bài. Không trích xuất/OCR nội dung.
         </p>
         {(statementPdfFile || hasStatementPdf) && (
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
