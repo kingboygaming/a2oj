@@ -7,6 +7,7 @@ import {
   MAX_PROBLEM_STATEMENT_PDF_SIZE,
   PDF_STATEMENT_PLACEHOLDER,
 } from "@/lib/problem-statement-pdf-constants";
+import { uploadProblemStatementPdf } from "@/lib/problem-statement-pdf-upload";
 import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
 
 const DEFAULT_STATEMENT_TEMPLATE = "Cho $n$. Tính ...\n\n## Input\n\n## Output\n";
@@ -168,24 +169,9 @@ export function ContributeForm({
         ? null
         : problem?.statementPdfPath ?? null;
       if (statementPdfFile) {
-        if (!uploadedPdfPath) {
-          const formData = new FormData();
-          formData.append("file", statementPdfFile);
-          const uploadInfoResponse = await fetch("/api/problem-statement-uploads", {
-            method: "POST",
-            body: formData,
-          });
-          const uploadInfo = await uploadInfoResponse.json();
-          if (!uploadInfoResponse.ok) {
-            setError(uploadInfo.error ?? "Không thể tải PDF lên.");
-            return;
-          }
-
-          setUploadedPdfPath(uploadInfo.path);
-          nextStatementPdfPath = uploadInfo.path;
-        } else {
-          nextStatementPdfPath = uploadedPdfPath;
-        }
+        nextStatementPdfPath = uploadedPdfPath ||
+          await uploadProblemStatementPdf(statementPdfFile);
+        setUploadedPdfPath(nextStatementPdfPath);
       }
 
       const res = await fetch(
@@ -260,7 +246,11 @@ export function ContributeForm({
       if (err instanceof DOMException && err.name === "TimeoutError") {
         setError("Lưu quá thời gian chờ. Bộ test quá lớn — hãy thử giảm số lượng hoặc kích thước test.");
       } else {
-        setError("Không thể kết nối để lưu đề. Hãy thử lại.");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Không thể kết nối để lưu đề. Hãy thử lại.",
+        );
       }
     } finally {
       setPending(false);

@@ -7,29 +7,11 @@ import {
   MAX_PROBLEM_STATEMENT_PDF_SIZE,
   PDF_STATEMENT_PLACEHOLDER,
 } from "@/lib/problem-statement-pdf-constants";
+import { uploadProblemStatementPdf } from "@/lib/problem-statement-pdf-upload";
 import { TestGeneratorPanel } from "@/components/TestGeneratorPanel";
 
 const DEFAULT_CONTEST_STATEMENT =
   "Cho số nguyên $n$. In ra kết quả...\n\n## Input\n\n## Output\n";
-
-async function uploadProblemPdf(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", file);
-  const response = await fetch("/api/problem-statement-uploads", {
-    method: "POST",
-    body: formData,
-  });
-  const data: { path?: unknown; error?: unknown } = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      typeof data.error === "string" ? data.error : "Không thể tải PDF lên.",
-    );
-  }
-  if (typeof data.path !== "string") {
-    throw new Error("Máy chủ không trả về đường dẫn PDF.");
-  }
-  return data.path;
-}
 
 export type TestCaseDraft = {
   input: string;
@@ -330,7 +312,7 @@ export function ContestForm({
         const defaultOutFile = prob.slug ? `${prob.slug.toUpperCase()}.OUT` : "OUTPUT.OUT";
         const { statementPdfFile, ...problemData } = prob;
         const statementPdfPath = statementPdfFile
-          ? await uploadProblemPdf(statementPdfFile)
+          ? await uploadProblemStatementPdf(statementPdfFile)
           : null;
         return {
           ...problemData,

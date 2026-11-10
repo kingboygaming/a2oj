@@ -3,8 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import {
   getProblemPdfStorage,
-  hasPdfHeader,
-  MAX_PROBLEM_STATEMENT_PDF_SIZE,
+  PROBLEM_STATEMENT_PDF_BUCKET,
 } from "@/lib/problem-statement-pdf";
 
 export const runtime = "nodejs";
@@ -27,27 +26,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Yêu cầu phải đến từ cùng địa chỉ A2OJ." }, { status: 403 });
   }
 
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > MAX_PROBLEM_STATEMENT_PDF_SIZE + 64 * 1024) {
-    return NextResponse.json({ error: "PDF đề bài phải có dung lượng tối đa 20 MB." }, { status: 413 });
-  }
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return NextResponse.json({ error: "Không đọc được dữ liệu PDF." }, { status: 400 });
-  }
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return NextResponse.json({ error: "Hãy chọn file PDF đề bài." }, { status: 400 });
-  }
-  if (file.size > MAX_PROBLEM_STATEMENT_PDF_SIZE) {
-    return NextResponse.json({ error: "PDF đề bài phải có dung lượng tối đa 20 MB." }, { status: 413 });
-  }
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
-    return NextResponse.json({ error: "Chỉ hỗ trợ tệp có đuôi .pdf." }, { status: 400 });
-  }
-
   let storage: ReturnType<typeof getProblemPdfStorage>;
   try {
     storage = getProblemPdfStorage();
@@ -56,20 +34,23 @@ export async function POST(request: Request) {
       error: error instanceof Error ? error.message : "Supabase Storage chưa được cấu hình.",
     }, { status: 503 });
   }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!hasPdfHeader(bytes)) {
-    return NextResponse.json({ error: "Tệp tải lên không phải PDF hợp lệ." }, { status: 400 });
-  }
-
   const path = `${user.id}/${randomUUID()}.pdf`;
-  const { error } = await storage.upload(path, bytes, {
-    contentType: "application/pdf",
-    upsert: false,
-  });
-  if (error) {
-    console.error("Could not upload problem PDF to Supabase Storage:", error);
-    return NextResponse.json({ error: "Không thể lưu PDF trên Supabase Storage." }, { status: 502 });
+  let data: { path: string; token: string };
+  try {
+    const result = await storage.createSignedUploadUrl(path, { upsert: false });
+    if (result.error) {
+      console.error("Could not create signed problem PDF upload URL:", result.error);
+      return NextResponse.json({ error: "Không thể bắt đầu tải PDF lên Supabase Storage." }, { status: 502 });
+    }
+    data = result.data;
+  } catch (error) {
+    console.error("Could not create signed problem PDF upload URL:", error);
+    return NextResponse.json({ error: "Không thể kết nối đến Supabase Storage." }, { status: 502 });
   }
 
-  return NextResponse.json({ path });
+  return NextResponse.json({
+    path: data.path,
+    token: data.token,
+    bucket: PROBLEM_STATEMENT_PDF_BUCKET,
+  });
 }
