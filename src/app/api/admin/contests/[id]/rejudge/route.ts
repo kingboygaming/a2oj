@@ -109,6 +109,7 @@ export async function POST(
           effectiveOutputFile,
           effectiveJudgeType,
           problem.heuristicTolerancePercent,
+          problem.interactorSource,
         );
 
         await prisma.submission.update({

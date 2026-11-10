@@ -19,7 +19,8 @@ export type ProblemDraft = {
   difficulty: "EASY" | "MEDIUM" | "HARD";
   timeLimitMs: number;
   memoryLimitMb: number;
-  judgeType?: "STANDARD" | "HEURISTIC";
+  judgeType?: "STANDARD" | "HEURISTIC" | "INTERACTIVE";
+  interactorSource?: string;
   scoringMode?: "ICPC" | "VNOI";
   gachaAcRewardMin?: number;
   gachaAcRewardMax?: number;
@@ -52,7 +53,7 @@ export type InitialContestData = {
   specialGachaDropRate?: number;
   problemIds: string[];
   problemCustomTitles?: Record<string, string>;
-  problemJudgeTypes?: Record<string, "STANDARD" | "HEURISTIC">;
+  problemJudgeTypes?: Record<string, "STANDARD" | "HEURISTIC" | "INTERACTIVE">;
   problemIoModes?: Record<string, "STDIO" | "FILE">;
   problemInputFiles?: Record<string, string>;
   problemOutputFiles?: Record<string, string>;
@@ -67,6 +68,7 @@ function createProblemDraft(): ProblemDraft {
     timeLimitMs: 1000,
     memoryLimitMb: 256,
     judgeType: "STANDARD",
+    interactorSource: "",
     scoringMode: "ICPC",
     ioMode: "STDIO",
     inputFile: "",
@@ -137,7 +139,7 @@ export function ContestForm({
   const [problemCustomTitles, setProblemCustomTitles] = useState<Record<string, string>>(
     initialData?.problemCustomTitles ?? {},
   );
-  const [problemJudgeTypes, setProblemJudgeTypes] = useState<Record<string, "STANDARD" | "HEURISTIC">>(
+  const [problemJudgeTypes, setProblemJudgeTypes] = useState<Record<string, "STANDARD" | "HEURISTIC" | "INTERACTIVE">>(
     initialData?.problemJudgeTypes ?? {},
   );
   const [problemIoModes, setProblemIoModes] = useState<Record<string, "STDIO" | "FILE">>(
@@ -267,18 +269,20 @@ export function ContestForm({
       const endpoint = isEditing ? `/api/contests/${initialData!.id}` : "/api/contests";
       const method = isEditing ? "PATCH" : "POST";
 
-      const finalJudgeTypes: Record<string, "STANDARD" | "HEURISTIC"> = {};
+      const finalJudgeTypes: Record<string, "STANDARD" | "HEURISTIC" | "INTERACTIVE"> = {};
       const finalIoModes: Record<string, "STDIO" | "FILE"> = {};
       const finalInputFiles: Record<string, string> = {};
       const finalOutputFiles: Record<string, string> = {};
 
       for (const id of problemIds) {
         const p = availableProblems.find((item) => item.id === id);
-        const jType = problemJudgeTypes[id] || (p?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD");
+        const jType = p?.judgeType === "INTERACTIVE"
+          ? "INTERACTIVE"
+          : problemJudgeTypes[id] || (p?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD");
         finalJudgeTypes[id] = jType;
         const mode = problemIoModes[id] || (p?.ioMode === "FILE" ? "FILE" : "STDIO");
-        finalIoModes[id] = mode;
-        if (mode === "FILE") {
+        finalIoModes[id] = jType === "INTERACTIVE" ? "STDIO" : mode;
+        if (mode === "FILE" && jType !== "INTERACTIVE") {
           finalInputFiles[id] =
             problemInputFiles[id]?.trim() ||
             p?.inputFile ||
@@ -305,9 +309,9 @@ export function ContestForm({
           gachaPacRewardMax,
           specialGachaCardId: specialGachaCardId || null,
           specialGachaDropRate,
-          ioMode: mode,
-          inputFile: mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
-          outputFile: mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
+          ioMode: jType === "INTERACTIVE" ? "STDIO" : mode,
+          inputFile: jType !== "INTERACTIVE" && mode === "FILE" ? (prob.inputFile?.trim() || defaultInpFile) : null,
+          outputFile: jType !== "INTERACTIVE" && mode === "FILE" ? (prob.outputFile?.trim() || defaultOutFile) : null,
         };
       });
 
@@ -611,7 +615,12 @@ export function ContestForm({
                   <div className="grid gap-2 pt-2 border-t border-[var(--line)]/60 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[var(--muted)] font-medium">Bộ chấm bài thi:</span>
-                      <div className="flex items-center gap-3">
+                      {p?.judgeType === "INTERACTIVE" ? (
+                        <label className="flex items-center gap-1">
+                          <input type="radio" name={`judge-type-${id}`} checked readOnly />
+                          <span>Interactive (cấu hình tại bài gốc)</span>
+                        </label>
+                      ) : <div className="flex items-center gap-3">
                         <label className="flex items-center gap-1 cursor-pointer">
                           <input
                             type="radio"
@@ -636,12 +645,14 @@ export function ContestForm({
                           />
                           <span>Heuristic (Xấp xỉ)</span>
                         </label>
-                      </div>
+                      </div>}
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[var(--muted)] font-medium">Nhập / xuất bài thi:</span>
-                      <div className="flex items-center gap-3">
+                      {(problemJudgeTypes[id] ?? p?.judgeType) === "INTERACTIVE" ? (
+                        <span className="text-cyan-700">Interactive stdin/stdout</span>
+                      ) : <div className="flex items-center gap-3">
                         <label className="flex items-center gap-1 cursor-pointer">
                           <input
                             type="radio"
@@ -666,10 +677,10 @@ export function ContestForm({
                           />
                           <span>Tệp tin (File I/O)</span>
                         </label>
-                      </div>
+                      </div>}
                     </div>
 
-                    {(problemIoModes[id] ?? (p?.ioMode || "STDIO")) === "FILE" && (
+                    {(problemJudgeTypes[id] ?? p?.judgeType) !== "INTERACTIVE" && (problemIoModes[id] ?? (p?.ioMode || "STDIO")) === "FILE" && (
                       <div className="grid gap-2 sm:grid-cols-2 rounded border border-[var(--line)] bg-[var(--background)] p-2">
                         <div>
                           <label className="block text-[11px] text-[var(--muted)] mb-1">
@@ -876,8 +887,37 @@ export function ContestForm({
                     />
                     <span>Heuristic (Xấp xỉ)</span>
                   </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`new-prob-judge-${problemIndex}`}
+                      value="INTERACTIVE"
+                      checked={problem.judgeType === "INTERACTIVE"}
+                      onChange={() =>
+                        updateProblem(problemIndex, { judgeType: "INTERACTIVE", ioMode: "STDIO" })
+                      }
+                    />
+                    <span>Interactive</span>
+                  </label>
                 </div>
               </div>
+              {problem.judgeType === "INTERACTIVE" && (
+                <label className="block">
+                  Interactor C++17
+                  <textarea
+                    required
+                    maxLength={64_000}
+                    rows={8}
+                    className="mt-1 w-full rounded border border-[var(--line)] p-2 font-mono text-xs"
+                    value={problem.interactorSource ?? ""}
+                    onChange={(event) => updateProblem(problemIndex, { interactorSource: event.target.value })}
+                    placeholder={'// argv[1]: input, argv[2]: đáp án; stdin: câu trả lời contestant; stdout: phản hồi\nint main(int argc, char** argv) { /* return 0 nếu chấp nhận */ }'}
+                  />
+                  <span className="mt-1 block text-[11px] text-[var(--muted)]">
+                    Đọc contestant từ stdin, gửi phản hồi qua stdout. `argv[1]` là input, `argv[2]` là đáp án; mã thoát 0 = AC, mã khác = WA.
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Phương thức vào / ra */}
@@ -900,6 +940,7 @@ export function ContestForm({
                       type="radio"
                       name={`new-prob-io-${problemIndex}`}
                       value="FILE"
+                      disabled={problem.judgeType === "INTERACTIVE"}
                       checked={problem.ioMode === "FILE"}
                       onChange={() => updateProblem(problemIndex, { ioMode: "FILE" })}
                     />
@@ -908,7 +949,7 @@ export function ContestForm({
                 </div>
               </div>
 
-              {problem.ioMode === "FILE" && (
+              {problem.ioMode === "FILE" && problem.judgeType !== "INTERACTIVE" && (
                 <div className="grid gap-2 sm:grid-cols-2 pt-1">
                   <div>
                     <label className="block text-[11px] text-[var(--muted)] mb-1">
@@ -1073,7 +1114,7 @@ export function ContestForm({
                       />
                       <textarea
                         rows={2}
-                        placeholder="Output"
+                        placeholder={problem.judgeType === "INTERACTIVE" ? "Answer file cho interactor" : "Output"}
                         className="rounded border border-[var(--line)] p-1.5 font-mono text-xs"
                         value={testCase.output}
                         onChange={(e) =>

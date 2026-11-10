@@ -29,6 +29,7 @@ type ProblemDraft = {
   outputFile?: string | null;
   statementPdfPath?: string | null;
   judgeType?: string | null;
+  interactorSource?: string | null;
   scoringMode?: string | null;
   gachaAcRewardMin?: number;
   gachaAcRewardMax?: number;
@@ -64,11 +65,12 @@ export function ContributeForm({
   const [timeLimitMs, setTimeLimitMs] = useState(problem?.timeLimitMs ?? 1000);
   const [memoryLimitMb, setMemoryLimitMb] = useState(problem?.memoryLimitMb ?? 256);
   const [ioMode, setIoMode] = useState<"STDIO" | "FILE">(
-    problem?.ioMode === "FILE" ? "FILE" : "STDIO",
+    problem?.judgeType !== "INTERACTIVE" && problem?.ioMode === "FILE" ? "FILE" : "STDIO",
   );
-  const [judgeType, setJudgeType] = useState<"STANDARD" | "HEURISTIC">(
-    problem?.judgeType === "HEURISTIC" ? "HEURISTIC" : "STANDARD",
+  const [judgeType, setJudgeType] = useState<"STANDARD" | "HEURISTIC" | "INTERACTIVE">(
+    problem?.judgeType === "HEURISTIC" || problem?.judgeType === "INTERACTIVE" ? problem.judgeType : "STANDARD",
   );
+  const [interactorSource, setInteractorSource] = useState(problem?.interactorSource ?? "");
   const [scoringMode, setScoringMode] = useState<"ICPC" | "VNOI">(
     problem?.scoringMode === "VNOI" ? "VNOI" : "ICPC",
   );
@@ -198,6 +200,7 @@ export function ContributeForm({
             timeLimitMs,
             memoryLimitMb,
             judgeType,
+            interactorSource: judgeType === "INTERACTIVE" ? interactorSource : null,
             scoringMode,
             gachaAcRewardMin,
             gachaAcRewardMax,
@@ -445,7 +448,43 @@ export function ContributeForm({
               </span>
             </span>
           </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="judgeType"
+              value="INTERACTIVE"
+              checked={judgeType === "INTERACTIVE"}
+              onChange={() => {
+                setJudgeType("INTERACTIVE");
+                setIoMode("STDIO");
+              }}
+              className="text-[var(--teal)] focus:ring-[var(--teal)]"
+            />
+            <span>
+              <strong className="text-[var(--navy)]">Interactive (tương tác)</strong>
+              <span className="block text-xs text-[var(--muted)]">
+                Chạy contestant và interactor đồng thời; tương thích ICPC.
+              </span>
+            </span>
+          </label>
         </div>
+        {judgeType === "INTERACTIVE" && (
+          <label className="block text-sm">
+            Interactor C++17
+            <textarea
+              required
+              maxLength={64_000}
+              rows={12}
+              className="mt-1 w-full rounded-md border border-[var(--line)] px-3 py-2 font-mono text-xs"
+              value={interactorSource}
+              onChange={(event) => setInteractorSource(event.target.value)}
+              placeholder={'#include <iostream>\nint main(int argc, char** argv) {\n  // argv[1]: input, argv[2]: đáp án; stdin: output contestant\n  // stdout: phản hồi gửi cho contestant; return 0 nếu chấp nhận\n}'}
+            />
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              `argv[1]` là input, `argv[2]` là đáp án; đọc output contestant từ stdin và gửi phản hồi qua stdout. Thoát mã 0 là AC, mã khác là WA.
+            </span>
+          </label>
+        )}
         {judgeType === "HEURISTIC" && (
           <>
           <label className="block max-w-xs text-sm">
@@ -508,6 +547,7 @@ export function ContributeForm({
               name="ioMode"
               value="FILE"
               checked={ioMode === "FILE"}
+              disabled={judgeType === "INTERACTIVE"}
               onChange={() => setIoMode("FILE")}
               className="text-[var(--teal)] focus:ring-[var(--teal)]"
             />
@@ -710,7 +750,7 @@ export function ContributeForm({
                   onChange={(e) => updateCase(i, { input: e.target.value })}
                 />
                 <textarea
-                  placeholder="Output"
+                  placeholder={judgeType === "INTERACTIVE" ? "Answer file cho interactor" : "Output"}
                   className="h-24 rounded-md border border-[var(--line)] p-2 font-mono text-xs"
                   value={c.output}
                   onChange={(e) => updateCase(i, { output: e.target.value })}

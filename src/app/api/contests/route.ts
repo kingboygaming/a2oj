@@ -34,7 +34,7 @@ const schema = z.object({
   password: z.string().trim().max(128).optional(),
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
-  problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC"])).optional(),
+  problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC", "INTERACTIVE"])).optional(),
   problemIoModes: z.record(z.string(), z.enum(["STDIO", "FILE"])).optional(),
   problemInputFiles: z.record(z.string(), z.string()).optional(),
   problemOutputFiles: z.record(z.string(), z.string()).optional(),
@@ -46,7 +46,8 @@ const schema = z.object({
       difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
       timeLimitMs: z.number().int().positive(),
       memoryLimitMb: z.number().int().positive(),
-      judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
+      judgeType: z.enum(["STANDARD", "HEURISTIC", "INTERACTIVE"]).optional().default("STANDARD"),
+      interactorSource: z.string().max(64_000).nullable().optional(),
       scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
       ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
       inputFile: z.string().trim().max(100).nullable().optional(),
@@ -62,6 +63,17 @@ const schema = z.object({
     }),
   ).default([]),
 }).superRefine((data, context) => {
+  data.newProblems.forEach((problem, index) => {
+    if (problem.judgeType === "INTERACTIVE" && !problem.interactorSource?.trim()) {
+      context.addIssue({ code: "custom", path: ["newProblems", index, "interactorSource"], message: "Bài Interactive cần mã interactor C++." });
+    }
+    if (problem.judgeType === "INTERACTIVE" && problem.ioMode !== "STDIO") {
+      context.addIssue({ code: "custom", path: ["newProblems", index, "ioMode"], message: "Bài Interactive chỉ hỗ trợ stdin/stdout." });
+    }
+    if (problem.judgeType === "INTERACTIVE" && problem.testCases.length > 20) {
+      context.addIssue({ code: "custom", path: ["newProblems", index, "testCases"], message: "Bài Interactive hỗ trợ tối đa 20 test." });
+    }
+  });
   if (data.gachaAcRewardMin > data.gachaAcRewardMax) context.addIssue({ code: "custom", path: ["gachaAcRewardMax"], message: "Lượt tối đa khi AC phải lớn hơn hoặc bằng lượt tối thiểu." });
   if (data.gachaPacRewardMin > data.gachaPacRewardMax) context.addIssue({ code: "custom", path: ["gachaPacRewardMax"], message: "Lượt tối đa khi PAC phải lớn hơn hoặc bằng lượt tối thiểu." });
   if (data.specialGachaDropRate > 0 && !data.specialGachaCardId) context.addIssue({ code: "custom", path: ["specialGachaCardId"], message: "Chọn thẻ đặc biệt khi đặt xác suất rơi." });
@@ -111,7 +123,7 @@ export async function POST(request: Request) {
         published: true,
         contestOnly: false,
       },
-      select: { id: true },
+      select: { id: true, judgeType: true, ioMode: true, interactorSource: true },
     }),
     prisma.problem.findMany({
       where: { slug: { in: newProblemSlugs } },
@@ -123,6 +135,20 @@ export async function POST(request: Request) {
   }
   if (selectedProblems.length !== parsed.data.problemIds.length) {
     return NextResponse.json({ error: "Một hoặc nhiều bài đã chọn không còn khả dụng." }, { status: 400 });
+  }
+  for (const problem of selectedProblems) {
+    const judgeType = problem.judgeType === "INTERACTIVE"
+      ? "INTERACTIVE"
+      : parsed.data.problemJudgeTypes?.[problem.id];
+    if (judgeType === "INTERACTIVE" && (!problem.interactorSource?.trim() || problem.ioMode === "FILE")) {
+      return NextResponse.json(
+        { error: "Bài Interactive được chọn phải có interactor và dùng stdin/stdout." },
+        { status: 400 },
+      );
+    }
+    if (judgeType === "INTERACTIVE" && parsed.data.problemIoModes?.[problem.id] === "FILE") {
+      return NextResponse.json({ error: "Bài Interactive chỉ hỗ trợ stdin/stdout." }, { status: 400 });
+    }
   }
   if (conflictingProblems.length > 0) {
     return NextResponse.json(
@@ -159,11 +185,12 @@ export async function POST(request: Request) {
 
     const newProblemIds: string[] = [];
     for (const problem of parsed.data.newProblems) {
-      const ioMode = problem.ioMode ?? "STDIO";
+      const ioMode = problem.judgeType === "INTERACTIVE" ? "STDIO" : problem.ioMode ?? "STDIO";
       const createdProblem = await transaction.problem.create({
         data: {
           ...problem,
           ioMode,
+          interactorSource: problem.judgeType === "INTERACTIVE" ? problem.interactorSource?.trim() : null,
           inputFile: ioMode === "FILE" ? (problem.inputFile || `${problem.slug.toUpperCase()}.INP`) : null,
           outputFile: ioMode === "FILE" ? (problem.outputFile || `${problem.slug.toUpperCase()}.OUT`) : null,
           published: true,
@@ -184,6 +211,7 @@ export async function POST(request: Request) {
     const problemIds = [...parsed.data.problemIds, ...newProblemIds];
     const customTitles = parsed.data.problemCustomTitles ?? {};
     const problemJudgeTypes = parsed.data.problemJudgeTypes ?? {};
+    const judgeTypeByProblemId = new Map(selectedProblems.map((problem) => [problem.id, problem.judgeType]));
     const problemIoModes = parsed.data.problemIoModes ?? {};
     const problemInputFiles = parsed.data.problemInputFiles ?? {};
     const problemOutputFiles = parsed.data.problemOutputFiles ?? {};
@@ -194,8 +222,10 @@ export async function POST(request: Request) {
         problemId,
         letter: String.fromCharCode(65 + index),
         customTitle: customTitles[problemId]?.trim() || null,
-        judgeType: problemJudgeTypes[problemId] || null,
-        ioMode: problemIoModes[problemId] || null,
+        judgeType: judgeTypeByProblemId.get(problemId) === "INTERACTIVE"
+          ? "INTERACTIVE"
+          : problemJudgeTypes[problemId] || null,
+        ioMode: problemJudgeTypes[problemId] === "INTERACTIVE" ? "STDIO" : problemIoModes[problemId] || null,
         inputFile: problemInputFiles[problemId]?.trim() || null,
         outputFile: problemOutputFiles[problemId]?.trim() || null,
         points: 100,

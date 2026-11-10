@@ -11,7 +11,7 @@ import { playSound } from "@/lib/sound";
 type Language = "CPP" | "PYTHON";
 type Sample = { id: string; label: string; input: string; output: string };
 type LocalRun = {
-  verdict: "OK" | "TLE" | "RTE" | "CE";
+  verdict: "OK" | "WA" | "TLE" | "RTE" | "CE";
   output: string;
   error: string;
   timeMs: number;
@@ -276,6 +276,13 @@ export function SubmitPanel({
         </div>
       )}
 
+      {judgeType === "INTERACTIVE" && (
+        <div className="border-b border-cyan-500/20 bg-cyan-500/10 px-4 py-2.5 text-xs text-cyan-100">
+          <strong className="text-cyan-200">Interactive judge:</strong>{" "}
+          contestant và interactor chạy đồng thời; kết quả do interactor xác định, không so sánh output thông thường.
+        </div>
+      )}
+
       {ioMode === "FILE" && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
           <div className="flex items-center gap-2">
@@ -399,11 +406,19 @@ export function SubmitPanel({
             selectedSample !== "custom" &&
             samples.find((sample) => sample.id === selectedSample) && (
               <div className="mt-3 border-t border-white/10 pt-2">
-                <p className="text-xs font-medium text-white/65">Output mong đợi</p>
-                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-white/75">
-                  {samples.find((sample) => sample.id === selectedSample)?.output}
-                </pre>
-                {runResult.verdict === "OK" && (
+                {judgeType === "INTERACTIVE" ? (
+                  <p className="text-xs font-medium text-white/65">
+                    Kết quả phiên tương tác: {runResult.verdict === "OK" ? "Interactor chấp nhận" : runResult.verdict === "WA" ? "Interactor từ chối" : runResult.verdict}
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs font-medium text-white/65">Output mong đợi</p>
+                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-white/75">
+                      {samples.find((sample) => sample.id === selectedSample)?.output}
+                    </pre>
+                  </>
+                )}
+                {judgeType !== "INTERACTIVE" && runResult.verdict === "OK" && (
                   <p
                     className={`mt-1 text-xs ${
                       normalizeOutput(runResult.output) ===
@@ -438,20 +453,21 @@ export function SubmitPanel({
             {
               sampleRunResults.filter((item) => {
                 const sample = samples.find((candidate) => candidate.id === item.sampleId);
-                return (
-                  item.result.verdict === "OK" &&
-                  sample &&
-                  normalizeOutput(item.result.output) === normalizeOutput(sample.output)
-                );
+                return judgeType === "INTERACTIVE"
+                  ? item.result.verdict === "OK"
+                  : item.result.verdict === "OK" &&
+                      sample !== undefined &&
+                      normalizeOutput(item.result.output) === normalizeOutput(sample.output);
               }).length
             }/{sampleRunResults.length} sample khớp
           </h3>
           {sampleRunResults.map(({ sampleId, result: sampleResult }, index) => {
             const sample = samples.find((item) => item.id === sampleId);
-            const matched =
-              sampleResult.verdict === "OK" &&
-              sample !== undefined &&
-              normalizeOutput(sampleResult.output) === normalizeOutput(sample.output);
+            const matched = judgeType === "INTERACTIVE"
+              ? sampleResult.verdict === "OK"
+              : sampleResult.verdict === "OK" &&
+                sample !== undefined &&
+                normalizeOutput(sampleResult.output) === normalizeOutput(sample.output);
             return (
               <article
                 key={sampleId}
@@ -463,12 +479,13 @@ export function SubmitPanel({
                     {sampleResult.verdict} · {sampleResult.timeMs} ms
                     {sampleResult.verdict === "OK"
                       ? matched
-                        ? " · Khớp output"
-                        : " · Chưa khớp output"
+                        ? judgeType === "INTERACTIVE" ? " · Interactor chấp nhận" : " · Khớp output"
+                        : judgeType === "INTERACTIVE" ? " · Interactor từ chối" : " · Chưa khớp output"
                       : ""}
                   </span>
                 </div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {judgeType !== "INTERACTIVE" && (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <div>
                     <p className="mb-1 text-[10px] uppercase text-white/50">Output của bạn</p>
                     <pre className="max-h-32 overflow-auto whitespace-pre-wrap text-xs">
@@ -481,7 +498,8 @@ export function SubmitPanel({
                       {sample?.output ?? ""}
                     </pre>
                   </div>
-                </div>
+                  </div>
+                )}
                 {sampleResult.error && (
                   <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-rose-200">
                     {sampleResult.error}

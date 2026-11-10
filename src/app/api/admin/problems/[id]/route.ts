@@ -24,7 +24,8 @@ const updateSchema = z.object({
   timeLimitMs: z.number().int().positive(),
   memoryLimitMb: z.number().int().positive(),
   ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
-  judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
+  judgeType: z.enum(["STANDARD", "HEURISTIC", "INTERACTIVE"]).optional().default("STANDARD"),
+  interactorSource: z.string().max(64_000).nullable().optional(),
   heuristicTolerancePercent: z.number().int().min(0).max(100).optional().default(5),
   achievementBadgeTitle: z.string().trim().max(80).nullable().optional(),
   achievementBadgeDescription: z.string().trim().max(180).nullable().optional(),
@@ -33,6 +34,16 @@ const updateSchema = z.object({
   outputFile: z.string().trim().max(100).nullable().optional(),
   testCases: z.array(testCaseSchema).min(1),
   tags: z.array(z.string().trim().toLowerCase().min(2).max(32)).max(10).optional().default([]).transform((tags) => [...new Set(tags)]),
+}).superRefine((data, context) => {
+  if (data.judgeType === "INTERACTIVE" && !data.interactorSource?.trim()) {
+    context.addIssue({ code: "custom", path: ["interactorSource"], message: "Bộ chấm Interactive cần mã interactor C++." });
+  }
+  if (data.judgeType === "INTERACTIVE" && data.ioMode !== "STDIO") {
+    context.addIssue({ code: "custom", path: ["ioMode"], message: "Bài Interactive chỉ hỗ trợ stdin/stdout." });
+  }
+  if (data.judgeType === "INTERACTIVE" && data.testCases.length > 20) {
+    context.addIssue({ code: "custom", path: ["testCases"], message: "Bài Interactive hỗ trợ tối đa 20 test." });
+  }
 });
 
 export async function PATCH(
@@ -97,6 +108,7 @@ export async function PATCH(
           memoryLimitMb: parsed.data.memoryLimitMb,
           ioMode: parsed.data.ioMode ?? "STDIO",
           judgeType: parsed.data.judgeType ?? "STANDARD",
+          interactorSource: parsed.data.judgeType === "INTERACTIVE" ? parsed.data.interactorSource?.trim() : null,
           heuristicTolerancePercent: parsed.data.heuristicTolerancePercent ?? 5,
           achievementBadgeTitle: parsed.data.judgeType === "HEURISTIC" ? parsed.data.achievementBadgeTitle || null : null,
           achievementBadgeDescription: parsed.data.judgeType === "HEURISTIC" && parsed.data.achievementBadgeTitle ? parsed.data.achievementBadgeDescription || null : null,

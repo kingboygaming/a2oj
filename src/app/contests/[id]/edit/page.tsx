@@ -121,7 +121,7 @@ export default async function EditContestPage({
           problemJudgeTypes: Object.fromEntries(
             contest.problems
               .filter((p) => p.judgeType)
-              .map((p) => [p.problemId, p.judgeType as "STANDARD" | "HEURISTIC"]),
+              .map((p) => [p.problemId, p.judgeType as "STANDARD" | "HEURISTIC" | "INTERACTIVE"]),
           ),
           problemInputFiles: Object.fromEntries(
             contest.problems

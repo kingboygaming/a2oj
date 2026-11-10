@@ -119,6 +119,15 @@ export async function POST(request: Request) {
       );
     }
     const cp = contest.problems[0];
+    if (
+      problem.judgeType === "INTERACTIVE" &&
+      ((cp.ioMode ?? problem.ioMode) === "FILE" || !problem.interactorSource)
+    ) {
+      return NextResponse.json(
+        { error: "Cấu hình Interactive của bài không hợp lệ; cần interactor và stdin/stdout." },
+        { status: 400 },
+      );
+    }
     contestConfig = {
       testLimit: parsed.data.practiceContestId ? 0 : contest.testLimit,
       ioMode: cp.ioMode,
@@ -242,7 +251,9 @@ export async function POST(request: Request) {
       ? contestConfig?.outputFile || problem.outputFile || `${problem.slug.toUpperCase()}.OUT`
       : null;
 
-  const effectiveJudgeType = contestConfig?.judgeType || problem.judgeType || "STANDARD";
+  const effectiveJudgeType = problem.judgeType === "INTERACTIVE"
+    ? "INTERACTIVE"
+    : contestConfig?.judgeType || problem.judgeType || "STANDARD";
 
   const result = await judgeSubmission(
     parsed.data.language,
@@ -253,6 +264,7 @@ export async function POST(request: Request) {
     effectiveOutputFile,
     effectiveJudgeType,
     problem.heuristicTolerancePercent,
+    problem.interactorSource,
   );
 
   const completed = await completeSubmission(queued.id, result, serializeJudgeResults(result, gradingSet.length));

@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import type { Language, TestCase, Verdict } from "@prisma/client";
+import { runInteractiveCode } from "@/lib/ide-runner";
 
 const execFileAsync = promisify(execFile);
 const PYTHON_TIME_LIMIT_MULTIPLIER = 2;
@@ -1373,10 +1374,15 @@ export async function judgeSubmission(
   outputFile?: string | null,
   judgeType?: string | null,
   heuristicTolerancePercent = 5,
+  interactorSource?: string | null,
 ): Promise<JudgeResult> {
   const mode = process.env.JUDGE_MODE?.toLowerCase();
   if (mode === "mock") {
     return mockGrade(source, tests);
+  }
+  if (judgeType === "INTERACTIVE") {
+    if (inputFile || outputFile) throw new Error("Interactive judge chỉ hỗ trợ stdin/stdout.");
+    return gradeInteractive(language, source, tests, timeLimitMs, interactorSource ?? "");
   }
 
   const isCloudForced =
@@ -1398,4 +1404,85 @@ export async function judgeSubmission(
   }
 
   return await gradeWithCloud(language, source, tests, timeLimitMs, inputFile, outputFile, judgeType, heuristicTolerancePercent);
+}
+
+async function gradeInteractive(
+  language: Language,
+  source: string,
+  tests: TestCase[],
+  timeLimitMs: number,
+  interactorSource: string,
+): Promise<JudgeResult> {
+  if (!interactorSource.trim()) {
+    return {
+      verdict: "RTE",
+      score: 0,
+      timeMs: 0,
+      log: "Bài Interactive chưa cấu hình interactor.",
+      testResults: [],
+    };
+  }
+
+  try {
+    const execution = await runInteractiveCode(
+      language,
+      source,
+      interactorSource,
+      tests.map((test, index) => ({
+        id: String(index + 1),
+        input: test.input,
+        output: test.output,
+      })),
+      timeLimitMs,
+    );
+    if (execution.results.length !== tests.length) {
+      throw new Error("Interactive runner không trả đủ kết quả testcase.");
+    }
+
+    const compilationError = execution.results.find((item) => item.result.verdict === "CE");
+    if (compilationError) {
+      return {
+        verdict: "CE",
+        score: 0,
+        timeMs: compilationError.result.timeMs,
+        log: compilationError.result.error || "Không thể biên dịch chương trình.",
+        testResults: [{ test: Number(compilationError.testId), verdict: "CE", timeMs: compilationError.result.timeMs }],
+      };
+    }
+
+    let score = 0;
+    let maxTime = 0;
+    let firstFailingVerdict: Verdict | null = null;
+    const testResults: JudgeResult["testResults"] = [];
+    for (const item of execution.results) {
+      const testIndex = Number(item.testId) - 1;
+      const test = tests[testIndex];
+      if (!test) throw new Error("Interactive runner trả về test ID không hợp lệ.");
+      const timeMs = item.result.timeMs;
+      const verdict: Verdict = item.result.verdict === "AC"
+        ? "AC"
+        : item.result.verdict === "WA"
+          ? "WA"
+          : item.result.verdict === "TLE"
+            ? "TLE"
+            : "RTE";
+      maxTime = Math.max(maxTime, timeMs);
+      if (verdict === "AC") score += test.points;
+      else if (!firstFailingVerdict) firstFailingVerdict = verdict;
+      testResults.push({ test: testIndex + 1, verdict, timeMs });
+    }
+
+    const total = tests.reduce((sum, test) => sum + test.points, 0);
+    const verdict: Verdict = score === total ? "AC" : (firstFailingVerdict ?? "WA");
+    const log = verdict === "AC"
+      ? "Accepted"
+      : testResults
+          .filter((item) => item.verdict !== "AC")
+          .map((item) => `Test ${item.test}: ${item.verdict === "WA" ? "Wrong Answer" : item.verdict === "TLE" ? "Time limit exceeded" : "Runtime Error"}`)
+          .join("\n");
+    return { verdict, score, timeMs: maxTime, log, testResults };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Interactive judge runner failed: ${message}`, { cause: error });
+  }
 }

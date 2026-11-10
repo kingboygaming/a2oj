@@ -27,6 +27,21 @@ const samplesResultSchema = z.object({
   ).max(MAX_SAMPLE_RUNS),
 });
 
+const interactiveResultSchema = z.object({
+  verdict: z.enum(["AC", "WA", "TLE", "RTE", "CE"]),
+  timeMs: z.number().int().nonnegative(),
+  error: z.string(),
+});
+
+const interactiveBatchSchema = z.object({
+  results: z.array(
+    z.object({
+      testId: z.string(),
+      result: interactiveResultSchema,
+    }),
+  ).max(MAX_SAMPLE_RUNS),
+});
+
 function getRemoteRunnerUrl() {
   const configuredUrl = process.env.IDE_RUNNER_URL?.trim();
   if (!configuredUrl) return null;
@@ -291,6 +306,41 @@ export function runCodeOnSamples(
       timeLimitMs: perSampleTimeoutMs,
     },
     samplesResultSchema,
+    timeoutMs,
+  );
+}
+
+export function runInteractiveCode(
+  language: Language,
+  source: string,
+  interactorSource: string,
+  tests: { id: string; input: string; output: string }[],
+  timeLimitMs: number,
+) {
+  if (tests.length === 0 || tests.length > MAX_SAMPLE_RUNS) {
+    throw new Error(`Interactive judge hỗ trợ từ 1 đến ${MAX_SAMPLE_RUNS} test mỗi lần.`);
+  }
+  if (interactorSource.length === 0 || interactorSource.length > 64_000) {
+    throw new Error("Mã interactor không hợp lệ.");
+  }
+
+  const perTestLimit = Math.min(Math.max(timeLimitMs, 1), 3000);
+  const executionLimit = language === "PYTHON" ? perTestLimit * 2 : perTestLimit;
+  const timeoutMs = Math.min(
+    55_000,
+    RUNNER_TIMEOUT_MS,
+    Math.max(20_000, 15_000 + executionLimit * tests.length),
+  );
+  return runDockerPayload(
+    {
+      mode: "interactive",
+      language,
+      source,
+      interactorSource,
+      tests,
+      timeLimitMs: perTestLimit,
+    },
+    interactiveBatchSchema,
     timeoutMs,
   );
 }

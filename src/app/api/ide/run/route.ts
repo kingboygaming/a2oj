@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
-import { runCodeInDocker, runCodeOnSamples } from "@/lib/ide-runner";
+import { runCodeInDocker, runCodeOnSamples, runInteractiveCode } from "@/lib/ide-runner";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const requestSchema = z.object({
   problemId: z.string().min(1),
@@ -59,6 +60,8 @@ export async function POST(request: Request) {
       published: true,
       authorId: true,
       timeLimitMs: true,
+      judgeType: true,
+      interactorSource: true,
       testCases: parsed.data.allSamples
         ? {
             where: { isSample: true },
@@ -99,6 +102,37 @@ export async function POST(request: Request) {
   runTimestamps.set(user.id, recentRuns);
 
   try {
+    if (problem.judgeType === "INTERACTIVE") {
+      if (!problem.interactorSource) {
+        return NextResponse.json({ error: "Bài Interactive chưa cấu hình interactor." }, { status: 500 });
+      }
+      const inputs = parsed.data.allSamples
+        ? problem.testCases
+        : [{ id: "custom", input: parsed.data.input, output: "" }];
+      const execution = await runInteractiveCode(
+        parsed.data.language,
+        parsed.data.source,
+        problem.interactorSource,
+        inputs,
+        Math.min(problem.timeLimitMs + 200, 3_000),
+      );
+      const results = execution.results.map(({ testId, result }) => ({
+        sampleId: testId,
+        result: {
+          verdict: result.verdict === "AC" ? "OK" : result.verdict,
+          output: result.verdict === "AC"
+            ? "Interactor accepted the session."
+            : result.verdict === "WA"
+              ? "Interactor rejected the session."
+              : "",
+          error: result.error,
+          timeMs: result.timeMs,
+        },
+      }));
+      if (parsed.data.allSamples) return NextResponse.json({ results });
+      return NextResponse.json(results[0]?.result);
+    }
+
     if (parsed.data.allSamples) {
       const results = await runCodeOnSamples(
         parsed.data.language,

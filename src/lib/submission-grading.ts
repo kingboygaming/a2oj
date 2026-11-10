@@ -70,12 +70,14 @@ export async function gradeStoredSubmission(submissionId: string): Promise<{
     outputFile,
     judgeType,
     problem.heuristicTolerancePercent,
+    problem.interactorSource,
   );
 
   if (
     result.verdict === "RTE" &&
     result.testResults.length === 0 &&
-    result.log.startsWith("Máy chủ chấm cloud gặp sự cố kết nối:")
+    (result.log.startsWith("Máy chủ chấm cloud gặp sự cố kết nối:") ||
+      result.log.startsWith("Interactive judge runner failed:"))
   ) {
     throw new Error(result.log);
   }

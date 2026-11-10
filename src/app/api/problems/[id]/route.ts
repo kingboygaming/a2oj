@@ -78,7 +78,11 @@ export async function GET(
   );
 
   const safeProblem = Object.fromEntries(
-    Object.entries(problem).filter(([key]) => key !== "contestLinks"),
+    Object.entries(problem).filter(
+      ([key]) =>
+        key !== "contestLinks" &&
+        (key !== "interactorSource" || canViewAllTests),
+    ),
   );
   return NextResponse.json({ ...safeProblem, testCases });
 }
@@ -98,7 +102,8 @@ const updateSchema = z.object({
   timeLimitMs: z.number().int().positive(),
   memoryLimitMb: z.number().int().positive(),
   ioMode: z.enum(["STDIO", "FILE"]).optional().default("STDIO"),
-  judgeType: z.enum(["STANDARD", "HEURISTIC"]).optional().default("STANDARD"),
+  judgeType: z.enum(["STANDARD", "HEURISTIC", "INTERACTIVE"]).optional().default("STANDARD"),
+  interactorSource: z.string().max(64_000).nullable().optional(),
   scoringMode: z.enum(SCORING_MODES).optional().default("ICPC"),
   gachaAcRewardMin: z.number().int().min(0).max(1000).optional().default(5),
   gachaAcRewardMax: z.number().int().min(0).max(1000).optional().default(10),
@@ -116,6 +121,15 @@ const updateSchema = z.object({
   testCases: z.array(testCaseSchema).min(1),
   tags: z.array(z.string().trim().toLowerCase().min(2).max(32)).max(10).optional().default([]).transform((tags) => [...new Set(tags)]),
 }).superRefine((data, context) => {
+  if (data.judgeType === "INTERACTIVE" && !data.interactorSource?.trim()) {
+    context.addIssue({ code: "custom", path: ["interactorSource"], message: "Bài Interactive cần mã interactor C++." });
+  }
+  if (data.judgeType === "INTERACTIVE" && data.ioMode !== "STDIO") {
+    context.addIssue({ code: "custom", path: ["ioMode"], message: "Bài Interactive chỉ hỗ trợ stdin/stdout." });
+  }
+  if (data.judgeType === "INTERACTIVE" && data.testCases.length > 20) {
+    context.addIssue({ code: "custom", path: ["testCases"], message: "Bài Interactive hỗ trợ tối đa 20 test." });
+  }
   if (data.gachaAcRewardMin > data.gachaAcRewardMax) context.addIssue({ code: "custom", path: ["gachaAcRewardMax"], message: "Lượt tối đa khi AC phải lớn hơn hoặc bằng lượt tối thiểu." });
   if (data.gachaPacRewardMin > data.gachaPacRewardMax) context.addIssue({ code: "custom", path: ["gachaPacRewardMax"], message: "Lượt tối đa khi PAC phải lớn hơn hoặc bằng lượt tối thiểu." });
   if (data.specialGachaDropRate > 0 && !data.specialGachaCardId) context.addIssue({ code: "custom", path: ["specialGachaCardId"], message: "Chọn thẻ đặc biệt khi đặt xác suất rơi." });
@@ -204,6 +218,7 @@ export async function PATCH(
           memoryLimitMb: parsed.data.memoryLimitMb,
           ioMode: parsed.data.ioMode ?? "STDIO",
           judgeType: parsed.data.judgeType ?? "STANDARD",
+          interactorSource: parsed.data.judgeType === "INTERACTIVE" ? parsed.data.interactorSource?.trim() : null,
           scoringMode: parsed.data.scoringMode,
           gachaAcRewardMin: parsed.data.gachaAcRewardMin,
           gachaAcRewardMax: parsed.data.gachaAcRewardMax,

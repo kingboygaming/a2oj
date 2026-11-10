@@ -16,6 +16,7 @@ MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 MAX_SOURCE_CHARS = 64_000
 MAX_INPUT_CHARS = 16_000
 MAX_SAMPLE_RUNS = 20
+MAX_INTERACTIVE_CASE_CHARS = 1_000_000
 MAX_CONCURRENT_RUNS = 3
 AUTH_WINDOW_SECONDS = 60
 RUNNER_IMAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$")
@@ -88,6 +89,44 @@ def validate_payload(payload):
     ):
         raise ValueError("Time limit is invalid.")
 
+    if payload.get("mode") == "interactive":
+        if set(payload) != {
+            "mode",
+            "language",
+            "source",
+            "interactorSource",
+            "tests",
+            "timeLimitMs",
+        }:
+            raise ValueError("Interactive request fields are invalid.")
+        interactor_source = payload["interactorSource"]
+        tests = payload["tests"]
+        if (
+            not isinstance(interactor_source, str)
+            or not 1 <= len(interactor_source) <= MAX_SOURCE_CHARS
+        ):
+            raise ValueError("Interactor source length is invalid.")
+        if not isinstance(tests, list) or not 1 <= len(tests) <= MAX_SAMPLE_RUNS:
+            raise ValueError("Interactive test count is invalid.")
+        for item in tests:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"id", "input", "output"}
+                or not isinstance(item["id"], str)
+                or len(item["id"]) > 128
+                or not isinstance(item["input"], str)
+                or not isinstance(item["output"], str)
+                or len(item["input"]) > MAX_INTERACTIVE_CASE_CHARS
+                or len(item["output"]) > MAX_INTERACTIVE_CASE_CHARS
+            ):
+                raise ValueError("Interactive test data is invalid.")
+        multiplier = 2 if payload["language"] == "PYTHON" else 1
+        timeout_seconds = min(
+            55,
+            max(20, 15 + time_limit_ms * len(tests) * multiplier / 1000),
+        )
+        return timeout_seconds
+
     if "inputs" in payload:
         if set(payload) != {"language", "source", "timeLimitMs", "inputs"}:
             raise ValueError("Request fields are invalid.")
@@ -124,6 +163,7 @@ def run_in_docker(body, timeout_seconds):
         raise ValueError("IDE_DOCKER_COMMAND is empty.")
 
     container_name = "tinoj-ide-" + secrets.token_hex(12)
+    interactive = json.loads(body.decode("utf-8")).get("mode") == "interactive"
     command = [
         docker_command,
         "run",
@@ -141,11 +181,17 @@ def run_in_docker(body, timeout_seconds):
         "--read-only",
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges:true",
-        "--user=65534:65534",
-        "--tmpfs=/tmp:rw,nosuid,nodev,exec,size=128m,uid=65534,gid=65534,mode=700",
+    ]
+    if interactive:
+        command.extend(["--cap-add=SETUID", "--cap-add=SETGID", "--user=0:0"])
+    else:
+        command.append("--user=65534:65534")
+    tmpfs_owner = "0" if interactive else "65534"
+    command.extend([
+        f"--tmpfs=/tmp:rw,nosuid,nodev,exec,size=128m,uid={tmpfs_owner},gid={tmpfs_owner},mode=700",
         "--env=PYTHONDONTWRITEBYTECODE=1",
         image,
-    ]
+    ])
     try:
         process = subprocess.run(
             command,
