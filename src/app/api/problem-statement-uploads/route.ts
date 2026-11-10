@@ -40,12 +40,24 @@ export async function POST(request: Request) {
     const result = await storage.createSignedUploadUrl(path, { upsert: false });
     if (result.error) {
       console.error("Could not create signed problem PDF upload URL:", result.error);
-      return NextResponse.json({ error: "Không thể bắt đầu tải PDF lên Supabase Storage." }, { status: 502 });
+      return NextResponse.json(
+        {
+          error: `Không thể bắt đầu tải PDF lên Supabase Storage: ${result.error.message}`,
+        },
+        { status: 502 },
+      );
     }
     data = result.data;
   } catch (error) {
     console.error("Could not create signed problem PDF upload URL:", error);
-    return NextResponse.json({ error: "Không thể kết nối đến Supabase Storage." }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: error instanceof Error
+          ? `Không thể kết nối đến Supabase Storage: ${error.message}`
+          : "Không thể kết nối đến Supabase Storage.",
+      },
+      { status: 502 },
+    );
   }
 
   return NextResponse.json({
