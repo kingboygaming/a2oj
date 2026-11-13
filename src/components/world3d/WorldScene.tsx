@@ -10,8 +10,9 @@ import { CastleSystem } from "./city/CastleSystem";
 import { VegetationSystem } from "./vegetation/VegetationSystem";
 import { ArmySystem } from "./army/ArmySystem";
 import { GroundDecals } from "./terrain/GroundDecals";
-import { getHeightAt } from "./terrain/BiomeManager";
+import { heightAtRender } from "./terrain/BiomeManager";
 import { WorldMapSystem } from "./interaction/WorldMapSystem";
+import { RemoteCastlesSystem, type RemoteBaseInfo } from "./interaction/RemoteCastlesSystem";
 import type { WorldMapObject } from "@/lib/world-map-objects";
 import type { WorldBuildingType, WorldBuildingView } from "@/lib/world-buildings";
 import type { WorldMapObjectState } from "@/lib/world";
@@ -35,10 +36,14 @@ interface WorldSceneProps {
   };
   selectedWorldObjectId: string | null;
   mapObjectStates: WorldMapObjectState[];
+  mapObjects?: WorldMapObject[];
+  nearbyBases?: RemoteBaseInfo[];
+  selectedBaseUserId?: string | null;
   currentUserId: string;
   selectedPlotIndex: number | null;
   placementType: WorldBuildingType | null;
   onSelectWorldObject: (object: WorldMapObject) => void;
+  onSelectBase?: (base: RemoteBaseInfo) => void;
   onSelectPlot: (plotIndex: number) => void;
   onSelectCastle: () => void;
   onSelectBuilding: (plotIndex: number) => void;
@@ -57,20 +62,25 @@ export function WorldScene({
   baseData,
   selectedWorldObjectId,
   mapObjectStates,
+  mapObjects,
+  nearbyBases = [],
+  selectedBaseUserId = null,
   currentUserId,
   selectedPlotIndex,
   placementType,
   onSelectWorldObject,
+  onSelectBase = () => {},
   onSelectPlot,
   onSelectCastle,
   onSelectBuilding,
 }: WorldSceneProps) {
   const viewMode = useCameraStore((state) => state.viewMode);
-  // Normalize coordinates to local world space (center around 0,0)
-  // The actual coordinates can be very large, so we center the view
+
+  // In render space, player's own city is anchored at (0, 0).
+  // Terrain height is anchored to the base's stored world coordinates (metres).
   const cityX = 0;
   const cityZ = 0;
-  const cityY = getHeightAt(cityX, cityZ);
+  const cityY = heightAtRender(cityX, cityZ, baseData.coordinateX, baseData.coordinateZ);
   const cityPosition: [number, number, number] = [cityX, cityY, cityZ];
 
   return (
@@ -82,16 +92,24 @@ export function WorldScene({
       <LightingSystem />
       <AtmosphereSystem />
 
-      {/* Terrain */}
+      {/* Terrain & Water (sample noise at player world coordinates) */}
       <Suspense fallback={<LoadingFallback />}>
-        <TerrainSystem />
-        <WaterSystem />
+        <TerrainSystem
+          worldOffsetX={baseData.coordinateX}
+          worldOffsetZ={baseData.coordinateZ}
+        />
+        <WaterSystem
+          worldOffsetX={baseData.coordinateX}
+          worldOffsetZ={baseData.coordinateZ}
+        />
       </Suspense>
 
       {/* Player's City */}
       <Suspense fallback={<LoadingFallback />}>
         <CastleSystem
           position={cityPosition}
+          anchorWorldX={baseData.coordinateX}
+          anchorWorldZ={baseData.coordinateZ}
           castleLevel={baseData.castleLevel}
           playerName={baseData.playerName}
           buildings={baseData.buildings}
@@ -107,9 +125,15 @@ export function WorldScene({
       {viewMode === "world" ? (
         <>
           <Suspense fallback={null}>
-            <VegetationSystem cityPosition={cityPosition} />
+            <VegetationSystem
+              cityPosition={cityPosition}
+              worldOffsetX={baseData.coordinateX}
+              worldOffsetZ={baseData.coordinateZ}
+            />
             <ArmySystem
               position={cityPosition}
+              anchorWorldX={baseData.coordinateX}
+              anchorWorldZ={baseData.coordinateZ}
               army={{
                 infantry: baseData.army.infantry,
                 archers: baseData.army.archers,
@@ -117,14 +141,30 @@ export function WorldScene({
               }}
               marchActive={baseData.army.marchActive}
             />
+            {/* Other players' castles rendered in shared world */}
+            <RemoteCastlesSystem
+              playerCoordinateX={baseData.coordinateX}
+              playerCoordinateZ={baseData.coordinateZ}
+              nearbyBases={nearbyBases}
+              selectedBaseUserId={selectedBaseUserId}
+              onSelectBase={onSelectBase}
+            />
+            {/* Resource nodes and rogue camps */}
             <WorldMapSystem
               selectedId={selectedWorldObjectId}
               objectStates={mapObjectStates}
+              mapObjects={mapObjects}
+              playerCoordinateX={baseData.coordinateX}
+              playerCoordinateZ={baseData.coordinateZ}
               currentUserId={currentUserId}
               onSelect={onSelectWorldObject}
             />
           </Suspense>
-          <GroundDecals cityPosition={cityPosition} />
+          <GroundDecals
+            cityPosition={cityPosition}
+            anchorWorldX={baseData.coordinateX}
+            anchorWorldZ={baseData.coordinateZ}
+          />
         </>
       ) : null}
     </>

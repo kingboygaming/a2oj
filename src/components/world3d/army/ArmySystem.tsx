@@ -4,7 +4,7 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useGraphicsStore } from "../engine/useGraphicsStore";
-import { getHeightAt } from "../terrain/BiomeManager";
+import { heightAtRender } from "../terrain/BiomeManager";
 import { createInfantry, createCavalry, createArcher, createSiege } from "./UnitModels";
 import { getFormationForTroop } from "./FormationManager";
 
@@ -16,6 +16,9 @@ interface ArmyData {
 
 interface ArmySystemProps {
   position: [number, number, number];
+  /** Player's stored world coordinates in metres; anchors terrain sampling. */
+  anchorWorldX: number;
+  anchorWorldZ: number;
   army: ArmyData;
   marchActive?: boolean;
 }
@@ -31,11 +34,21 @@ interface TroopGroupProps {
   type: "infantry" | "archers" | "cavalry" | "siege";
   count: number;
   basePosition: [number, number, number];
+  anchorWorldX: number;
+  anchorWorldZ: number;
   offset: [number, number, number];
   animOffset?: number;
 }
 
-function TroopGroup({ type, count, basePosition, offset, animOffset = 0 }: TroopGroupProps) {
+function TroopGroup({
+  type,
+  count,
+  basePosition,
+  anchorWorldX,
+  anchorWorldZ,
+  offset,
+  animOffset = 0,
+}: TroopGroupProps) {
   const groupRef = useRef<THREE.Group>(null);
 
   const template = useMemo(() => {
@@ -74,7 +87,7 @@ function TroopGroup({ type, count, basePosition, offset, animOffset = 0 }: Troop
       {formation.map((slot, i) => {
         const worldX = bx + ox + slot.x;
         const worldZ = bz + oz + slot.z;
-        const y = getHeightAt(worldX, worldZ) + 0.01;
+        const y = heightAtRender(worldX, worldZ, anchorWorldX, anchorWorldZ) + 0.01;
         return (
           <group key={`${type}-${i}`} position={[slot.x, y, slot.z]}>
             <primitive object={template.clone()} />
@@ -85,7 +98,13 @@ function TroopGroup({ type, count, basePosition, offset, animOffset = 0 }: Troop
   );
 }
 
-export function ArmySystem({ position, army, marchActive }: ArmySystemProps) {
+export function ArmySystem({
+  position,
+  anchorWorldX,
+  anchorWorldZ,
+  army,
+  marchActive,
+}: ArmySystemProps) {
   const settings = useGraphicsStore((s) => s.settings);
   const maxNPCs = settings.maxNPCs;
 
@@ -105,6 +124,8 @@ export function ArmySystem({ position, army, marchActive }: ArmySystemProps) {
         type="infantry"
         count={infantryCount}
         basePosition={position}
+        anchorWorldX={anchorWorldX}
+        anchorWorldZ={anchorWorldZ}
         offset={[3, 0, 14]}
         animOffset={0}
       />
@@ -114,6 +135,8 @@ export function ArmySystem({ position, army, marchActive }: ArmySystemProps) {
         type="archers"
         count={archerCount}
         basePosition={position}
+        anchorWorldX={anchorWorldX}
+        anchorWorldZ={anchorWorldZ}
         offset={[8, 0, 12]}
         animOffset={1.2}
       />
@@ -123,6 +146,8 @@ export function ArmySystem({ position, army, marchActive }: ArmySystemProps) {
         type="cavalry"
         count={cavalryCount}
         basePosition={position}
+        anchorWorldX={anchorWorldX}
+        anchorWorldZ={anchorWorldZ}
         offset={[-5, 0, 14]}
         animOffset={2.4}
       />

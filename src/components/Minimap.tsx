@@ -2,13 +2,15 @@
 
 /* Lightweight procedural minimap using a small canvas (80×80 px)
    Draws a stylized top-down region map using the same biome noise
-   as the 3D terrain. Runs once on mount. */
+   as the 3D terrain. Renders local city and nearby multiplayer bases. */
 
 import { useEffect, useRef } from "react";
-import { getBiomeAt } from "./world3d/terrain/BiomeManager";
+import { getBiomeAtWorld } from "./world3d/terrain/BiomeManager";
+import { VIEW_RADIUS_METERS, VIEW_RADIUS_UNITS, worldToRender } from "@/lib/world-coordinates";
 
 const CANVAS = 80;
-const WORLD_RANGE = 100; // ±100 world units shown
+/** Half-width of the area shown, in world metres (matches the 3D view radius). */
+const WORLD_RANGE_METERS = VIEW_RADIUS_METERS;
 
 function biomeToRgb(type: string): [number, number, number] {
   switch (type) {
@@ -23,11 +25,18 @@ function biomeToRgb(type: string): [number, number, number] {
 }
 
 interface MinimapProps {
+  /** Player's stored world coordinates in metres. */
   cityX?: number;
   cityZ?: number;
+  nearbyBases?: Array<{
+    coordinateX: number;
+    coordinateZ: number;
+    displayName: string;
+    pvpShieldUntil?: string | null;
+  }>;
 }
 
-export function Minimap({ cityX = 0, cityZ = 0 }: MinimapProps) {
+export function Minimap({ cityX = 0, cityZ = 0, nearbyBases = [] }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -41,9 +50,9 @@ export function Minimap({ cityX = 0, cityZ = 0 }: MinimapProps) {
       const img = ctx.createImageData(CANVAS, CANVAS);
       for (let py = 0; py < CANVAS; py++) {
         for (let px = 0; px < CANVAS; px++) {
-          const wx = ((px / CANVAS) * 2 - 1) * WORLD_RANGE;
-          const wz = ((py / CANVAS) * 2 - 1) * WORLD_RANGE;
-          const biome = getBiomeAt(wx, wz);
+          const offsetX = ((px / CANVAS) * 2 - 1) * WORLD_RANGE_METERS;
+          const offsetZ = ((py / CANVAS) * 2 - 1) * WORLD_RANGE_METERS;
+          const biome = getBiomeAtWorld(cityX + offsetX, cityZ + offsetZ);
           const [r, g, b] = biomeToRgb(biome.type);
           const idx = (py * CANVAS + px) * 4;
           img.data[idx]     = r;
@@ -54,15 +63,41 @@ export function Minimap({ cityX = 0, cityZ = 0 }: MinimapProps) {
       }
       ctx.putImageData(img, 0, 0);
 
-      // City marker
+      // Draw other player bases within minimap range (render units → pixels).
+      const now = Date.now();
+      for (const base of nearbyBases) {
+        const { x: relX, z: relZ } = worldToRender(
+          base.coordinateX,
+          base.coordinateZ,
+          cityX,
+          cityZ,
+        );
+        if (Math.abs(relX) <= VIEW_RADIUS_UNITS && Math.abs(relZ) <= VIEW_RADIUS_UNITS) {
+          const bx = Math.round(((relX / VIEW_RADIUS_UNITS + 1) / 2) * CANVAS);
+          const by = Math.round(((relZ / VIEW_RADIUS_UNITS + 1) / 2) * CANVAS);
+          const shielded =
+            base.pvpShieldUntil !== null &&
+            base.pvpShieldUntil !== undefined &&
+            new Date(base.pvpShieldUntil).getTime() > now;
+          ctx.beginPath();
+          ctx.arc(bx, by, 3, 0, Math.PI * 2);
+          ctx.fillStyle = shielded ? "#38bdf8" : "#f97316";
+          ctx.fill();
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+
+      // Local player city marker (center)
       const mx = CANVAS / 2;
       const my = CANVAS / 2;
       ctx.beginPath();
       ctx.arc(mx, my, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = "#ffcc00";
       ctx.fill();
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.2;
       ctx.stroke();
 
       // Compass N
@@ -72,7 +107,7 @@ export function Minimap({ cityX = 0, cityZ = 0 }: MinimapProps) {
     });
 
     return () => cancelAnimationFrame(id);
-  }, [cityX, cityZ]);
+  }, [cityX, cityZ, nearbyBases]);
 
   return (
     <div

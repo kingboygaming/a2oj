@@ -6,24 +6,35 @@ import { AnimatedFlag } from "../city/AnimatedFlag";
 import { createInfantry } from "../army/UnitModels";
 import { createOakTree, createPineTree, createRock } from "../vegetation/TreeModels";
 import { createHouse } from "../city/BuildingModels";
-import { getHeightAt } from "../terrain/BiomeManager";
+import { heightAtRender } from "../terrain/BiomeManager";
 import { ROGUE_CAMPS, RESOURCE_NODES, type WorldMapObject } from "@/lib/world-map-objects";
 import type { WorldMapObjectState } from "@/lib/world";
+import { VIEW_RADIUS_UNITS, worldToRender } from "@/lib/world-coordinates";
 
 function ResourceLandmark({
   object,
   state,
   currentUserId,
   selected,
+  playerCoordinateX = 0,
+  playerCoordinateZ = 0,
   onSelect,
 }: {
   object: Extract<WorldMapObject, { kind: "RESOURCE" }>;
   state: Extract<WorldMapObjectState, { kind: "RESOURCE" }>;
   currentUserId: string;
   selected: boolean;
+  playerCoordinateX?: number;
+  playerCoordinateZ?: number;
   onSelect: (object: Extract<WorldMapObject, { kind: "RESOURCE" }>) => void;
 }) {
-  const y = getHeightAt(object.x, object.z);
+  const { x: relX, z: relZ } = worldToRender(
+    object.x,
+    object.z,
+    playerCoordinateX,
+    playerCoordinateZ,
+  );
+  const y = heightAtRender(relX, relZ, playerCoordinateX, playerCoordinateZ);
   const owned = state.ownerUserId === currentUserId;
   const ringColor = state.status === "DEPLETED"
     ? "#64748b"
@@ -106,7 +117,7 @@ function ResourceLandmark({
   };
 
   return (
-    <group position={[object.x, y, object.z]} onClick={select}>
+    <group position={[relX, y, relZ]} onClick={select}>
       <primitive object={model} />
       <mesh position={[0, 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]} onClick={select}>
         <ringGeometry args={[5.2, 5.55, 32]} />
@@ -128,14 +139,24 @@ function RogueCamp({
   object,
   state,
   selected,
+  playerCoordinateX = 0,
+  playerCoordinateZ = 0,
   onSelect,
 }: {
   object: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>;
   state: Extract<WorldMapObjectState, { kind: "ROGUE_CAMP" }>;
   selected: boolean;
+  playerCoordinateX?: number;
+  playerCoordinateZ?: number;
   onSelect: (object: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>) => void;
 }) {
-  const y = getHeightAt(object.x, object.z);
+  const { x: relX, z: relZ } = worldToRender(
+    object.x,
+    object.z,
+    playerCoordinateX,
+    playerCoordinateZ,
+  );
+  const y = heightAtRender(relX, relZ, playerCoordinateX, playerCoordinateZ);
   const enemyModels = useMemo(
     () => Array.from({ length: 3 }, () => createInfantry()),
     [],
@@ -147,7 +168,7 @@ function RogueCamp({
   };
 
   return (
-    <group position={[object.x, y, object.z]} onClick={select}>
+    <group position={[relX, y, relZ]} onClick={select}>
       <primitive object={tent} position={[-1.4, 0, 0]} scale={0.8} />
       <mesh position={[1.5, 0.45, 0]}>
         <cylinderGeometry args={[0.35, 0.5, 0.9, 7]} />
@@ -187,18 +208,45 @@ export function WorldMapSystem({
   selectedId,
   objectStates,
   currentUserId,
+  mapObjects,
+  playerCoordinateX = 0,
+  playerCoordinateZ = 0,
   onSelect,
 }: {
   selectedId: string | null;
   objectStates: WorldMapObjectState[];
   currentUserId: string;
+  mapObjects?: WorldMapObject[];
+  playerCoordinateX?: number;
+  playerCoordinateZ?: number;
   onSelect: (object: WorldMapObject) => void;
 }) {
+  const allObjects = useMemo(
+    () => mapObjects ?? [...RESOURCE_NODES, ...ROGUE_CAMPS],
+    [mapObjects],
+  );
+  const resourceNodes = useMemo(
+    () => allObjects.filter((o): o is Extract<WorldMapObject, { kind: "RESOURCE" }> => o.kind === "RESOURCE"),
+    [allObjects]
+  );
+  const rogueCamps = useMemo(
+    () => allObjects.filter((o): o is Extract<WorldMapObject, { kind: "ROGUE_CAMP" }> => o.kind === "ROGUE_CAMP"),
+    [allObjects]
+  );
+
   const stateById = new Map(objectStates.map((state) => [state.id, state]));
   return (
     <group>
-      {RESOURCE_NODES.map((object) => {
+      {resourceNodes.map((object) => {
         const state = stateById.get(object.id);
+        const { x: relX, z: relZ } = worldToRender(
+          object.x,
+          object.z,
+          playerCoordinateX,
+          playerCoordinateZ,
+        );
+        if (Math.hypot(relX, relZ) > VIEW_RADIUS_UNITS) return null;
+
         return (
           <ResourceLandmark
             key={object.id}
@@ -217,12 +265,22 @@ export function WorldMapSystem({
               }}
             currentUserId={currentUserId}
             selected={selectedId === object.id}
+            playerCoordinateX={playerCoordinateX}
+            playerCoordinateZ={playerCoordinateZ}
             onSelect={(selected) => onSelect(selected)}
           />
         );
       })}
-      {ROGUE_CAMPS.map((object) => {
+      {rogueCamps.map((object) => {
         const state = stateById.get(object.id);
+        const { x: relX, z: relZ } = worldToRender(
+          object.x,
+          object.z,
+          playerCoordinateX,
+          playerCoordinateZ,
+        );
+        if (Math.hypot(relX, relZ) > VIEW_RADIUS_UNITS) return null;
+
         return (
           <RogueCamp
             key={object.id}
@@ -231,6 +289,8 @@ export function WorldMapSystem({
               ? state
               : { id: object.id, kind: "ROGUE_CAMP", availableAt: null, status: "AVAILABLE" }}
             selected={selectedId === object.id}
+            playerCoordinateX={playerCoordinateX}
+            playerCoordinateZ={playerCoordinateZ}
             onSelect={(selected) => onSelect(selected)}
           />
         );

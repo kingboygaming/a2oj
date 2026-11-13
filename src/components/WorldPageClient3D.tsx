@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { WorldAlliancePanel } from "@/components/WorldAlliancePanel";
 import { useGraphicsStore } from "@/components/world3d/engine/useGraphicsStore";
@@ -35,7 +35,8 @@ type ActionRequest =
   | { type: "contribute"; eventId: string }
   | { type: "claim"; eventId: string }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
-  | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number };
+  | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number }
+  | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number };
 
 type WorldMapActionRequest =
   | { type: "GATHER"; targetId: string }
@@ -55,12 +56,14 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [trainingCount, setTrainingCount] = useState(10);
   const [marchArmy, setMarchArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
+  const [attackArmy, setAttackArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
   const [activeTab, setActiveTab] = useState<"base" | "army" | "research" | "events" | "alliance" | "build">("base");
   const [selectedWorldObject, setSelectedWorldObject] = useState<WorldMapObject | null>(null);
+  const [selectedRemoteBase, setSelectedRemoteBase] = useState<WorldSnapshot["nearbyBases"][number] | null>(null);
   const [selectedPlotIndex, setSelectedPlotIndex] = useState<number | null>(null);
   const [placementType, setPlacementType] = useState<WorldBuildingType | null>(null);
 
@@ -68,12 +71,53 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const setQuality = useGraphicsStore((s) => s.setQuality);
   const { viewMode, setViewMode } = useCameraStore();
 
+  // De-duplicate concurrent snapshot fetches: polling, actions and the manual
+  // refresh button all share the same in-flight request.
+  const refreshInFlight = useRef<Promise<void> | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    const task = (async () => {
+      const response = await fetch("/api/world", { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
+      setSnapshot(result as WorldSnapshot);
+    })();
+    refreshInFlight.current = task;
+    try {
+      await task;
+    } finally {
+      refreshInFlight.current = null;
+    }
+  }, []);
+
+  // Periodic polling for multiplayer realtime sync. Pauses while the tab is
+  // hidden (the browser may throttle timers anyway) and refreshes on return.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refresh().catch(() => {});
+    }, 15000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refresh]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === "v" || e.key === "V") setViewMode(viewMode === "world" ? "city" : "world");
-      if (e.key === "Escape") setShowPanel(false);
+      if (e.key === "Escape") {
+        setShowPanel(false);
+        setSelectedRemoteBase(null);
+        setSelectedWorldObject(null);
+      }
       if (e.key === "m" || e.key === "M") setShowPanel((p) => !p);
       if (e.key === "1") setQuality("LOW");
       if (e.key === "2") setQuality("MEDIUM");
@@ -82,13 +126,6 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [viewMode, setViewMode, setQuality]);
-
-  async function refresh() {
-    const response = await fetch("/api/world", { cache: "no-store" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
-    setSnapshot(result as WorldSnapshot);
-  }
 
   async function act(key: string, action: ActionRequest) {
     setBusy(key);
@@ -212,15 +249,25 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             }}
             selectedWorldObjectId={selectedWorldObject?.id ?? null}
             mapObjectStates={snapshot.mapObjects}
+            mapObjects={snapshot.mapObjectDefinitions}
+            nearbyBases={snapshot.nearbyBases}
+            selectedBaseUserId={selectedRemoteBase?.userId ?? null}
             currentUserId={snapshot.userId}
             selectedPlotIndex={selectedPlotIndex}
             placementType={placementType}
             onSelectWorldObject={(object) => {
               setSelectedWorldObject(object);
+              setSelectedRemoteBase(null);
+              setShowPanel(false);
+            }}
+            onSelectBase={(base) => {
+              setSelectedRemoteBase(base);
+              setSelectedWorldObject(null);
               setShowPanel(false);
             }}
             onSelectPlot={(plotIndex) => {
               setSelectedWorldObject(null);
+              setSelectedRemoteBase(null);
               setSelectedPlotIndex(plotIndex);
               setPlacementType(null);
               setActiveTab("build");
@@ -228,12 +275,14 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             }}
             onSelectCastle={() => {
               setSelectedPlotIndex(null);
+              setSelectedRemoteBase(null);
               setPlacementType(null);
               setActiveTab("base");
               setShowPanel(true);
             }}
             onSelectBuilding={(plotIndex) => {
               setSelectedWorldObject(null);
+              setSelectedRemoteBase(null);
               setSelectedPlotIndex(plotIndex);
               setPlacementType(null);
               setActiveTab("build");
@@ -265,6 +314,83 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               }
               onClose={() => setSelectedWorldObject(null)}
             />
+          )}
+        </div>
+      )}
+
+      {/* ── Remote Player Castle Panel ── */}
+      {viewMode === "world" && selectedRemoteBase && (
+        <div className="absolute left-3 top-28 z-20 w-80 rounded-2xl border border-orange-500/30 bg-black/80 p-4 text-white shadow-2xl backdrop-blur-md">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-orange-400">Căn cứ đối thủ</p>
+              <h3 className="text-base font-bold text-white">{selectedRemoteBase.displayName || selectedRemoteBase.username}</h3>
+              <p className="text-xs text-white/50">
+                📍 Tọa độ ({selectedRemoteBase.coordinateX}, {selectedRemoteBase.coordinateZ}) · {(selectedRemoteBase.distanceMeters / 1000).toFixed(1)} km
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedRemoteBase(null)}
+              className="rounded-lg p-1 text-white/40 hover:bg-white/10 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+
+          {selectedRemoteBase.pvpShieldUntil && new Date(selectedRemoteBase.pvpShieldUntil) > new Date() ? (
+            <div className="mt-3 rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5 text-xs text-sky-200">
+              🛡️ Căn cứ đang được khiên bảo vệ đến {utcLabel(selectedRemoteBase.pvpShieldUntil)}
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2.5">
+              <p className="text-xs font-bold text-amber-300">Cử quân tấn công căn cứ:</p>
+              <div className="space-y-1.5">
+                {([
+                  { key: "infantry" as const, label: "🛡️ Bộ binh", available: snapshot.base.army.infantry },
+                  { key: "archers" as const, label: "🏹 Cung thủ", available: snapshot.base.army.archers },
+                  { key: "cavalry" as const, label: "🐎 Kỵ binh", available: snapshot.base.army.cavalry },
+                ]).map((troop) => (
+                  <div key={troop.key} className="flex items-center justify-between text-xs">
+                    <span className="text-white/70">{troop.label} (có {troop.available})</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={troop.available}
+                      value={attackArmy[troop.key]}
+                      onChange={(e) =>
+                        setAttackArmy((prev) => ({
+                          ...prev,
+                          [troop.key]: Math.max(0, Math.min(troop.available, Number(e.target.value) || 0)),
+                        }))
+                      }
+                      className="w-16 rounded border border-white/20 bg-white/10 px-2 py-0.5 text-right font-mono text-xs text-white"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    Boolean(busy) ||
+                    (attackArmy.infantry + attackArmy.archers + attackArmy.cavalry) === 0 ||
+                    snapshot.base.army.marchActive
+                  }
+                  onClick={() =>
+                    act("attack-base", {
+                      type: "attackBase",
+                      targetUserId: selectedRemoteBase.userId,
+                      ...attackArmy,
+                    })
+                  }
+                  className="flex-1 rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 py-2 text-center text-xs font-bold text-white shadow-lg transition hover:brightness-110 disabled:opacity-40"
+                >
+                  {busy === "attack-base" ? "Đang xuất trận..." : "⚔️ Tấn công ngay"}
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -740,7 +866,16 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
         <div className="flex items-end gap-3">
           {/* Minimap */}
           <div className="pointer-events-auto">
-            <Minimap />
+            <Minimap
+              cityX={snapshot.base.coordinateX}
+              cityZ={snapshot.base.coordinateZ}
+              nearbyBases={snapshot.nearbyBases.map((base) => ({
+                coordinateX: base.coordinateX,
+                coordinateZ: base.coordinateZ,
+                displayName: base.displayName || base.username,
+                pvpShieldUntil: base.pvpShieldUntil,
+              }))}
+            />
           </div>
           <div className="pointer-events-auto flex flex-col gap-1">
             <div className="rounded-lg bg-black/50 px-3 py-1 text-xs text-white/50 backdrop-blur-sm">

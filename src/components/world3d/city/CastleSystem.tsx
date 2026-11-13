@@ -9,7 +9,7 @@ import {
   WatchTower,
   WorldBuildingModel,
 } from "./BuildingFactory";
-import { getHeightAt } from "../terrain/BiomeManager";
+import { heightAtRender } from "../terrain/BiomeManager";
 import { AnimatedFlag } from "./AnimatedFlag";
 import {
   WORLD_BUILDING_PLOT_COUNT,
@@ -26,6 +26,9 @@ export const BUILDING_PLOT_POSITIONS: Array<[number, number]> = [
 
 interface CastleSystemProps {
   position: [number, number, number];
+  /** Player's stored world coordinates in metres; anchors terrain sampling. */
+  anchorWorldX: number;
+  anchorWorldZ: number;
   castleLevel: number;
   playerName: string;
   buildings: WorldBuildingView[];
@@ -39,6 +42,8 @@ interface CastleSystemProps {
 
 export function CastleSystem({
   position,
+  anchorWorldX,
+  anchorWorldZ,
   castleLevel,
   playerName,
   buildings,
@@ -59,7 +64,7 @@ export function CastleSystem({
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       walls.push({
-        pos: [cx + x, getHeightAt(cx + x, cz + z), cz + z],
+        pos: [cx + x, heightAtRender(cx + x, cz + z, anchorWorldX, anchorWorldZ), cz + z],
         rot: -angle + Math.PI / 2,
         len: 2 * radius * Math.sin(Math.PI / 8),
       });
@@ -69,7 +74,7 @@ export function CastleSystem({
       const angle = index * Math.PI / 2 + Math.PI / 8;
       const x = cx + Math.cos(angle) * radius;
       const z = cz + Math.sin(angle) * radius;
-      return [x, getHeightAt(x, z), z] as [number, number, number];
+      return [x, heightAtRender(x, z, anchorWorldX, anchorWorldZ), z] as [number, number, number];
     });
 
     const gateAngle = Math.PI;
@@ -79,9 +84,13 @@ export function CastleSystem({
       walls,
       towers,
       gateAngle,
-      gatePosition: [gateX, getHeightAt(gateX, gateZ), gateZ] as [number, number, number],
+      gatePosition: [
+        gateX,
+        heightAtRender(gateX, gateZ, anchorWorldX, anchorWorldZ),
+        gateZ,
+      ] as [number, number, number],
     };
-  }, [cx, cz]);
+  }, [cx, cz, anchorWorldX, anchorWorldZ]);
 
   const plotBuildings = new Map(buildings.map((building) => [building.plotIndex, building]));
 
@@ -116,7 +125,7 @@ export function CastleSystem({
       {cityView && BUILDING_PLOT_POSITIONS.slice(0, WORLD_BUILDING_PLOT_COUNT).map(([offsetX, offsetZ], index) => {
         const x = cx + offsetX;
         const z = cz + offsetZ;
-        const groundY = getHeightAt(x, z);
+        const groundY = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
         const building = plotBuildings.get(index);
         const isSelected = selectedPlotIndex === index;
         const isAvailable = !building;

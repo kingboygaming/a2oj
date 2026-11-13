@@ -4,66 +4,92 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useGraphicsStore } from "../engine/useGraphicsStore";
-import { getBiomeAt } from "./BiomeManager";
+import { heightAtRender, WATER_LEVEL } from "./BiomeManager";
+import { TERRAIN_SIZE_UNITS } from "@/lib/world-coordinates";
 
-const WATER_LEVEL = 0.3;
+/**
+ * Water surface built from the same continuous height field as the terrain.
+ * Every grid cell whose average height is below WATER_LEVEL contributes a
+ * quad, so rivers and lakes line up with the carved terrain instead of being
+ * guessed from biome labels. The result is a single merged mesh (one draw
+ * call) instead of hundreds of patch meshes.
+ */
+function buildWaterGeometry(
+  segments: number,
+  worldOffsetX: number,
+  worldOffsetZ: number,
+): THREE.BufferGeometry | null {
+  const step = TERRAIN_SIZE_UNITS / segments;
+  const half = TERRAIN_SIZE_UNITS / 2;
+  const positions: number[] = [];
+  const indices: number[] = [];
 
-/* Collect water patch bounding boxes instead of animating all vertices */
-interface WaterPatch {
-  cx: number;
-  cz: number;
-  w: number;
-  d: number;
-}
-
-function collectWaterPatches(segments: number): WaterPatch[] {
-  const patches: WaterPatch[] = [];
-  const size = 200;
-  const step = size / segments;
-  let inPatch = false;
-  let patchStartX = 0;
-
-  for (let z = -100; z < 100; z += step * 4) {
-    inPatch = false;
-    patchStartX = 0;
-
-    for (let x = -100; x < 100; x += step * 2) {
-      const biome = getBiomeAt(x, z);
-      const isWater = biome.type === "RIVER" || biome.type === "LAKE";
-
-      if (isWater && !inPatch) {
-        patchStartX = x;
-        inPatch = true;
-      } else if (!isWater && inPatch) {
-        patches.push({
-          cx: (patchStartX + x) / 2,
-          cz: z,
-          w: x - patchStartX + step,
-          d: step * 8,
-        });
-        inPatch = false;
-      }
-    }
-    if (inPatch) {
-      patches.push({
-        cx: (patchStartX + 100) / 2,
-        cz: z,
-        w: 100 - patchStartX + step,
-        d: step * 8,
-      });
+  const gridSize = segments + 1;
+  const heights = new Float32Array(gridSize * gridSize);
+  for (let iz = 0; iz < gridSize; iz += 1) {
+    const z = -half + iz * step;
+    for (let ix = 0; ix < gridSize; ix += 1) {
+      heights[iz * gridSize + ix] = heightAtRender(
+        -half + ix * step,
+        z,
+        worldOffsetX,
+        worldOffsetZ,
+      );
     }
   }
 
-  return patches;
+  for (let iz = 0; iz < segments; iz += 1) {
+    const z0 = -half + iz * step;
+    const z1 = z0 + step;
+    for (let ix = 0; ix < segments; ix += 1) {
+      const x0 = -half + ix * step;
+      const x1 = x0 + step;
+
+      const average = (
+        heights[iz * gridSize + ix] +
+        heights[iz * gridSize + ix + 1] +
+        heights[(iz + 1) * gridSize + ix] +
+        heights[(iz + 1) * gridSize + ix + 1]
+      ) / 4;
+      if (average >= WATER_LEVEL - 0.02) continue;
+
+      const base = positions.length / 3;
+      positions.push(
+        x0, WATER_LEVEL, z0,
+        x1, WATER_LEVEL, z0,
+        x1, WATER_LEVEL, z1,
+        x0, WATER_LEVEL, z1,
+      );
+      indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    }
+  }
+
+  if (indices.length === 0) return null;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
-export function WaterSystem() {
+interface WaterSystemProps {
+  worldOffsetX?: number;
+  worldOffsetZ?: number;
+}
+
+export function WaterSystem({ worldOffsetX = 0, worldOffsetZ = 0 }: WaterSystemProps) {
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const settings = useGraphicsStore((s) => s.settings);
 
-  const patches = useMemo(
-    () => collectWaterPatches(Math.min(settings.terrainSegments, 32)),
-    [settings.terrainSegments]
+  const geometry = useMemo(
+    () =>
+      buildWaterGeometry(
+        Math.min(Math.max(settings.terrainSegments, 32), 128),
+        worldOffsetX,
+        worldOffsetZ,
+      ),
+    [settings.terrainSegments, worldOffsetX, worldOffsetZ],
   );
 
   /* Animate via material time uniform instead of moving vertices */
@@ -76,31 +102,21 @@ export function WaterSystem() {
     }
   });
 
-  if (patches.length === 0) return null;
+  if (!geometry) return null;
 
   return (
-    <group>
-      {patches.map((patch, i) => (
-        <mesh
-          key={i}
-          position={[patch.cx, WATER_LEVEL, patch.cz]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          receiveShadow
-        >
-          <planeGeometry args={[patch.w, patch.d, 1, 1]} />
-          <meshStandardMaterial
-            ref={i === 0 ? matRef : undefined}
-            color="#2389da"
-            transparent
-            opacity={0.72}
-            roughness={0.12}
-            metalness={0.35}
-            emissive="#2389da"
-            emissiveIntensity={0.05}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      ))}
-    </group>
+    <mesh geometry={geometry} receiveShadow>
+      <meshStandardMaterial
+        ref={matRef}
+        color="#2389da"
+        transparent
+        opacity={0.72}
+        roughness={0.12}
+        metalness={0.35}
+        emissive="#2389da"
+        emissiveIntensity={0.05}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
   );
 }

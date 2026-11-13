@@ -3,7 +3,8 @@
 import { useMemo, useRef, useEffect } from "react";
 import * as THREE from "three";
 import { useGraphicsStore } from "../engine/useGraphicsStore";
-import { getBiomeAt, getHeightAt } from "../terrain/BiomeManager";
+import { getBiomeAtWorld, heightAtRender } from "../terrain/BiomeManager";
+import { METERS_PER_RENDER_UNIT } from "@/lib/world-coordinates";
 import {
   createPineTree,
   createOakTree,
@@ -31,16 +32,33 @@ interface VegetationItem {
   variant: number;
 }
 
-const WORLD_HALF = 100;
-const CITY_EXCLUSION_RADIUS = 15;
+const WORLD_HALF = 120;
+const CITY_EXCLUSION_RADIUS = 28;
 
-export function VegetationSystem({ cityPosition }: { cityPosition?: [number, number, number] }) {
+function hashSeed(x: number, z: number): number {
+  let h = (Math.floor(x) * 374761393 + Math.floor(z) * 668265263) | 0;
+  h = ((h ^ (h >> 13)) * 1274126177) | 0;
+  return ((h ^ (h >> 16)) >>> 0) || 42;
+}
+
+interface VegetationSystemProps {
+  cityPosition?: [number, number, number];
+  worldOffsetX?: number;
+  worldOffsetZ?: number;
+}
+
+export function VegetationSystem({
+  cityPosition,
+  worldOffsetX = 0,
+  worldOffsetZ = 0,
+}: VegetationSystemProps) {
   const settings = useGraphicsStore((s) => s.settings);
   const density = settings.vegetationDensity;
 
   const items = useMemo(() => {
     const result: VegetationItem[] = [];
-    const rand = seededRandom(42);
+    const seed = hashSeed(worldOffsetX, worldOffsetZ);
+    const rand = seededRandom(seed);
     const step = 4 / density;
     const cx = cityPosition?.[0] ?? 0;
     const cz = cityPosition?.[2] ?? 0;
@@ -54,13 +72,16 @@ export function VegetationSystem({ cityPosition }: { cityPosition?: [number, num
         const distToCity = Math.hypot(jitterX - cx, jitterZ - cz);
         if (distToCity < CITY_EXCLUSION_RADIUS) continue;
 
-        const biome = getBiomeAt(jitterX, jitterZ);
+        const worldX = worldOffsetX + jitterX * METERS_PER_RENDER_UNIT;
+        const worldZ = worldOffsetZ + jitterZ * METERS_PER_RENDER_UNIT;
+
+        const biome = getBiomeAtWorld(worldX, worldZ);
         if (biome.type === "RIVER" || biome.type === "LAKE") continue;
 
         const roll = rand();
         if (roll > biome.vegetationDensity * density) continue;
 
-        const height = getHeightAt(jitterX, jitterZ);
+        const height = heightAtRender(jitterX, jitterZ, worldOffsetX, worldOffsetZ);
         if (height < -0.3) continue;
 
         const typeRoll = rand();
@@ -94,7 +115,7 @@ export function VegetationSystem({ cityPosition }: { cityPosition?: [number, num
     }
 
     return result;
-  }, [density, cityPosition]);
+  }, [density, cityPosition, worldOffsetX, worldOffsetZ]);
 
   // Group by type for efficient rendering
   const grouped = useMemo(() => {

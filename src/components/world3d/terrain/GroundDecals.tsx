@@ -7,7 +7,7 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
-import { getHeightAt } from "../terrain/BiomeManager";
+import { heightAtRender } from "../terrain/BiomeManager";
 
 const COBBLE_MAT = new THREE.MeshStandardMaterial({
   color: 0x8a8070,
@@ -22,9 +22,16 @@ const DIRT_MAT = new THREE.MeshStandardMaterial({
 
 interface GroundDecalsProps {
   cityPosition: [number, number, number];
+  /** Player's stored world coordinates in metres; anchors terrain sampling. */
+  anchorWorldX: number;
+  anchorWorldZ: number;
 }
 
-export function GroundDecals({ cityPosition }: GroundDecalsProps) {
+export function GroundDecals({
+  cityPosition,
+  anchorWorldX,
+  anchorWorldZ,
+}: GroundDecalsProps) {
   const [cx, , cz] = cityPosition;
 
   const decorations = useMemo(() => {
@@ -41,12 +48,12 @@ export function GroundDecals({ cityPosition }: GroundDecalsProps) {
       const r = 3;
       const px = cx + Math.cos(angle) * r;
       const pz = cz + Math.sin(angle) * r;
-      const py = getHeightAt(px, pz) + 0.05;
+      const py = heightAtRender(px, pz, anchorWorldX, anchorWorldZ) + 0.05;
       items.push({ pos: [px, py, pz], rot: angle, w: 2, d: 2, type: "cobble" });
     }
     // Center plaza
     items.push({
-      pos: [cx, getHeightAt(cx, cz) + 0.05, cz],
+      pos: [cx, heightAtRender(cx, cz, anchorWorldX, anchorWorldZ) + 0.05, cz],
       rot: 0,
       w: 4,
       d: 4,
@@ -56,7 +63,7 @@ export function GroundDecals({ cityPosition }: GroundDecalsProps) {
     // Dirt road from gate (south) going outward
     for (let i = 0; i < 8; i++) {
       const pz = cz + 10 + i * 4;
-      const py = getHeightAt(cx, pz) + 0.04;
+      const py = heightAtRender(cx, pz, anchorWorldX, anchorWorldZ) + 0.04;
       items.push({ pos: [cx, py, pz], rot: 0, w: 2, d: 4, type: "dirt" });
     }
 
@@ -72,12 +79,12 @@ export function GroundDecals({ cityPosition }: GroundDecalsProps) {
       const mz = (az + bz) / 2;
       const angle = Math.atan2(bz - az, bx - ax);
       const dist = Math.hypot(bx - ax, bz - az);
-      const py = getHeightAt(mx, mz) + 0.04;
+      const py = heightAtRender(mx, mz, anchorWorldX, anchorWorldZ) + 0.04;
       items.push({ pos: [mx, py, mz], rot: angle, w: 1, d: dist, type: "cobble" });
     }
 
     return items;
-  }, [cx, cz]);
+  }, [cx, cz, anchorWorldX, anchorWorldZ]);
 
   return (
     <group>

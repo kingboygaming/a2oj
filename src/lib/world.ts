@@ -17,7 +17,6 @@ import {
   ROGUE_CAMPS,
   RESOURCE_NODES,
   WORLD_MAP_MARCH_TROOP_LIMIT,
-  WORLD_MAP_OBJECTS,
   WORLD_MAP_TROOP_RETURN_MS,
   worldMapTravelMilliseconds,
   type WorldMapObject,
@@ -28,6 +27,12 @@ import {
   worldMilitaryTierName,
   type WorldResearchKey,
 } from "@/lib/world-research";
+import { getVisibleChunksAroundPosition, VIEW_RADIUS_METERS } from "@/lib/world-coordinates";
+import {
+  DEFAULT_WORLD_SEED,
+  generateChunkObjects,
+  resolveWorldMapObject,
+} from "@/lib/world-generation";
 
 export const WORLD_OFFLINE_CAP_MS = 48 * 60 * 60 * 1000;
 export const WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
@@ -157,6 +162,7 @@ export type WorldSnapshot = {
   buildings: WorldBuildingView[];
   research: Array<{ key: WorldResearchKey; level: number }>;
   mapObjects: WorldMapObjectState[];
+  mapObjectDefinitions: WorldMapObject[];
   mapMissions: WorldMapMissionView[];
   base: {
     playerName: string;
@@ -251,6 +257,7 @@ export type WorldSnapshot = {
     coordinateX: number;
     coordinateZ: number;
     distanceMeters: number;
+    castleLevel: number;
     pvpShieldUntil: string | null;
     activeAttack: boolean;
   }>;
@@ -1805,8 +1812,8 @@ async function processWorldMapMarches(now: Date) {
 
         if (march.targetKind !== "ROGUE_CAMP") throw new Error(`Unknown map target kind ${march.targetKind}.`);
         const campState = await tx.worldRogueCamp.findUnique({ where: { id: march.targetId } });
-        const campConfig = ROGUE_CAMPS.find((camp) => camp.id === march.targetId);
-        if (!campState || !campConfig) {
+        const campDefinition = resolveWorldMapObject(march.targetId);
+        if (!campState || campDefinition?.kind !== "ROGUE_CAMP") {
           await setReturning("Không tìm thấy trại quái; đạo quân đang trở về.");
           return true;
         }
@@ -1818,7 +1825,7 @@ async function processWorldMapMarches(now: Date) {
         const won = attackerPower >= campState.combatPower;
         const losses = calculateTroopLosses(troops, won ? 0.12 : 0.4);
         const survivors = survivingTroops(troops, losses);
-        const respawnDelay = campConfig.tier === "ELITE"
+        const respawnDelay = campDefinition.tier === "ELITE"
           ? ROGUE_CAMP_RESPAWN_MS.ELITE
           : ROGUE_CAMP_RESPAWN_MS.DEFAULT;
         const cooldown = await tx.worldRogueCamp.updateMany({
@@ -1841,7 +1848,7 @@ async function processWorldMapMarches(now: Date) {
         let reward: Awaited<ReturnType<typeof campReward>> | null = null;
         if (won) {
           const base = await tx.worldBase.findUniqueOrThrow({ where: { userId: march.userId } });
-          reward = await grantCampReward(tx, base, campConfig, now);
+          reward = await grantCampReward(tx, base, campDefinition, now);
         }
         const rewardText = reward
           ? ` Thưởng máy chủ: ${reward.wood} gỗ, ${reward.stone} đá, ${reward.iron} sắt, ${reward.food} lương thực, ${reward.rare} hiếm, ${reward.experience} EXP và ${reward.itemCount} ${reward.itemKey}.`
@@ -2198,13 +2205,24 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
     prisma.worldBase.findMany({
       where: {
         userId: { not: userId },
-        coordinateX: { not: null },
-        coordinateZ: { not: null },
+        // Bounding box query keeps the result set proportional to the rendered
+        // area instead of loading every base in the world.
+        coordinateX: {
+          not: null,
+          gte: base.coordinateX - VIEW_RADIUS_METERS,
+          lte: base.coordinateX + VIEW_RADIUS_METERS,
+        },
+        coordinateZ: {
+          not: null,
+          gte: base.coordinateZ - VIEW_RADIUS_METERS,
+          lte: base.coordinateZ + VIEW_RADIUS_METERS,
+        },
       },
       select: {
         userId: true,
         coordinateX: true,
         coordinateZ: true,
+        castleLevel: true,
         activePvpAttackId: true,
         pvpShieldUntil: true,
         user: { select: { username: true, displayName: true } },
@@ -2287,11 +2305,63 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       distanceMeters: Math.round(
         Math.hypot(otherBase.coordinateX! - base.coordinateX!, otherBase.coordinateZ! - base.coordinateZ!),
       ),
+      castleLevel: otherBase.castleLevel,
       pvpShieldUntil: otherBase.pvpShieldUntil?.toISOString() ?? null,
       activeAttack: otherBase.activePvpAttackId !== null,
     }))
+    // The bounding box includes the square's corners; drop bases outside the
+    // circular render/view radius before ranking them.
+    .filter((otherBase) => otherBase.distanceMeters <= VIEW_RADIUS_METERS)
     .sort((left, right) => left.distanceMeters - right.distanceMeters)
     .slice(0, 20);
+
+  // Generate procedural map objects for every chunk the client can render.
+  const visibleChunks = getVisibleChunksAroundPosition(
+    base.coordinateX,
+    base.coordinateZ,
+    VIEW_RADIUS_METERS,
+  );
+  const proceduralObjects = visibleChunks.flatMap((c) =>
+    generateChunkObjects(c.chunkX, c.chunkZ, DEFAULT_WORLD_SEED)
+  );
+
+  // Merge static definitions and procedural definitions (avoiding duplicate IDs)
+  const allDefinitionsMap = new Map<string, WorldMapObject>();
+  for (const def of RESOURCE_NODES) allDefinitionsMap.set(def.id, def);
+  for (const def of ROGUE_CAMPS) allDefinitionsMap.set(def.id, def);
+  for (const def of proceduralObjects) allDefinitionsMap.set(def.id, def);
+  const allMapObjectDefinitions = Array.from(allDefinitionsMap.values());
+
+  const mapObjectStates: WorldMapObjectState[] = allMapObjectDefinitions.map((definition) => {
+    if (definition.kind === "RESOURCE") {
+      const node = mapNodeById.get(definition.id);
+      return {
+        id: definition.id,
+        kind: "RESOURCE" as const,
+        ownerUserId: node?.ownerUserId ?? null,
+        ownerName: node?.owner
+          ? node.owner.displayName || node.owner.username
+          : null,
+        remaining: node?.remaining ?? definition.amount,
+        status: !node || node.remaining > 0
+          ? node?.ownerUserId && node.occupiedUntil && node.occupiedUntil > now
+            ? "OCCUPIED" as const
+            : "AVAILABLE" as const
+          : "DEPLETED" as const,
+        occupiedUntil: node?.occupiedUntil?.toISOString() ?? null,
+        respawnsAt: node?.respawnsAt?.toISOString() ?? null,
+      };
+    } else {
+      const camp = mapCampById.get(definition.id);
+      const availableAt = camp?.availableAt ?? null;
+      return {
+        id: definition.id,
+        kind: "ROGUE_CAMP" as const,
+        availableAt: availableAt?.toISOString() ?? null,
+        status: availableAt && availableAt > now ? "COOLDOWN" as const : "AVAILABLE" as const,
+      };
+    }
+  });
 
   return {
     userId,
@@ -2325,37 +2395,8 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       };
     }),
     research,
-    mapObjects: [
-      ...RESOURCE_NODES.map((definition) => {
-        const node = mapNodeById.get(definition.id);
-        return {
-          id: definition.id,
-          kind: "RESOURCE" as const,
-          ownerUserId: node?.ownerUserId ?? null,
-          ownerName: node?.owner
-            ? node.owner.displayName || node.owner.username
-            : null,
-          remaining: node?.remaining ?? definition.amount,
-          status: !node || node.remaining > 0
-            ? node?.ownerUserId && node.occupiedUntil && node.occupiedUntil > now
-              ? "OCCUPIED" as const
-              : "AVAILABLE" as const
-            : "DEPLETED" as const,
-          occupiedUntil: node?.occupiedUntil?.toISOString() ?? null,
-          respawnsAt: node?.respawnsAt?.toISOString() ?? null,
-        };
-      }),
-      ...ROGUE_CAMPS.map((definition) => {
-        const camp = mapCampById.get(definition.id);
-        const availableAt = camp?.availableAt ?? null;
-        return {
-          id: definition.id,
-          kind: "ROGUE_CAMP" as const,
-          availableAt: availableAt?.toISOString() ?? null,
-          status: availableAt && availableAt > now ? "COOLDOWN" as const : "AVAILABLE" as const,
-        };
-      }),
-    ],
+    mapObjects: mapObjectStates,
+    mapObjectDefinitions: allMapObjectDefinitions,
     mapMissions: mapMissions.map((march) => ({
       id: march.id,
       targetId: march.targetId,
@@ -2643,14 +2684,29 @@ export async function performWorldMapAction(
   now = new Date(),
 ) {
   await processScheduledWorldJobs(now);
-  const target = WORLD_MAP_OBJECTS.find((object) => object.id === action.targetId);
+  const target = resolveWorldMapObject(action.targetId);
   if (!target) throw new WorldActionError("Không tìm thấy đối tượng trên bản đồ.", 404);
   await advanceWorld(userId, now);
 
   if (action.type === "GATHER") {
     if (target.kind !== "RESOURCE") throw new WorldActionError("Chỉ có thể khai thác khu tài nguyên.", 400);
     return prisma.$transaction(async (tx) => {
-      const node = await tx.worldResourceNode.findUnique({ where: { id: target.id } });
+      let node = await tx.worldResourceNode.findUnique({ where: { id: target.id } });
+      if (!node) {
+        node = await tx.worldResourceNode.create({
+          data: {
+            id: target.id,
+            resourceType: target.resource,
+            level: target.level,
+            maxAmount: target.amount,
+            remaining: target.amount,
+            yieldPerMinute: target.yieldPerMinute,
+            requiredPower: target.requiredPower,
+            x: target.x,
+            z: target.z,
+          },
+        });
+      }
       if (!node || node.ownerUserId !== userId) {
         throw new WorldActionError("Bạn không sở hữu khu tài nguyên này.", 403);
       }
@@ -2694,7 +2750,22 @@ export async function performWorldMapAction(
     let targetKind: "RESOURCE" | "ROGUE_CAMP";
     let actionType: string;
     if (target.kind === "RESOURCE") {
-      const node = await tx.worldResourceNode.findUnique({ where: { id: target.id } });
+      let node = await tx.worldResourceNode.findUnique({ where: { id: target.id } });
+      if (!node) {
+        node = await tx.worldResourceNode.create({
+          data: {
+            id: target.id,
+            resourceType: target.resource,
+            level: target.level,
+            maxAmount: target.amount,
+            remaining: target.amount,
+            yieldPerMinute: target.yieldPerMinute,
+            requiredPower: target.requiredPower,
+            x: target.x,
+            z: target.z,
+          },
+        });
+      }
       if (!node || node.remaining <= 0) {
         throw new WorldActionError("Khu tài nguyên đã cạn hoặc đang tái tạo.", 409);
       }
@@ -2712,8 +2783,21 @@ export async function performWorldMapAction(
       targetKind = "RESOURCE";
       actionType = node.ownerUserId ? "CONTEST" : "OCCUPY";
     } else {
-      const camp = await tx.worldRogueCamp.findUnique({ where: { id: target.id } });
-      if (!camp) throw new WorldActionError("Không tìm thấy trại quái.", 404);
+      let camp = await tx.worldRogueCamp.findUnique({ where: { id: target.id } });
+      if (!camp) {
+        camp = await tx.worldRogueCamp.create({
+          data: {
+            id: target.id,
+            monsterType: target.monsterType,
+            tier: target.tier,
+            level: target.level,
+            troopCount: target.troopCount,
+            combatPower: target.combatPower,
+            x: target.x,
+            z: target.z,
+          },
+        });
+      }
       if (camp.availableAt && camp.availableAt > now) {
         throw new WorldActionError(`Trại quái đang hồi phục đến ${camp.availableAt.toISOString()}.`, 409);
       }
@@ -2721,7 +2805,9 @@ export async function performWorldMapAction(
       actionType = "ATTACK";
     }
 
-    const arrivesAt = new Date(now.getTime() + worldMapTravelMilliseconds(target.x, target.z));
+    const dx = target.x - (base.coordinateX ?? 0);
+    const dz = target.z - (base.coordinateZ ?? 0);
+    const arrivesAt = new Date(now.getTime() + worldMapTravelMilliseconds(dx, dz));
     const troopTier = await worldResearchLevel(tx, base.id, "MILITARY_TIER");
     const reserved = await tx.worldBase.updateMany({
       where: {
@@ -3020,8 +3106,10 @@ export async function performWorldAction(
           attackerBase.coordinateZ! - defenderBase.coordinateZ,
         ),
       );
-      const travelMilliseconds =
-        Math.ceil(distanceMeters / 10_000 * BASE_ATTACK_SECONDS_PER_10KM) * 1000;
+      const travelMilliseconds = Math.min(
+        2 * 60 * 60 * 1000,
+        Math.max(30_000, Math.ceil(distanceMeters / 10_000 * BASE_ATTACK_SECONDS_PER_10KM) * 1000),
+      );
       const arrivesAt = new Date(now.getTime() + travelMilliseconds);
       const [attackerTroopTier, defenderTroopTier] = await Promise.all([
         worldResearchLevel(tx, attackerBase.id, "MILITARY_TIER"),

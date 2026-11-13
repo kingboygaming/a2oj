@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
-import { getHeightAt, getBiomeAt } from "../terrain/BiomeManager";
+import { getBiomeAtWorld, heightAtRender } from "../terrain/BiomeManager";
+import { METERS_PER_RENDER_UNIT } from "@/lib/world-coordinates";
 
 /* Deterministic pseudo-random */
 function seededRnd(seed: number) {
@@ -119,9 +120,16 @@ function Villager({ position, rotation }: { position: [number, number, number]; 
 
 interface ResourceNodesProps {
   cityPosition: [number, number, number];
+  /** Player's stored world coordinates in metres; anchors terrain sampling. */
+  anchorWorldX?: number;
+  anchorWorldZ?: number;
 }
 
-export function ResourceNodes({ cityPosition }: ResourceNodesProps) {
+export function ResourceNodes({
+  cityPosition,
+  anchorWorldX = 0,
+  anchorWorldZ = 0,
+}: ResourceNodesProps) {
   const nodes = useMemo(() => {
     const rnd = seededRnd(99);
     const wood: [number, number, number][] = [];
@@ -129,6 +137,11 @@ export function ResourceNodes({ cityPosition }: ResourceNodesProps) {
     const villagers: Array<{ pos: [number, number, number]; rot: number }> = [];
 
     const [cx, , cz] = cityPosition;
+    const biomeAt = (x: number, z: number) =>
+      getBiomeAtWorld(
+        anchorWorldX + x * METERS_PER_RENDER_UNIT,
+        anchorWorldZ + z * METERS_PER_RENDER_UNIT,
+      );
 
     // Wood piles near forest areas
     for (let i = 0; i < 8; i++) {
@@ -136,9 +149,9 @@ export function ResourceNodes({ cityPosition }: ResourceNodesProps) {
       const dist = 20 + rnd() * 50;
       const x = cx + Math.cos(angle) * dist;
       const z = cz + Math.sin(angle) * dist;
-      const biome = getBiomeAt(x, z);
+      const biome = biomeAt(x, z);
       if (biome.type === "FOREST" || biome.type === "GRASSLAND") {
-        const y = getHeightAt(x, z);
+        const y = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
         wood.push([x, y, z]);
       }
     }
@@ -149,9 +162,9 @@ export function ResourceNodes({ cityPosition }: ResourceNodesProps) {
       const dist = 25 + rnd() * 55;
       const x = cx + Math.cos(angle) * dist;
       const z = cz + Math.sin(angle) * dist;
-      const biome = getBiomeAt(x, z);
+      const biome = biomeAt(x, z);
       if (biome.type === "MOUNTAIN" || biome.type === "GRASSLAND") {
-        const y = getHeightAt(x, z);
+        const y = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
         stone.push([x, y, z]);
       }
     }
@@ -162,12 +175,12 @@ export function ResourceNodes({ cityPosition }: ResourceNodesProps) {
       const dist = 2 + rnd() * 8;
       const x = cx + Math.cos(angle) * dist;
       const z = cz + Math.sin(angle) * dist;
-      const y = getHeightAt(x, z);
+      const y = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
       villagers.push({ pos: [x, y, z], rot: rnd() * Math.PI * 2 });
     }
 
     return { wood, stone, villagers };
-  }, [cityPosition]);
+  }, [cityPosition, anchorWorldX, anchorWorldZ]);
 
   return (
     <group>

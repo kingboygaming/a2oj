@@ -3,11 +3,19 @@
 import { useMemo } from "react";
 import * as THREE from "three";
 import { useGraphicsStore } from "../engine/useGraphicsStore";
-import { getHeightAt, getBiomeColor } from "./BiomeManager";
+import { getBiomeColorWorld, heightAtRender } from "./BiomeManager";
+import { METERS_PER_RENDER_UNIT, TERRAIN_SIZE_UNITS } from "@/lib/world-coordinates";
 
-const WORLD_SIZE = 200;
+const WORLD_SIZE = TERRAIN_SIZE_UNITS;
 
-export function TerrainSystem() {
+interface TerrainSystemProps {
+  /** Player's WorldBase.coordinateX (metres). Anchors the procedural terrain. */
+  worldOffsetX?: number;
+  /** Player's WorldBase.coordinateZ (metres). */
+  worldOffsetZ?: number;
+}
+
+export function TerrainSystem({ worldOffsetX = 0, worldOffsetZ = 0 }: TerrainSystemProps) {
   const settings = useGraphicsStore((s) => s.settings);
   const segments = settings.terrainSegments;
 
@@ -24,12 +32,14 @@ export function TerrainSystem() {
       const x = positions.getX(i);
       const z = positions.getZ(i);
 
-      // Set height
-      const height = getHeightAt(x, z);
+      // Sample height with the shared render→world→noise mapping.
+      const height = heightAtRender(x, z, worldOffsetX, worldOffsetZ);
       positions.setY(i, height);
 
-      // Set vertex color from biome
-      const [r, g, b] = getBiomeColor(x, z);
+      // Vertex colour from the biome at the same world position.
+      const worldX = worldOffsetX + x * METERS_PER_RENDER_UNIT;
+      const worldZ = worldOffsetZ + z * METERS_PER_RENDER_UNIT;
+      const [r, g, b] = getBiomeColorWorld(worldX, worldZ);
 
       // Darken valleys, lighten peaks
       const heightFactor = Math.max(0, Math.min(1, (height + 2) / 32));
@@ -48,7 +58,7 @@ export function TerrainSystem() {
     const pathStep = 2;
     for (let x = -halfSize; x < halfSize; x += pathStep) {
       const z = Math.sin(x * 0.02) * 8;
-      const h = getHeightAt(x, z) + 0.15;
+      const h = heightAtRender(x, z, worldOffsetX, worldOffsetZ) + 0.15;
       pathPoints.push(new THREE.Vector3(x, h, z));
     }
     const pathGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
@@ -56,7 +66,7 @@ export function TerrainSystem() {
     const line = new THREE.Line(pathGeo, lineMat);
 
     return { geometry: geo, roadLine: line };
-  }, [segments]);
+  }, [segments, worldOffsetX, worldOffsetZ]);
 
   return (
     <group>
