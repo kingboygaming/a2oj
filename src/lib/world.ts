@@ -8,6 +8,11 @@ export const WORLD_MIN_TERRITORY_DISTANCE_METERS = 10_000;
 const MAX_BUILDING_LEVEL = 20;
 const INITIAL_COORDINATE_EXTENT_METERS = 100_000;
 const MAX_COORDINATE_EXTENT_METERS = 1_000_000_000;
+const MAX_BASE_ATTACK_TROOPS = 500;
+const BASE_ATTACK_SECONDS_PER_10KM = 5 * 60;
+const BASE_ATTACK_LOOT_RATE = 0.2;
+const BASE_ATTACK_SHIELD_MS = 24 * 60 * 60 * 1000;
+const BASE_OCCUPATION_DURATION_MS = 24 * 60 * 60 * 1000;
 const JOB_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_JOB_ATTEMPTS = 5;
 const MAX_TROOPS_PER_TYPE = 5_000;
@@ -36,8 +41,10 @@ type WorldBaseState = {
   trainingCount: number;
   trainingCompletesAt: Date | null;
   marchActive: boolean;
+  activePvpAttackId: string | null;
   coordinateX: number | null;
   coordinateZ: number | null;
+  pvpShieldUntil: Date | null;
   lastSimulatedAt: Date;
   version: number;
 };
@@ -59,10 +66,13 @@ type WorldProgress = {
 };
 
 export type WorldSnapshot = {
+  userId: string;
   now: string;
   base: {
     coordinateX: number;
     coordinateZ: number;
+    activePvpAttackId: string | null;
+    pvpShieldUntil: string | null;
     wood: number;
     stone: number;
     factoryLevel: number;
@@ -124,6 +134,46 @@ export type WorldSnapshot = {
     rank: number | null;
     leaderboard: Array<{ name: string; score: number }>;
   }>;
+  nearbyBases: Array<{
+    userId: string;
+    username: string;
+    displayName: string;
+    coordinateX: number;
+    coordinateZ: number;
+    distanceMeters: number;
+    pvpShieldUntil: string | null;
+    activeAttack: boolean;
+  }>;
+  baseAttacks: Array<{
+    id: string;
+    status: string;
+    attackerUserId: string;
+    defenderUserId: string;
+    attackerName: string;
+    defenderName: string;
+    distanceMeters: number;
+    infantry: number;
+    archers: number;
+    cavalry: number;
+    arrivesAt: string;
+    resolvedAt: string | null;
+    winnerUserId: string | null;
+    stolenWood: number;
+    stolenStone: number;
+    attackerCasualties: number;
+    defenderCasualties: number;
+  }>;
+  occupations: Array<{
+    id: string;
+    controllerUserId: string;
+    formerOwnerUserId: string;
+    controllerName: string;
+    formerOwnerName: string;
+    coordinateX: number;
+    coordinateZ: number;
+    endsAt: string;
+    status: string;
+  }>;
   pendingRewards: Array<{
     eventId: string;
     title: string;
@@ -144,6 +194,14 @@ export class WorldActionError extends Error {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function requireWorldCoordinates(
+  coordinates: readonly [number, number] | null,
+  attackId: string,
+): readonly [number, number] {
+  if (!coordinates) throw new Error(`Could not allocate a new base location for attack ${attackId}.`);
+  return coordinates;
 }
 
 function productionFor(factoryLevel: number, resource: "wood" | "stone") {
@@ -249,16 +307,7 @@ async function ensureBase(userId: string, now: Date) {
         const base = await tx.worldBase.findUnique({ where: { userId } });
         if (base && base.coordinateX !== null && base.coordinateZ !== null) return base;
 
-        await tx.worldMapAllocator.upsert({
-          where: { id: 1 },
-          create: { id: 1 },
-          update: { revision: { increment: 1 } },
-        });
-        const occupied = await tx.worldBase.findMany({
-          where: { coordinateX: { not: null }, coordinateZ: { not: null } },
-          select: { coordinateX: true, coordinateZ: true },
-        });
-        const [coordinateX, coordinateZ] = findRandomAvailableCoordinates(occupied);
+        const [coordinateX, coordinateZ] = await reserveRandomWorldCoordinates(tx, now);
 
         if (!base) {
           return tx.worldBase.create({
@@ -377,7 +426,11 @@ function errorText(error: unknown) {
 
 async function processWorldTraining(now: Date) {
   const completedQueues = await prisma.worldBase.findMany({
-    where: { trainingCompletesAt: { lte: now }, trainingType: { not: null } },
+    where: {
+      trainingCompletesAt: { lte: now },
+      trainingType: { not: null },
+      activePvpAttackId: null,
+    },
     take: 100,
     select: {
       id: true,
@@ -410,6 +463,7 @@ async function processWorldTraining(now: Date) {
         id: queue.id,
         trainingType: queue.trainingType,
         trainingCompletesAt: queue.trainingCompletesAt,
+        activePvpAttackId: null,
       },
       data: {
         [troopField]: { increment: queue.trainingCount },
@@ -425,6 +479,15 @@ async function processWorldTraining(now: Date) {
 }
 
 function calculateCasualties(infantry: number, archers: number, cavalry: number) {
+  return calculateCasualtiesAtRate(infantry, archers, cavalry, 0.1);
+}
+
+function calculateCasualtiesAtRate(
+  infantry: number,
+  archers: number,
+  cavalry: number,
+  rate: number,
+) {
   const total = infantry + archers + cavalry;
   if (!total) return { infantry: 0, archers: 0, cavalry: 0, total: 0 };
   const types = [
@@ -434,10 +497,11 @@ function calculateCasualties(infantry: number, archers: number, cavalry: number)
   ];
   const casualties = { infantry: 0, archers: 0, cavalry: 0 };
   const fractions = types.map(({ key, count }) => {
-    casualties[key] = Math.floor(count / 10);
-    return { key, fraction: (count / 10) % 1, count };
+    const exact = count * rate;
+    casualties[key] = Math.floor(exact);
+    return { key, fraction: exact % 1, count };
   });
-  let remaining = Math.ceil(total / 10) - casualties.infantry - casualties.archers - casualties.cavalry;
+  let remaining = Math.ceil(total * rate) - casualties.infantry - casualties.archers - casualties.cavalry;
   fractions.sort((left, right) => right.fraction - left.fraction || right.count - left.count);
   for (const entry of fractions) {
     if (!remaining) break;
@@ -447,6 +511,292 @@ function calculateCasualties(infantry: number, archers: number, cavalry: number)
     }
   }
   return { ...casualties, total: casualties.infantry + casualties.archers + casualties.cavalry };
+}
+
+type ArmyComposition = { infantry: number; archers: number; cavalry: number };
+type TroopType = keyof ArmyComposition;
+
+const TROOP_COUNTERS: Record<TroopType, TroopType> = {
+  infantry: "cavalry",
+  cavalry: "archers",
+  archers: "infantry",
+};
+const TROOP_POWER: Record<TroopType, number> = {
+  infantry: TROOP_STATS.INFANTRY.damage,
+  archers: TROOP_STATS.ARCHERS.damage,
+  cavalry: TROOP_STATS.CAVALRY.damage,
+};
+
+function calculateCounterPower(army: ArmyComposition, opposingArmy: ArmyComposition) {
+  const opposingTotal = opposingArmy.infantry + opposingArmy.archers + opposingArmy.cavalry;
+  return Math.round(
+    (["infantry", "archers", "cavalry"] as const).reduce((total, type) => {
+      const count = army[type];
+      if (!count) return total;
+      const matchupMultiplier =
+        opposingTotal === 0
+          ? 1
+          : (["infantry", "archers", "cavalry"] as const).reduce((multiplier, opposingType) => {
+              const relation =
+                TROOP_COUNTERS[type] === opposingType
+                  ? 1.5
+                  : TROOP_COUNTERS[opposingType] === type
+                    ? 0.75
+                    : 1;
+              return multiplier + opposingArmy[opposingType] * relation / opposingTotal;
+            }, 0);
+      return total + count * TROOP_POWER[type] * matchupMultiplier;
+    }, 0),
+  );
+}
+
+async function reserveRandomWorldCoordinates(transaction: Prisma.TransactionClient, now: Date) {
+  await transaction.worldMapAllocator.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: { revision: { increment: 1 } },
+  });
+  const [occupiedBases, occupiedTerritories] = await Promise.all([
+    transaction.worldBase.findMany({
+      where: { coordinateX: { not: null }, coordinateZ: { not: null } },
+      select: { coordinateX: true, coordinateZ: true },
+    }),
+    transaction.worldBaseOccupation.findMany({
+      where: { status: "ACTIVE", endsAt: { gt: now } },
+      select: { coordinateX: true, coordinateZ: true },
+    }),
+  ]);
+  return findRandomAvailableCoordinates([...occupiedBases, ...occupiedTerritories]);
+}
+
+async function processWorldBaseAttacks(now: Date) {
+  await prisma.worldBaseOccupation.updateMany({
+    where: { status: "ACTIVE", endsAt: { lte: now } },
+    data: { status: "EXPIRED" },
+  });
+  const dueAttacks = await prisma.worldBaseAttack.findMany({
+    where: { status: "IN_TRANSIT", arrivesAt: { lte: now } },
+    orderBy: { arrivesAt: "asc" },
+    take: 100,
+    select: { id: true },
+  });
+  let resolved = 0;
+  let failed = 0;
+
+  for (const { id } of dueAttacks) {
+    try {
+      const didResolve = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.worldBaseAttack.updateMany({
+          where: { id, status: "IN_TRANSIT", arrivesAt: { lte: now } },
+          data: { status: "RESOLVING" },
+        });
+        if (!claimed.count) return false;
+
+        const attack = await tx.worldBaseAttack.findUniqueOrThrow({ where: { id } });
+        const [attackerBase, defenderBase] = await Promise.all([
+          tx.worldBase.findUnique({ where: { userId: attack.attackerUserId } }),
+          tx.worldBase.findUnique({ where: { userId: attack.defenderUserId } }),
+        ]);
+        if (!attackerBase || !defenderBase) {
+          throw new Error(`Base attack ${id} references a missing player base.`);
+        }
+        if (
+          defenderBase.coordinateX === null ||
+          defenderBase.coordinateZ === null ||
+          attackerBase.activePvpAttackId !== id ||
+          defenderBase.activePvpAttackId !== id
+        ) {
+          throw new Error(`Base attack ${id} lost its coordinate or combat lock.`);
+        }
+
+        const attackingArmy = {
+          infantry: attack.infantry,
+          archers: attack.archers,
+          cavalry: attack.cavalry,
+        };
+        const defendingArmy = {
+          infantry: defenderBase.infantry,
+          archers: defenderBase.archers,
+          cavalry: defenderBase.cavalry,
+        };
+        const attackerPower = calculateCounterPower(attackingArmy, defendingArmy);
+        const defenderPower = calculateCounterPower(defendingArmy, attackingArmy);
+        const attackerWins = attackerPower > defenderPower;
+        const attackerLosses = calculateCasualtiesAtRate(
+          attack.infantry,
+          attack.archers,
+          attack.cavalry,
+          attackerWins ? 0.1 : 0.5,
+        );
+        const defenderLosses = attackerWins
+          ? {
+              infantry: defenderBase.infantry,
+              archers: defenderBase.archers,
+              cavalry: defenderBase.cavalry,
+              total: defenderBase.infantry + defenderBase.archers + defenderBase.cavalry,
+            }
+          : calculateCasualtiesAtRate(
+              defenderBase.infantry,
+              defenderBase.archers,
+              defenderBase.cavalry,
+              0.1,
+            );
+        const attackerProgress = calculateWorldProgress(attackerBase, now);
+        const defenderProgress = calculateWorldProgress(defenderBase, now);
+        const attackerCapacity =
+          attackerProgress.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+        const stolenWood = attackerWins
+          ? Math.min(
+              Math.floor(defenderProgress.wood * BASE_ATTACK_LOOT_RATE),
+              Math.max(0, attackerCapacity - attackerProgress.wood),
+            )
+          : 0;
+        const stolenStone = attackerWins
+          ? Math.min(
+              Math.floor(defenderProgress.stone * BASE_ATTACK_LOOT_RATE),
+              Math.max(0, attackerCapacity - attackerProgress.stone),
+            )
+          : 0;
+        let newDefenderCoordinates: readonly [number, number] | null = null;
+
+        if (attackerWins) {
+          await tx.worldMarch.updateMany({
+            where: {
+              userId: attack.defenderUserId,
+              status: { in: ["IN_TRANSIT", "RESOLVING", "RETURNING"] },
+            },
+            data: { status: "CANCELED", returnsAt: null },
+          });
+          await tx.worldBaseOccupation.create({
+            data: {
+              attackId: id,
+              controllerUserId: attack.attackerUserId,
+              formerOwnerUserId: attack.defenderUserId,
+              coordinateX: defenderBase.coordinateX,
+              coordinateZ: defenderBase.coordinateZ,
+              startsAt: now,
+              endsAt: new Date(now.getTime() + BASE_OCCUPATION_DURATION_MS),
+            },
+          });
+          newDefenderCoordinates = requireWorldCoordinates(
+            await reserveRandomWorldCoordinates(tx, now),
+            id,
+          );
+        }
+        const replacementCoordinates = attackerWins
+          ? requireWorldCoordinates(newDefenderCoordinates, id)
+          : ([defenderBase.coordinateX, defenderBase.coordinateZ] as const);
+
+        const attackerTroopsAfterReturn = {
+          infantry: Math.min(
+            MAX_TROOPS_PER_TYPE,
+            attackerBase.infantry + attack.infantry - attackerLosses.infantry,
+          ),
+          archers: Math.min(
+            MAX_TROOPS_PER_TYPE,
+            attackerBase.archers + attack.archers - attackerLosses.archers,
+          ),
+          cavalry: Math.min(
+            MAX_TROOPS_PER_TYPE,
+            attackerBase.cavalry + attack.cavalry - attackerLosses.cavalry,
+          ),
+        };
+        const attackerUpdated = await tx.worldBase.updateMany({
+          where: { id: attackerBase.id, version: attackerBase.version, activePvpAttackId: id },
+          data: {
+            wood: Math.min(attackerCapacity, attackerProgress.wood + stolenWood),
+            woodRemainder:
+              attackerProgress.wood + stolenWood >= attackerCapacity ? 0 : attackerProgress.woodRemainder,
+            stone: Math.min(attackerCapacity, attackerProgress.stone + stolenStone),
+            stoneRemainder:
+              attackerProgress.stone + stolenStone >= attackerCapacity ? 0 : attackerProgress.stoneRemainder,
+            factoryLevel: attackerProgress.factoryLevel,
+            warehouseLevel: attackerProgress.warehouseLevel,
+            upgradeType: attackerProgress.upgradeType,
+            upgradeCompletesAt: attackerProgress.upgradeCompletesAt,
+            infantry: attackerTroopsAfterReturn.infantry,
+            archers: attackerTroopsAfterReturn.archers,
+            cavalry: attackerTroopsAfterReturn.cavalry,
+            activePvpAttackId: null,
+            lastSimulatedAt: now,
+            version: { increment: 1 },
+          },
+        });
+        if (!attackerUpdated.count) throw new Error(`Could not settle attacking base for attack ${id}.`);
+
+        const defenderData = attackerWins
+          ? {
+              wood: 200,
+              woodRemainder: 0,
+              stone: 100,
+              stoneRemainder: 0,
+              factoryLevel: 1,
+              warehouseLevel: 1,
+              upgradeType: null,
+              upgradeCompletesAt: null,
+              infantry: 0,
+              archers: 0,
+              cavalry: 0,
+              trainingType: null,
+              trainingCount: 0,
+              trainingCompletesAt: null,
+              marchActive: false,
+              coordinateX: replacementCoordinates[0],
+              coordinateZ: replacementCoordinates[1],
+            }
+          : {
+              wood: defenderProgress.wood,
+              woodRemainder: defenderProgress.woodRemainder,
+              stone: defenderProgress.stone,
+              stoneRemainder: defenderProgress.stoneRemainder,
+              factoryLevel: defenderProgress.factoryLevel,
+              warehouseLevel: defenderProgress.warehouseLevel,
+              upgradeType: defenderProgress.upgradeType,
+              upgradeCompletesAt: defenderProgress.upgradeCompletesAt,
+              infantry: defenderBase.infantry - defenderLosses.infantry,
+              archers: defenderBase.archers - defenderLosses.archers,
+              cavalry: defenderBase.cavalry - defenderLosses.cavalry,
+              marchActive: defenderBase.marchActive,
+            };
+        const defenderUpdated = await tx.worldBase.updateMany({
+          where: { id: defenderBase.id, version: defenderBase.version, activePvpAttackId: id },
+          data: {
+            ...defenderData,
+            activePvpAttackId: null,
+            pvpShieldUntil: new Date(now.getTime() + BASE_ATTACK_SHIELD_MS),
+            lastSimulatedAt: now,
+            version: { increment: 1 },
+          },
+        });
+        if (!defenderUpdated.count) throw new Error(`Could not settle defending base for attack ${id}.`);
+
+        const completed = await tx.worldBaseAttack.updateMany({
+          where: { id, status: "RESOLVING" },
+          data: {
+            status: "RESOLVED",
+            attackerPower,
+            defenderPower,
+            winnerUserId: attackerWins ? attack.attackerUserId : attack.defenderUserId,
+            stolenWood,
+            stolenStone,
+            attackerCasualties: attackerLosses.total,
+            defenderCasualties: defenderLosses.total,
+            resolvedAt: now,
+          },
+        });
+        if (!completed.count) throw new Error(`Could not complete base attack ${id}.`);
+        return true;
+      });
+      if (didResolve) resolved += 1;
+    } catch (error) {
+      failed += 1;
+      console.error("World base attack resolution failed.", {
+        attackId: id,
+        error: errorText(error),
+      });
+    }
+  }
+  return { resolved, failed };
 }
 
 async function processWorldMarches(now: Date) {
@@ -575,6 +925,7 @@ export async function processScheduledWorldJobs(now = new Date()) {
   await ensureDailyWorldEvents(now);
   const trained = await processWorldTraining(now);
   const marches = await processWorldMarches(now);
+  const baseAttacks = await processWorldBaseAttacks(now);
   const staleBefore = new Date(now.getTime() - JOB_LOCK_TIMEOUT_MS);
   const dueJobs = await prisma.worldJob.findMany({
     where: {
@@ -689,7 +1040,7 @@ export async function processScheduledWorldJobs(now = new Date()) {
     }
   }
 
-  return { processed, retried, failed, trained, marches };
+  return { processed, retried, failed, trained, marches, baseAttacks };
 }
 
 export async function loadWorldSnapshot(userId: string, now = new Date()): Promise<WorldSnapshot> {
@@ -700,7 +1051,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   if (base.coordinateX === null || base.coordinateZ === null) {
     throw new Error(`World base for user ${userId} is missing coordinates after initialization.`);
   }
-  const [events, pending, activeMarch] = await Promise.all([
+  const [events, pending, activeMarch, otherBases, baseAttacks, occupations] = await Promise.all([
     prisma.worldEvent.findMany({
       where: { endsAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
       orderBy: { startsAt: "desc" },
@@ -732,13 +1083,68 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       orderBy: { dispatchedAt: "desc" },
       include: { event: { select: { id: true, title: true } } },
     }),
+    prisma.worldBase.findMany({
+      where: {
+        userId: { not: userId },
+        coordinateX: { not: null },
+        coordinateZ: { not: null },
+      },
+      select: {
+        userId: true,
+        coordinateX: true,
+        coordinateZ: true,
+        activePvpAttackId: true,
+        pvpShieldUntil: true,
+        user: { select: { username: true, displayName: true } },
+      },
+    }),
+    prisma.worldBaseAttack.findMany({
+      where: { OR: [{ attackerUserId: userId }, { defenderUserId: userId }] },
+      orderBy: { dispatchedAt: "desc" },
+      take: 10,
+      include: {
+        attacker: { select: { username: true, displayName: true } },
+        defender: { select: { username: true, displayName: true } },
+      },
+    }),
+    prisma.worldBaseOccupation.findMany({
+      where: {
+        status: "ACTIVE",
+        OR: [{ controllerUserId: userId }, { formerOwnerUserId: userId }],
+      },
+      orderBy: { endsAt: "asc" },
+      include: {
+        controller: { select: { username: true, displayName: true } },
+        formerOwner: { select: { username: true, displayName: true } },
+      },
+    }),
   ]);
 
+  const nearbyBases = otherBases
+    .filter((otherBase) => otherBase.coordinateX !== null && otherBase.coordinateZ !== null)
+    .map((otherBase) => ({
+      userId: otherBase.userId,
+      username: otherBase.user.username,
+      displayName: otherBase.user.displayName || otherBase.user.username,
+      coordinateX: otherBase.coordinateX!,
+      coordinateZ: otherBase.coordinateZ!,
+      distanceMeters: Math.round(
+        Math.hypot(otherBase.coordinateX! - base.coordinateX!, otherBase.coordinateZ! - base.coordinateZ!),
+      ),
+      pvpShieldUntil: otherBase.pvpShieldUntil?.toISOString() ?? null,
+      activeAttack: otherBase.activePvpAttackId !== null,
+    }))
+    .sort((left, right) => left.distanceMeters - right.distanceMeters)
+    .slice(0, 20);
+
   return {
+    userId,
     now: now.toISOString(),
     base: {
       coordinateX: base.coordinateX,
       coordinateZ: base.coordinateZ,
+      activePvpAttackId: base.activePvpAttackId,
+      pvpShieldUntil: base.pvpShieldUntil?.toISOString() ?? null,
       wood: base.wood,
       stone: base.stone,
       factoryLevel: base.factoryLevel,
@@ -824,6 +1230,37 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
         })),
       };
     }),
+    nearbyBases,
+    baseAttacks: baseAttacks.map((attack) => ({
+      id: attack.id,
+      status: attack.status,
+      attackerUserId: attack.attackerUserId,
+      defenderUserId: attack.defenderUserId,
+      attackerName: attack.attacker.displayName || attack.attacker.username,
+      defenderName: attack.defender.displayName || attack.defender.username,
+      distanceMeters: attack.distanceMeters,
+      infantry: attack.infantry,
+      archers: attack.archers,
+      cavalry: attack.cavalry,
+      arrivesAt: attack.arrivesAt.toISOString(),
+      resolvedAt: attack.resolvedAt?.toISOString() ?? null,
+      winnerUserId: attack.winnerUserId,
+      stolenWood: attack.stolenWood,
+      stolenStone: attack.stolenStone,
+      attackerCasualties: attack.attackerCasualties,
+      defenderCasualties: attack.defenderCasualties,
+    })),
+    occupations: occupations.map((occupation) => ({
+      id: occupation.id,
+      controllerUserId: occupation.controllerUserId,
+      formerOwnerUserId: occupation.formerOwnerUserId,
+      controllerName: occupation.controller.displayName || occupation.controller.username,
+      formerOwnerName: occupation.formerOwner.displayName || occupation.formerOwner.username,
+      coordinateX: occupation.coordinateX,
+      coordinateZ: occupation.coordinateZ,
+      endsAt: occupation.endsAt.toISOString(),
+      status: occupation.status,
+    })),
     pendingRewards: pending.map((reward) => ({
       eventId: reward.eventId,
       title: reward.event.title,
@@ -854,14 +1291,119 @@ export async function performWorldAction(
         archers: number;
         cavalry: number;
       }
+    | {
+        type: "attackBase";
+        targetUserId: string;
+        infantry: number;
+        archers: number;
+        cavalry: number;
+      }
     | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" },
   now = new Date(),
 ) {
   await processScheduledWorldJobs(now);
 
+  if (action.type === "attackBase") {
+    const troopCount = action.infantry + action.archers + action.cavalry;
+    if (troopCount < 1 || troopCount > MAX_BASE_ATTACK_TROOPS) {
+      throw new WorldActionError(`Mỗi đợt tấn công cần 1–${MAX_BASE_ATTACK_TROOPS} quân.`, 400);
+    }
+    if (userId === action.targetUserId) {
+      throw new WorldActionError("Không thể tấn công căn cứ của chính mình.", 400);
+    }
+    await advanceWorld(userId, now);
+    const attack = await prisma.$transaction(async (tx) => {
+      const [attackerBase, defenderBase] = await Promise.all([
+        tx.worldBase.findUnique({ where: { userId } }),
+        tx.worldBase.findUnique({ where: { userId: action.targetUserId } }),
+      ]);
+      if (!attackerBase) throw new WorldActionError("Căn cứ tấn công chưa được khởi tạo.", 409);
+      if (!defenderBase || defenderBase.coordinateX === null || defenderBase.coordinateZ === null) {
+        throw new WorldActionError("Không tìm thấy căn cứ mục tiêu.", 404);
+      }
+      if (attackerBase.activePvpAttackId || defenderBase.activePvpAttackId) {
+        throw new WorldActionError("Một trong hai căn cứ đang tham gia trận đánh khác.", 409);
+      }
+      if (defenderBase.pvpShieldUntil && defenderBase.pvpShieldUntil > now) {
+        throw new WorldActionError(
+          `Căn cứ đang có khiên bảo vệ đến ${defenderBase.pvpShieldUntil.toISOString()}.`,
+          409,
+        );
+      }
+      if (attackerBase.trainingType || attackerBase.marchActive) {
+        throw new WorldActionError("Hoàn tất huấn luyện và chờ quân đang hành quân trở về.", 409);
+      }
+      const distanceMeters = Math.round(
+        Math.hypot(
+          attackerBase.coordinateX! - defenderBase.coordinateX,
+          attackerBase.coordinateZ! - defenderBase.coordinateZ,
+        ),
+      );
+      const travelMilliseconds =
+        Math.ceil(distanceMeters / 10_000 * BASE_ATTACK_SECONDS_PER_10KM) * 1000;
+      const arrivesAt = new Date(now.getTime() + travelMilliseconds);
+      const created = await tx.worldBaseAttack.create({
+        data: {
+          attackerUserId: userId,
+          defenderUserId: action.targetUserId,
+          distanceMeters,
+          infantry: action.infantry,
+          archers: action.archers,
+          cavalry: action.cavalry,
+          dispatchedAt: now,
+          arrivesAt,
+        },
+        select: { id: true, arrivesAt: true },
+      });
+      const attackerLocked = await tx.worldBase.updateMany({
+        where: {
+          id: attackerBase.id,
+          version: attackerBase.version,
+          activePvpAttackId: null,
+          trainingType: null,
+          marchActive: false,
+          infantry: { gte: action.infantry },
+          archers: { gte: action.archers },
+          cavalry: { gte: action.cavalry },
+        },
+        data: {
+          infantry: { decrement: action.infantry },
+          archers: { decrement: action.archers },
+          cavalry: { decrement: action.cavalry },
+          activePvpAttackId: created.id,
+          version: { increment: 1 },
+        },
+      });
+      if (!attackerLocked.count) {
+        throw new WorldActionError("Không đủ quân hoặc căn cứ vừa thay đổi. Hãy tải lại.", 409);
+      }
+      const defenderLocked = await tx.worldBase.updateMany({
+        where: {
+          id: defenderBase.id,
+          activePvpAttackId: null,
+          pvpShieldUntil: defenderBase.pvpShieldUntil,
+        },
+        data: {
+          activePvpAttackId: created.id,
+          version: { increment: 1 },
+        },
+      });
+      if (!defenderLocked.count) {
+        throw new WorldActionError("Căn cứ mục tiêu vừa được bảo vệ hoặc bị tấn công.", 409);
+      }
+      return created;
+    });
+    return {
+      message: `Đạo quân đang hành quân ${Math.ceil(
+        (attack.arrivesAt.getTime() - now.getTime()) / 60_000,
+      )} phút; dự kiến tới lúc ${attack.arrivesAt.toISOString()}.`,
+    };
+  }
+
   if (action.type === "upgrade") {
     const current = await advanceWorld(userId, now);
     const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
+    if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
     if (base.upgradeType) throw new WorldActionError("Một công trình khác đang nâng cấp.", 409);
 
     const level = action.building === "FACTORY" ? base.factoryLevel : base.warehouseLevel;
@@ -877,6 +1419,7 @@ export async function performWorldAction(
       where: {
         id: base.id,
         version: current.version,
+        activePvpAttackId: null,
         upgradeType: null,
         wood: { gte: cost.wood },
         stone: { gte: cost.stone },
@@ -902,6 +1445,7 @@ export async function performWorldAction(
     const current = await advanceWorld(userId, now);
     const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
     const stats = TROOP_STATS[action.troopType];
+    if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
     if (base.trainingType) {
       throw new WorldActionError("Hàng đợi đang huấn luyện một đạo quân.", 409);
     }
@@ -921,6 +1465,7 @@ export async function performWorldAction(
       where: {
         id: base.id,
         version: current.version,
+        activePvpAttackId: null,
         trainingType: null,
         wood: { gte: woodCost },
         stone: { gte: stoneCost },
@@ -972,11 +1517,13 @@ export async function performWorldAction(
       if (!participation) throw new WorldActionError("Hãy tham gia sự kiện trước khi điều quân.", 400);
       if (base.trainingType) throw new WorldActionError("Chờ huấn luyện hoàn tất trước khi điều quân.", 409);
       if (base.marchActive) throw new WorldActionError("Đạo quân trước vẫn chưa trở về.", 409);
+      if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
 
       const reserved = await tx.worldBase.updateMany({
         where: {
           id: base.id,
           version: current.version,
+          activePvpAttackId: null,
           marchActive: false,
           infantry: { gte: action.infantry },
           archers: { gte: action.archers },

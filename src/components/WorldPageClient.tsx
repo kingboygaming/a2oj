@@ -10,7 +10,8 @@ type ActionRequest =
   | { type: "claim"; eventId: string }
   | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
-  | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number };
+  | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number }
+  | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number };
 
 function utcLabel(value: string) {
   return `${value.slice(0, 16).replace("T", " ")} UTC`;
@@ -26,6 +27,8 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [trainingCount, setTrainingCount] = useState(10);
   const [marchArmy, setMarchArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
+  const [attackArmy, setAttackArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
+  const [attackTargetId, setAttackTargetId] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
@@ -34,7 +37,16 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
     const response = await fetch("/api/world", { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
-    setSnapshot(result as WorldSnapshot);
+    const nextSnapshot = result as WorldSnapshot;
+    setSnapshot(nextSnapshot);
+    setAttackArmy((current) => ({
+      infantry: Math.min(current.infantry, nextSnapshot.base.army.infantry, 500),
+      archers: Math.min(current.archers, nextSnapshot.base.army.archers, 500),
+      cavalry: Math.min(current.cavalry, nextSnapshot.base.army.cavalry, 500),
+    }));
+    setAttackTargetId((current) =>
+      nextSnapshot.nearbyBases.some((base) => base.userId === current) ? current : "",
+    );
   }
 
   async function act(key: string, action: ActionRequest) {
@@ -127,6 +139,130 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
           X: {(snapshot.base.coordinateX / 1_000).toFixed(3)} km · Z: {(snapshot.base.coordinateZ / 1_000).toFixed(3)} km
         </p>
         <p className="mt-1 text-xs text-[var(--muted)]">Vị trí được cấp ngẫu nhiên; tâm mỗi căn cứ cách căn cứ khác tối thiểu 10 km.</p>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-rose-500/20 bg-[var(--paper)] p-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-rose-600">PvP · Chiến tranh căn cứ</p>
+          <h2 className="mt-1 text-lg font-bold text-[var(--navy)]">Tấn công căn cứ người chơi</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Bộ binh khắc kỵ binh, kỵ binh khắc cung thủ, cung thủ khắc bộ binh. Hành quân mất 5 phút mỗi 10 km; thắng sẽ cướp tối đa 20% tài nguyên và chiếm vị trí cũ trong 24 giờ.
+          </p>
+        </div>
+        {snapshot.base.activePvpAttackId && (
+          <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-[var(--navy)]">
+            Căn cứ đang tham gia trận đánh; thao tác huấn luyện, nâng cấp và đánh tiếp tạm khóa.
+          </p>
+        )}
+        {snapshot.base.pvpShieldUntil && new Date(snapshot.base.pvpShieldUntil) > new Date(snapshot.now) && (
+          <p className="mt-2 text-sm text-emerald-700">Khiên căn cứ bảo vệ đến {utcLabel(snapshot.base.pvpShieldUntil)}.</p>
+        )}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-xs text-[var(--muted)]">
+            Căn cứ mục tiêu
+            <select
+              value={attackTargetId}
+              onChange={(event) => setAttackTargetId(event.target.value)}
+              className="mt-1 block w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-2.5 py-2 text-sm text-[var(--ink)]"
+            >
+              <option value="">Chọn căn cứ</option>
+              {snapshot.nearbyBases.map((base) => (
+                <option
+                  key={base.userId}
+                  value={base.userId}
+                  disabled={
+                    base.activeAttack ||
+                    Boolean(base.pvpShieldUntil && new Date(base.pvpShieldUntil) > new Date(snapshot.now))
+                  }
+                >
+                  {base.displayName} · {base.distanceMeters.toLocaleString("vi-VN")} m
+                  {base.pvpShieldUntil && new Date(base.pvpShieldUntil) > new Date(snapshot.now) ? " · Có khiên" : ""}
+                  {base.activeAttack ? " · Đang chiến đấu" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              ["infantry", "Bộ binh"],
+              ["archers", "Cung thủ"],
+              ["cavalry", "Kỵ binh"],
+            ] as const).map(([field, label]) => (
+              <label key={field} className="text-xs text-[var(--muted)]">
+                {label} (có {snapshot.base.army[field]})
+                <input
+                  type="number"
+                  min={0}
+                  max={Math.min(500, snapshot.base.army[field])}
+                  value={attackArmy[field]}
+                  onChange={(event) => setAttackArmy((current) => ({
+                    ...current,
+                    [field]: Math.max(0, Math.min(500, snapshot.base.army[field], Number(event.target.value) || 0)),
+                  }))}
+                  className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-2 py-2 text-sm text-[var(--ink)]"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={
+            Boolean(busy) ||
+            !attackTargetId ||
+            Boolean(snapshot.base.activePvpAttackId) ||
+            Boolean(snapshot.base.army.trainingType) ||
+            snapshot.base.army.marchActive ||
+            Object.values(attackArmy).reduce((sum, count) => sum + count, 0) < 1 ||
+            Object.values(attackArmy).reduce((sum, count) => sum + count, 0) > 500
+          }
+          onClick={() => void act("attack-base", {
+            type: "attackBase",
+            targetUserId: attackTargetId,
+            ...attackArmy,
+          })}
+          className="mt-3 rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy === "attack-base" ? "Đang điều quân…" : "Tấn công căn cứ"}
+        </button>
+        {snapshot.baseAttacks.length > 0 && (
+          <div className="mt-4 border-t border-[var(--line)] pt-3">
+            <h3 className="text-sm font-bold text-[var(--navy)]">Trận đánh gần đây</h3>
+            <ul className="mt-2 space-y-2">
+              {snapshot.baseAttacks.map((attack) => {
+                const isAttacker = attack.attackerUserId === snapshot.userId;
+                const outcome = attack.status === "RESOLVED"
+                  ? attack.winnerUserId === attack.attackerUserId ? "Bên công thắng" : "Bên thủ thắng"
+                  : attack.status === "IN_TRANSIT" || attack.status === "RESOLVING"
+                    ? `Đang hành quân · đến ${utcLabel(attack.arrivesAt)}`
+                    : attack.status;
+                return (
+                  <li key={attack.id} className="rounded-lg bg-[var(--background)] px-3 py-2 text-sm text-[var(--navy)]">
+                    <span className="font-semibold">{attack.attackerName} → {attack.defenderName}</span>
+                    <span className="text-[var(--muted)]"> · {outcome}</span>
+                    {attack.status === "RESOLVED" && (
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        {isAttacker ? "Quân ta" : "Quân đối phương"} tổn thất {attack.attackerCasualties} ·
+                        {" "}{isAttacker ? "Quân đối phương" : "Quân ta"} tổn thất {attack.defenderCasualties}
+                        {attack.winnerUserId === attack.attackerUserId && ` · Cướp ${attack.stolenWood} gỗ, ${attack.stolenStone} đá`}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+        {snapshot.occupations.length > 0 && (
+          <div className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-[var(--navy)]">
+            <p className="font-bold">Chiếm đóng</p>
+            {snapshot.occupations.map((occupation) => (
+              <p key={occupation.id} className="mt-1">
+                {occupation.controllerName} kiểm soát vị trí X:{(occupation.coordinateX / 1_000).toFixed(2)} km, Z:{(occupation.coordinateZ / 1_000).toFixed(2)} km đến {utcLabel(occupation.endsAt)}.
+              </p>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="mt-5 grid gap-3 sm:grid-cols-2">

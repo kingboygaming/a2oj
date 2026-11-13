@@ -91,6 +91,10 @@ model User {
   worldAllianceMembership WorldAllianceMember?
   worldAlliancesLed WorldAlliance[] @relation("WorldAllianceLeader")
   worldAllianceWarScores WorldAllianceWarScore[]
+  worldBaseAttacksSent WorldBaseAttack[] @relation("WorldBaseAttackAttacker")
+  worldBaseAttacksReceived WorldBaseAttack[] @relation("WorldBaseAttackDefender")
+  worldBaseOccupations WorldBaseOccupation[] @relation("WorldBaseOccupationController")
+  lostWorldBaseOccupations WorldBaseOccupation[] @relation("WorldBaseOccupationFormerOwner")
 
 }
 
@@ -534,8 +538,10 @@ model WorldBase {
   trainingCount         Int      @default(0)
   trainingCompletesAt   DateTime?
   marchActive           Boolean  @default(false)
+  activePvpAttackId     String?
   coordinateX           Int?
   coordinateZ           Int?
+  pvpShieldUntil        DateTime?
   lastSimulatedAt       DateTime @default(now())
   version               Int      @default(0)
   createdAt             DateTime @default(now())
@@ -550,6 +556,53 @@ model WorldBase {
 model WorldMapAllocator {
   id       Int @id @default(1)
   revision Int @default(0)
+}
+
+model WorldBaseAttack {
+  id                    String   @id @default(cuid())
+  attackerUserId        String
+  defenderUserId        String
+  status                String   @default("IN_TRANSIT")
+  distanceMeters        Int
+  infantry              Int
+  archers               Int
+  cavalry               Int
+  attackerPower         Int      @default(0)
+  defenderPower         Int      @default(0)
+  winnerUserId          String?
+  stolenWood            Int      @default(0)
+  stolenStone           Int      @default(0)
+  attackerCasualties    Int      @default(0)
+  defenderCasualties    Int      @default(0)
+  dispatchedAt          DateTime @default(now())
+  arrivesAt             DateTime
+  resolvedAt            DateTime?
+  attacker              User     @relation("WorldBaseAttackAttacker", fields: [attackerUserId], references: [id], onDelete: Cascade)
+  defender              User     @relation("WorldBaseAttackDefender", fields: [defenderUserId], references: [id], onDelete: Cascade)
+  occupation            WorldBaseOccupation?
+
+  @@index([status, arrivesAt])
+  @@index([attackerUserId, dispatchedAt])
+  @@index([defenderUserId, dispatchedAt])
+}
+
+model WorldBaseOccupation {
+  id                String   @id @default(cuid())
+  attackId          String   @unique
+  controllerUserId  String
+  formerOwnerUserId String
+  coordinateX       Int
+  coordinateZ       Int
+  startsAt          DateTime
+  endsAt            DateTime
+  status            String   @default("ACTIVE")
+  attack            WorldBaseAttack @relation(fields: [attackId], references: [id], onDelete: Cascade)
+  controller        User     @relation("WorldBaseOccupationController", fields: [controllerUserId], references: [id], onDelete: Cascade)
+  formerOwner       User     @relation("WorldBaseOccupationFormerOwner", fields: [formerOwnerUserId], references: [id], onDelete: Cascade)
+
+  @@index([status, endsAt])
+  @@index([controllerUserId, endsAt])
+  @@index([formerOwnerUserId, endsAt])
 }
 
 model WorldEvent {

@@ -29,6 +29,13 @@ const requestSchema = z.discriminatedUnion("type", [
     archers: z.number().int().min(0).max(500),
     cavalry: z.number().int().min(0).max(500),
   }),
+  z.object({
+    type: z.literal("attackBase"),
+    targetUserId: z.string().min(1),
+    infantry: z.number().int().min(0).max(500),
+    archers: z.number().int().min(0).max(500),
+    cavalry: z.number().int().min(0).max(500),
+  }),
 ]);
 
 export async function POST(request: Request) {
