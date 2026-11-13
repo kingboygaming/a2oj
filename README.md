@@ -231,6 +231,8 @@ Mục **Giải trí → Thế giới** có căn cứ sản xuất gỗ/đá, nâ
 
 Sự kiện và tác vụ tổng kết được lưu trong PostgreSQL/SQLite. Tác vụ dùng khóa duy nhất, claim có lease, retry tối đa 5 lần và ghi lỗi vào log máy chủ; trang thế giới cũng xử lý các tác vụ đến hạn để không phụ thuộc vào tiến trình chạy liên tục. Vercel Cron gọi `/api/cron/world` mỗi ngày như cơ chế dự phòng. Đặt biến môi trường `CRON_SECRET` trên Vercel để xác thực request Cron; trên local, có thể gọi API chơi bình thường mà không cần Cron vì tiến trình được cập nhật theo timestamp khi truy cập.
 
-Đây là vòng chơi nền tảng: chưa bao gồm chiến tranh lãnh thổ, boss, liên minh, quân đội hay nhiệm vụ cộng đồng.
+Giai đoạn này hỗ trợ sự kiện tài nguyên và boss cùng cơ chế huấn luyện/hành quân. Chiến tranh lãnh thổ, liên minh, sự kiện mùa giải, nhiệm vụ cộng đồng và cơ chế phòng thủ căn cứ nâng cao chưa được triển khai.
 
 Quản trị viên tạo và đổi lịch sự kiện tại `/admin/world`. Có thể cấu hình thời lượng (tối đa 30 ngày), số người tham gia, cấp nhà máy tối thiểu, giá/cooldown mỗi lượt đóng góp và thưởng gỗ/đá cho ba hạng đầu. Sự kiện chỉ đổi lịch hoặc hủy được trước khi bắt đầu; sự kiện hằng ngày do hệ thống tạo không thể bị quản trị viên sửa.
+
+Boss toàn server là loại sự kiện riêng: quản trị viên đặt HP và thời gian hành quân; người chơi tham gia, huấn luyện bộ binh/cung thủ/kỵ binh bằng gỗ và đá, rồi điều tối đa 500 quân mỗi đạo. Một căn cứ chỉ có một hàng đợi huấn luyện và một đạo quân hành quân tại một thời điểm. Sát thương được tính theo quân đến nơi (lần lượt 10/15/20 sát thương mỗi lính); đạo quân quay về sau cùng thời gian hành quân và chịu 10% thương vong. Tác vụ server xử lý huấn luyện, lượt đánh và lượt về theo timestamp; người chơi cũng kích hoạt xử lý khi tải trang Thế giới. Khi boss bị hạ hoặc hết giờ, phần thưởng xếp theo tổng sát thương.

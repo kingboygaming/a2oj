@@ -6,6 +6,13 @@ const RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
 const MAX_BUILDING_LEVEL = 20;
 const JOB_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_JOB_ATTEMPTS = 5;
+const MAX_TROOPS_PER_TYPE = 5_000;
+const MAX_TROOPS_PER_MARCH = 500;
+const TROOP_STATS = {
+  INFANTRY: { costWood: 10, costStone: 5, trainingSeconds: 5, damage: 10, label: "Bộ binh" },
+  ARCHERS: { costWood: 15, costStone: 5, trainingSeconds: 7, damage: 15, label: "Cung thủ" },
+  CAVALRY: { costWood: 20, costStone: 10, trainingSeconds: 10, damage: 20, label: "Kỵ binh" },
+} as const;
 
 type WorldBaseState = {
   id: string;
@@ -18,6 +25,13 @@ type WorldBaseState = {
   warehouseLevel: number;
   upgradeType: string | null;
   upgradeCompletesAt: Date | null;
+  infantry: number;
+  archers: number;
+  cavalry: number;
+  trainingType: string | null;
+  trainingCount: number;
+  trainingCompletesAt: Date | null;
+  marchActive: boolean;
   lastSimulatedAt: Date;
   version: number;
 };
@@ -51,6 +65,15 @@ export type WorldSnapshot = {
     capacity: number;
     woodPerHour: number;
     stonePerHour: number;
+    army: {
+      infantry: number;
+      archers: number;
+      cavalry: number;
+      trainingType: string | null;
+      trainingCount: number;
+      trainingCompletesAt: string | null;
+      marchActive: boolean;
+    };
   };
   offline: {
     elapsedSeconds: number;
@@ -71,6 +94,23 @@ export type WorldSnapshot = {
     contributionWoodCost: number;
     contributionCooldownSeconds: number;
     rewards: Array<{ wood: number; stone: number }>;
+    eventType: "RESOURCE_RUSH" | "WORLD_BOSS";
+    bossHp: number;
+    bossHpRemaining: number;
+    marchTravelSeconds: number;
+    activeMarch: null | {
+      id: string;
+      eventId: string;
+      eventTitle: string;
+      status: string;
+      arrivesAt: string;
+      returnsAt: string | null;
+      damage: number;
+      infantry: number;
+      archers: number;
+      cavalry: number;
+      casualties: number;
+    };
     joined: boolean;
     score: number;
     rank: number | null;
@@ -269,8 +309,206 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message.slice(0, 1_000) : "Unknown world job error";
 }
 
+async function processWorldTraining(now: Date) {
+  const completedQueues = await prisma.worldBase.findMany({
+    where: { trainingCompletesAt: { lte: now }, trainingType: { not: null } },
+    take: 100,
+    select: {
+      id: true,
+      trainingType: true,
+      trainingCount: true,
+      trainingCompletesAt: true,
+    },
+  });
+  let completed = 0;
+
+  for (const queue of completedQueues) {
+    const troopField =
+      queue.trainingType === "INFANTRY"
+        ? "infantry"
+        : queue.trainingType === "ARCHERS"
+          ? "archers"
+          : queue.trainingType === "CAVALRY"
+            ? "cavalry"
+            : null;
+    if (!troopField || !queue.trainingCompletesAt) {
+      console.error("World training queue has an invalid troop type.", {
+        baseId: queue.id,
+        trainingType: queue.trainingType,
+      });
+      continue;
+    }
+
+    const result = await prisma.worldBase.updateMany({
+      where: {
+        id: queue.id,
+        trainingType: queue.trainingType,
+        trainingCompletesAt: queue.trainingCompletesAt,
+      },
+      data: {
+        [troopField]: { increment: queue.trainingCount },
+        trainingType: null,
+        trainingCount: 0,
+        trainingCompletesAt: null,
+        version: { increment: 1 },
+      },
+    });
+    completed += result.count;
+  }
+  return completed;
+}
+
+function calculateCasualties(infantry: number, archers: number, cavalry: number) {
+  const total = infantry + archers + cavalry;
+  if (!total) return { infantry: 0, archers: 0, cavalry: 0, total: 0 };
+  const types = [
+    { key: "infantry" as const, count: infantry },
+    { key: "archers" as const, count: archers },
+    { key: "cavalry" as const, count: cavalry },
+  ];
+  const casualties = { infantry: 0, archers: 0, cavalry: 0 };
+  const fractions = types.map(({ key, count }) => {
+    casualties[key] = Math.floor(count / 10);
+    return { key, fraction: (count / 10) % 1, count };
+  });
+  let remaining = Math.ceil(total / 10) - casualties.infantry - casualties.archers - casualties.cavalry;
+  fractions.sort((left, right) => right.fraction - left.fraction || right.count - left.count);
+  for (const entry of fractions) {
+    if (!remaining) break;
+    if (casualties[entry.key] < entry.count) {
+      casualties[entry.key] += 1;
+      remaining -= 1;
+    }
+  }
+  return { ...casualties, total: casualties.infantry + casualties.archers + casualties.cavalry };
+}
+
+async function processWorldMarches(now: Date) {
+  const arriving = await prisma.worldMarch.findMany({
+    where: { status: "IN_TRANSIT", arrivesAt: { lte: now } },
+    orderBy: { arrivesAt: "asc" },
+    take: 100,
+    select: { id: true },
+  });
+  let impacted = 0;
+
+  for (const { id } of arriving) {
+    const didImpact = await prisma.$transaction(async (tx) => {
+      const march = await tx.worldMarch.findUnique({ where: { id } });
+      if (!march || march.status !== "IN_TRANSIT" || march.arrivesAt > now) return false;
+      const claimed = await tx.worldMarch.updateMany({
+        where: { id, status: "IN_TRANSIT", arrivesAt: { lte: now } },
+        data: { status: "RESOLVING" },
+      });
+      if (!claimed.count) return false;
+
+      const event = await tx.worldEvent.findUnique({ where: { id: march.eventId } });
+      if (!event) throw new Error(`March ${id} references a missing world event.`);
+      let damage = 0;
+      let casualties = { infantry: 0, archers: 0, cavalry: 0, total: 0 };
+      if (
+        event.eventType === "WORLD_BOSS" &&
+        event.status !== "CANCELED" &&
+        event.status !== "COMPLETED" &&
+        event.endsAt > now &&
+        event.bossHpRemaining > 0
+      ) {
+        const potentialDamage =
+          march.infantry * TROOP_STATS.INFANTRY.damage +
+          march.archers * TROOP_STATS.ARCHERS.damage +
+          march.cavalry * TROOP_STATS.CAVALRY.damage;
+        const attemptedDamage = Math.min(event.bossHpRemaining, potentialDamage);
+        const boss = await tx.worldEvent.updateMany({
+          where: {
+            id: event.id,
+            bossHpRemaining: event.bossHpRemaining,
+            status: { notIn: ["CANCELED", "COMPLETED"] },
+          },
+          data: { bossHpRemaining: { decrement: attemptedDamage } },
+        });
+        if (boss.count) {
+          damage = attemptedDamage;
+          casualties = calculateCasualties(march.infantry, march.archers, march.cavalry);
+        }
+        if (damage > 0) {
+          await tx.worldEventParticipation.updateMany({
+            where: { eventId: event.id, userId: march.userId },
+            data: { score: { increment: damage } },
+          });
+        }
+      }
+
+      const returnsAt = new Date(now.getTime() + event.marchTravelSeconds * 1000);
+      await tx.worldMarch.update({
+        where: { id },
+        data: {
+          status: "RETURNING",
+          damage,
+          casualties: casualties.total,
+          infantry: march.infantry - casualties.infantry,
+          archers: march.archers - casualties.archers,
+          cavalry: march.cavalry - casualties.cavalry,
+          returnsAt,
+        },
+      });
+
+      if (event.eventType === "WORLD_BOSS" && damage > 0) {
+        const remaining = await tx.worldEvent.findUniqueOrThrow({
+          where: { id: event.id },
+          select: { bossHpRemaining: true },
+        });
+        if (remaining.bossHpRemaining <= 0) {
+          await tx.worldEvent.updateMany({
+            where: { id: event.id, status: { not: "CANCELED" } },
+            data: { bossHpRemaining: 0, status: "COMPLETED" },
+          });
+          await tx.worldJob.updateMany({
+            where: { eventId: event.id, status: "PENDING" },
+            data: { runAt: now },
+          });
+        }
+      }
+      return true;
+    });
+    if (didImpact) impacted += 1;
+  }
+
+  const returning = await prisma.worldMarch.findMany({
+    where: { status: "RETURNING", returnsAt: { lte: now } },
+    orderBy: { returnsAt: "asc" },
+    take: 100,
+    select: { id: true, userId: true, infantry: true, archers: true, cavalry: true },
+  });
+  let returned = 0;
+  for (const march of returning) {
+    const didReturn = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.worldMarch.updateMany({
+        where: { id: march.id, status: "RETURNING", returnsAt: { lte: now } },
+        data: { status: "RETURNED" },
+      });
+      if (!claimed.count) return false;
+      const base = await tx.worldBase.updateMany({
+        where: { userId: march.userId, marchActive: true },
+        data: {
+          infantry: { increment: march.infantry },
+          archers: { increment: march.archers },
+          cavalry: { increment: march.cavalry },
+          marchActive: false,
+          version: { increment: 1 },
+        },
+      });
+      if (!base.count) throw new Error(`Could not return troops for march ${march.id}.`);
+      return true;
+    });
+    if (didReturn) returned += 1;
+  }
+  return { impacted, returned };
+}
+
 export async function processScheduledWorldJobs(now = new Date()) {
   await ensureDailyWorldEvents(now);
+  const trained = await processWorldTraining(now);
+  const marches = await processWorldMarches(now);
   const staleBefore = new Date(now.getTime() - JOB_LOCK_TIMEOUT_MS);
   const dueJobs = await prisma.worldJob.findMany({
     where: {
@@ -321,14 +559,17 @@ export async function processScheduledWorldJobs(now = new Date()) {
           });
           return;
         }
-        if (job.status === "COMPLETED" || event.status === "COMPLETED") {
+        if (job.status === "COMPLETED") {
           await tx.worldJob.update({
             where: { id: candidate.id },
             data: { status: "COMPLETED", completedAt: now, lockedAt: null },
           });
           return;
         }
-        if (event.endsAt > now) throw new Error("Event settlement ran before its end time.");
+        const bossDefeated = event.eventType === "WORLD_BOSS" && event.bossHpRemaining <= 0;
+        if (event.endsAt > now && !bossDefeated) {
+          throw new Error("Event settlement ran before its end time.");
+        }
 
         const participants = await tx.worldEventParticipation.findMany({
           where: { eventId: event.id },
@@ -382,7 +623,7 @@ export async function processScheduledWorldJobs(now = new Date()) {
     }
   }
 
-  return { processed, retried, failed };
+  return { processed, retried, failed, trained, marches };
 }
 
 export async function loadWorldSnapshot(userId: string, now = new Date()): Promise<WorldSnapshot> {
@@ -390,7 +631,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   await processScheduledWorldJobs(now);
   const world = await advanceWorld(userId, now);
   const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
-  const [events, pending] = await Promise.all([
+  const [events, pending, activeMarch] = await Promise.all([
     prisma.worldEvent.findMany({
       where: { endsAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
       orderBy: { startsAt: "desc" },
@@ -417,6 +658,11 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       include: { event: { select: { id: true, title: true } } },
       orderBy: { joinedAt: "desc" },
     }),
+    prisma.worldMarch.findFirst({
+      where: { userId, status: { in: ["IN_TRANSIT", "RETURNING"] } },
+      orderBy: { dispatchedAt: "desc" },
+      include: { event: { select: { id: true, title: true } } },
+    }),
   ]);
 
   return {
@@ -432,6 +678,15 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       capacity: base.warehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
       woodPerHour: productionFor(base.factoryLevel, "wood"),
       stonePerHour: productionFor(base.factoryLevel, "stone"),
+      army: {
+        infantry: base.infantry,
+        archers: base.archers,
+        cavalry: base.cavalry,
+        trainingType: base.trainingType,
+        trainingCount: base.trainingCount,
+        trainingCompletesAt: base.trainingCompletesAt?.toISOString() ?? null,
+        marchActive: base.marchActive,
+      },
     },
     offline: {
       elapsedSeconds: world.elapsedSeconds,
@@ -445,13 +700,13 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       const status: WorldSnapshot["events"][number]["status"] =
         event.status === "CANCELED"
           ? "CANCELED"
+          : event.status === "COMPLETED"
+            ? "COMPLETED"
           : now < event.startsAt
           ? "SCHEDULED"
           : now < event.endsAt
             ? "ACTIVE"
-            : event.status === "COMPLETED"
-              ? "COMPLETED"
-              : "PROCESSING";
+            : "PROCESSING";
       return {
         id: event.id,
         title: event.title,
@@ -469,6 +724,26 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
           { wood: event.secondRewardWood, stone: event.secondRewardStone },
           { wood: event.thirdRewardWood, stone: event.thirdRewardStone },
         ],
+        eventType: event.eventType === "WORLD_BOSS" ? "WORLD_BOSS" : "RESOURCE_RUSH",
+        bossHp: event.bossHp,
+        bossHpRemaining: event.bossHpRemaining,
+        marchTravelSeconds: event.marchTravelSeconds,
+        activeMarch:
+          activeMarch?.eventId === event.id
+            ? {
+                id: activeMarch.id,
+                eventId: event.id,
+                eventTitle: event.title,
+                status: activeMarch.status,
+                arrivesAt: activeMarch.arrivesAt.toISOString(),
+                returnsAt: activeMarch.returnsAt?.toISOString() ?? null,
+                damage: activeMarch.damage,
+                infantry: activeMarch.infantry,
+                archers: activeMarch.archers,
+                cavalry: activeMarch.cavalry,
+                casualties: activeMarch.casualties,
+              }
+            : null,
         joined,
         score: joined ? event.participants[participantIndex].score : 0,
         rank: joined ? participantIndex + 1 : null,
@@ -487,8 +762,11 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   };
 }
 
-function eventIsActive(event: { startsAt: Date; endsAt: Date }, now: Date) {
-  return event.startsAt <= now && event.endsAt > now;
+function eventIsActive(event: { startsAt: Date; endsAt: Date; status?: string }, now: Date) {
+  return event.status !== "CANCELED" &&
+    event.status !== "COMPLETED" &&
+    event.startsAt <= now &&
+    event.endsAt > now;
 }
 
 export async function performWorldAction(
@@ -497,10 +775,18 @@ export async function performWorldAction(
     | { type: "join"; eventId: string }
     | { type: "contribute"; eventId: string }
     | { type: "claim"; eventId: string }
+    | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
+    | {
+        type: "dispatch";
+        eventId: string;
+        infantry: number;
+        archers: number;
+        cavalry: number;
+      }
     | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" },
   now = new Date(),
 ) {
-  await ensureDailyWorldEvents(now);
+  await processScheduledWorldJobs(now);
 
   if (action.type === "upgrade") {
     const current = await advanceWorld(userId, now);
@@ -541,6 +827,118 @@ export async function performWorldAction(
     return { message: "Đã bắt đầu nâng cấp công trình." };
   }
 
+  if (action.type === "train") {
+    const current = await advanceWorld(userId, now);
+    const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
+    const stats = TROOP_STATS[action.troopType];
+    if (base.trainingType) {
+      throw new WorldActionError("Hàng đợi đang huấn luyện một đạo quân.", 409);
+    }
+    const troopField =
+      action.troopType === "INFANTRY"
+        ? "infantry"
+        : action.troopType === "ARCHERS"
+          ? "archers"
+          : "cavalry";
+    if (base[troopField] + action.count > MAX_TROOPS_PER_TYPE) {
+      throw new WorldActionError(`Mỗi loại quân được giới hạn ${MAX_TROOPS_PER_TYPE.toLocaleString("vi-VN")} lính.`, 400);
+    }
+    const woodCost = stats.costWood * action.count;
+    const stoneCost = stats.costStone * action.count;
+    const trainingCompletesAt = new Date(now.getTime() + stats.trainingSeconds * action.count * 1000);
+    const started = await prisma.worldBase.updateMany({
+      where: {
+        id: base.id,
+        version: current.version,
+        trainingType: null,
+        wood: { gte: woodCost },
+        stone: { gte: stoneCost },
+        [troopField]: { lte: MAX_TROOPS_PER_TYPE - action.count },
+      },
+      data: {
+        wood: { decrement: woodCost },
+        stone: { decrement: stoneCost },
+        trainingType: action.troopType,
+        trainingCount: action.count,
+        trainingCompletesAt,
+        version: { increment: 1 },
+      },
+    });
+    if (!started.count) {
+      if (base.wood < woodCost || base.stone < stoneCost) {
+        throw new WorldActionError(`Cần ${woodCost} gỗ và ${stoneCost} đá để huấn luyện.`, 400);
+      }
+      throw new WorldActionError("Căn cứ vừa thay đổi. Hãy tải lại và thử lại.", 409);
+    }
+    return {
+      message: `Đã bắt đầu huấn luyện ${action.count} ${stats.label}; dự kiến hoàn tất sau ${Math.ceil(stats.trainingSeconds * action.count / 60)} phút.`,
+    };
+  }
+
+  if (action.type === "dispatch") {
+    const troopCount = action.infantry + action.archers + action.cavalry;
+    if (troopCount <= 0 || troopCount > MAX_TROOPS_PER_MARCH) {
+      throw new WorldActionError(`Mỗi lượt điều tối đa ${MAX_TROOPS_PER_MARCH} quân và cần có ít nhất 1 lính.`, 400);
+    }
+    const current = await advanceWorld(userId, now);
+    const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
+    const march = await prisma.$transaction(async (tx) => {
+      const event = await tx.worldEvent.findUnique({ where: { id: action.eventId } });
+      if (
+        !event ||
+        event.eventType !== "WORLD_BOSS" ||
+        event.status === "CANCELED" ||
+        event.status === "COMPLETED" ||
+        !eventIsActive(event, now) ||
+        event.bossHpRemaining <= 0
+      ) {
+        throw new WorldActionError("Boss không còn nhận quân hành quân.", 409);
+      }
+      const participation = await tx.worldEventParticipation.findUnique({
+        where: { eventId_userId: { eventId: event.id, userId } },
+        select: { id: true },
+      });
+      if (!participation) throw new WorldActionError("Hãy tham gia sự kiện trước khi điều quân.", 400);
+      if (base.trainingType) throw new WorldActionError("Chờ huấn luyện hoàn tất trước khi điều quân.", 409);
+      if (base.marchActive) throw new WorldActionError("Đạo quân trước vẫn chưa trở về.", 409);
+
+      const reserved = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: current.version,
+          marchActive: false,
+          infantry: { gte: action.infantry },
+          archers: { gte: action.archers },
+          cavalry: { gte: action.cavalry },
+        },
+        data: {
+          infantry: { decrement: action.infantry },
+          archers: { decrement: action.archers },
+          cavalry: { decrement: action.cavalry },
+          marchActive: true,
+          version: { increment: 1 },
+        },
+      });
+      if (!reserved.count) {
+        throw new WorldActionError("Không đủ quân hoặc căn cứ vừa thay đổi. Hãy tải lại.", 409);
+      }
+      const arrivesAt = new Date(now.getTime() + event.marchTravelSeconds * 1000);
+      return tx.worldMarch.create({
+        data: {
+          eventId: event.id,
+          userId,
+          infantry: action.infantry,
+          archers: action.archers,
+          cavalry: action.cavalry,
+          dispatchedAt: now,
+          arrivesAt,
+        },
+        select: { arrivesAt: true },
+      });
+    });
+    return { message: `Đạo quân đang hành quân; dự kiến tới boss lúc ${march.arrivesAt.toISOString()}.` };
+  }
+
   if (action.type === "join") {
     const base = await advanceWorld(userId, now);
     await prisma.$transaction(async (tx) => {
@@ -578,6 +976,9 @@ export async function performWorldAction(
       const event = await tx.worldEvent.findUnique({ where: { id: action.eventId } });
       if (!event || event.status === "CANCELED" || !eventIsActive(event, now)) {
         throw new WorldActionError("Sự kiện hiện không mở.", 409);
+      }
+      if (event.eventType !== "RESOURCE_RUSH") {
+        throw new WorldActionError("Boss chỉ nhận sát thương từ các đạo quân hành quân.", 409);
       }
       const participation = await tx.worldEventParticipation.findUnique({
         where: { eventId_userId: { eventId: event.id, userId } },

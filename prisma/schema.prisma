@@ -279,6 +279,7 @@ model ContestProblem {
   letter      String
   customTitle String?
   judgeType   String?
+  scoringMode String?
   ioMode      String?
   inputFile   String?
   outputFile  String?
@@ -523,11 +524,19 @@ model WorldBase {
   warehouseLevel        Int      @default(1)
   upgradeType           String?
   upgradeCompletesAt    DateTime?
+  infantry              Int      @default(0)
+  archers               Int      @default(0)
+  cavalry               Int      @default(0)
+  trainingType          String?
+  trainingCount         Int      @default(0)
+  trainingCompletesAt   DateTime?
+  marchActive           Boolean  @default(false)
   lastSimulatedAt       DateTime @default(now())
   version               Int      @default(0)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marches               WorldMarch[]
 
   @@index([lastSimulatedAt])
 }
@@ -535,6 +544,7 @@ model WorldBase {
 model WorldEvent {
   id                String   @id @default(cuid())
   slug              String   @unique
+  eventType         String   @default("RESOURCE_RUSH")
   title             String
   description       String
   startsAt          DateTime
@@ -550,10 +560,14 @@ model WorldEvent {
   secondRewardStone Int      @default(150)
   thirdRewardWood   Int      @default(150)
   thirdRewardStone  Int      @default(75)
+  bossHp            Int      @default(0)
+  bossHpRemaining   Int      @default(0)
+  marchTravelSeconds Int    @default(60)
   status            String   @default("SCHEDULED")
   createdAt         DateTime @default(now())
   participants      WorldEventParticipation[]
   jobs              WorldJob[]
+  marches           WorldMarch[]
 
   @@index([status, startsAt, endsAt])
 }
@@ -590,4 +604,26 @@ model WorldJob {
   event       WorldEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([status, runAt, lockedAt])
+}
+
+model WorldMarch {
+  id          String   @id @default(cuid())
+  eventId     String
+  userId      String
+  infantry    Int      @default(0)
+  archers     Int      @default(0)
+  cavalry     Int      @default(0)
+  damage      Int      @default(0)
+  casualties  Int      @default(0)
+  dispatchedAt DateTime @default(now())
+  arrivesAt   DateTime
+  returnsAt   DateTime?
+  status      String   @default("IN_TRANSIT")
+  event       WorldEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  base        WorldBase @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([status, arrivesAt])
+  @@index([status, returnsAt])
+  @@index([userId, status])
+  @@index([eventId, dispatchedAt])
 }

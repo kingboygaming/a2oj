@@ -36,6 +36,7 @@ export default async function AdminWorldPage() {
         initialEvents={events.map((event) => ({
           id: event.id,
           slug: event.slug,
+          eventType: event.eventType === "WORLD_BOSS" ? "WORLD_BOSS" : "RESOURCE_RUSH",
           title: event.title,
           description: event.description,
           startsAt: event.startsAt.toISOString(),
@@ -46,6 +47,9 @@ export default async function AdminWorldPage() {
           minFactoryLevel: event.minFactoryLevel,
           contributionWoodCost: event.contributionWoodCost,
           contributionCooldownSeconds: event.contributionCooldownSeconds,
+          bossHp: event.bossHp,
+          bossHpRemaining: event.bossHpRemaining,
+          marchTravelSeconds: event.marchTravelSeconds,
           rewards: [
             { wood: event.firstRewardWood, stone: event.firstRewardStone },
             { wood: event.secondRewardWood, stone: event.secondRewardStone },

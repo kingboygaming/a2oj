@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 type AdminEvent = {
   id: string;
   slug: string;
+  eventType: "RESOURCE_RUSH" | "WORLD_BOSS";
   title: string;
   description: string;
   startsAt: string;
@@ -16,6 +17,9 @@ type AdminEvent = {
   minFactoryLevel: number;
   contributionWoodCost: number;
   contributionCooldownSeconds: number;
+  bossHp: number;
+  bossHpRemaining: number;
+  marchTravelSeconds: number;
   rewards: Array<{ wood: number; stone: number }>;
   status: string;
   job: { status: string; attempts: number; lastError: string | null } | null;
@@ -72,6 +76,7 @@ function NumberField({
 
 export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[] }) {
   const router = useRouter();
+  const [eventType, setEventType] = useState<AdminEvent["eventType"]>("RESOURCE_RUSH");
   const [busy, setBusy] = useState(false);
   const [busyEvent, setBusyEvent] = useState("");
   const [message, setMessage] = useState("");
@@ -81,6 +86,7 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
     const startsAt = String(formData.get("startsAt") ?? "");
     const endsAt = String(formData.get("endsAt") ?? "");
     const payload = {
+      eventType: String(formData.get("eventType") ?? "RESOURCE_RUSH"),
       title: String(formData.get("title") ?? ""),
       description: String(formData.get("description") ?? ""),
       startsAt: startsAt ? new Date(startsAt).toISOString() : "",
@@ -95,6 +101,8 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
       secondRewardStone: Number(formData.get("secondRewardStone")),
       thirdRewardWood: Number(formData.get("thirdRewardWood")),
       thirdRewardStone: Number(formData.get("thirdRewardStone")),
+      bossHp: Number(formData.get("bossHp") ?? 0),
+      marchTravelSeconds: Number(formData.get("marchTravelSeconds") ?? 60),
     };
 
     setBusy(true);
@@ -109,6 +117,7 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Không tạo được sự kiện.");
       setMessage(`Đã tạo sự kiện "${payload.title}".`);
+      setEventType("RESOURCE_RUSH");
       (document.getElementById("world-event-form") as HTMLFormElement | null)?.reset();
       router.refresh();
     } catch (error) {
@@ -171,9 +180,21 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
         className="space-y-5 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5"
       >
         <div>
-          <h2 className="text-xl font-bold text-[var(--navy)]">Tạo sự kiện thu thập tài nguyên</h2>
+          <h2 className="text-xl font-bold text-[var(--navy)]">Tạo sự kiện thế giới</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">Thời gian hiển thị theo múi giờ máy của bạn; hệ thống lưu UTC.</p>
         </div>
+        <label className="block text-sm text-[var(--navy)]">
+          Loại sự kiện
+          <select
+            name="eventType"
+            value={eventType}
+            onChange={(event) => setEventType(event.target.value === "WORLD_BOSS" ? "WORLD_BOSS" : "RESOURCE_RUSH")}
+            className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--ink)]"
+          >
+            <option value="RESOURCE_RUSH">Thu thập tài nguyên</option>
+            <option value="WORLD_BOSS">Boss toàn server</option>
+          </select>
+        </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm text-[var(--navy)]">
             Tên sự kiện
@@ -202,6 +223,17 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
             <NumberField label="Cooldown (giây)" name="contributionCooldownSeconds" defaultValue={5} min={1} max={3600} />
           </div>
         </fieldset>
+
+        {eventType === "WORLD_BOSS" && (
+          <fieldset className="space-y-3 rounded-xl border border-rose-400/30 bg-rose-400/5 p-4">
+            <legend className="px-1 text-sm font-bold text-[var(--navy)]">Thông số boss</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <NumberField label="Máu boss (HP)" name="bossHp" defaultValue={100000} min={1000} max={100000000} />
+              <NumberField label="Thời gian hành quân một chiều (giây)" name="marchTravelSeconds" defaultValue={60} min={30} max={86400} />
+            </div>
+            <p className="text-xs text-[var(--muted)]">Sát thương tính theo quân đến nơi; đạo quân sẽ quay về, mất khoảng 10% quân số.</p>
+          </fieldset>
+        )}
 
         <fieldset className="space-y-3 rounded-xl border border-[var(--line)] p-4">
           <legend className="px-1 text-sm font-bold text-[var(--navy)]">Phần thưởng theo thứ hạng</legend>
@@ -234,7 +266,7 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-bold text-[var(--navy)]">{event.title}</h3>
+                      <h3 className="font-bold text-[var(--navy)]">{event.eventType === "WORLD_BOSS" ? "🐲 " : ""}{event.title}</h3>
                       <span className="rounded-full bg-[var(--teal)]/10 px-2 py-0.5 text-xs font-semibold text-[var(--teal)]">{statusLabel(event.status)}</span>
                       {event.slug.startsWith("custom-") && <span className="text-xs text-[var(--muted)]">Quản trị</span>}
                     </div>
@@ -245,6 +277,11 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Thưởng: {event.rewards.map((reward, index) => `H${index + 1} ${reward.wood} gỗ/${reward.stone} đá`).join(" · ")}
                     </p>
+                    {event.eventType === "WORLD_BOSS" && (
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Boss: {event.bossHpRemaining.toLocaleString("vi-VN")}/{event.bossHp.toLocaleString("vi-VN")} HP · hành quân {event.marchTravelSeconds}s một chiều
+                      </p>
+                    )}
                     {event.job?.status === "FAILED" && (
                       <p role="alert" className="mt-2 text-xs text-rose-600">
                         Tác vụ tổng kết lỗi sau {event.job.attempts} lần thử: {event.job.lastError ?? "Xem log máy chủ."}

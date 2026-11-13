@@ -17,6 +17,18 @@ const requestSchema = z.discriminatedUnion("type", [
     type: z.literal("upgrade"),
     building: z.enum(["FACTORY", "WAREHOUSE"]),
   }),
+  z.object({
+    type: z.literal("train"),
+    troopType: z.enum(["INFANTRY", "ARCHERS", "CAVALRY"]),
+    count: z.number().int().min(1).max(100),
+  }),
+  z.object({
+    type: z.literal("dispatch"),
+    eventId: z.string().min(1),
+    infantry: z.number().int().min(0).max(500),
+    archers: z.number().int().min(0).max(500),
+    cavalry: z.number().int().min(0).max(500),
+  }),
 ]);
 
 export async function POST(request: Request) {

@@ -7,7 +7,9 @@ type ActionRequest =
   | { type: "join"; eventId: string }
   | { type: "contribute"; eventId: string }
   | { type: "claim"; eventId: string }
-  | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" };
+  | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" }
+  | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
+  | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number };
 
 function utcLabel(value: string) {
   return `${value.slice(0, 16).replace("T", " ")} UTC`;
@@ -21,6 +23,8 @@ function formatElapsed(seconds: number) {
 
 export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSnapshot }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [trainingCount, setTrainingCount] = useState(10);
+  const [marchArmy, setMarchArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
@@ -63,6 +67,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
     stone: (snapshot.base.warehouseLevel + 1) * 100,
   };
   const upgrading = snapshot.base.upgradeType !== null;
+  const activeMarch = snapshot.events.find((event) => event.activeMarch)?.activeMarch ?? null;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -161,6 +166,66 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
         </p>
       )}
 
+      <section className="mt-5 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--teal)]">Quân đội</p>
+            <h2 className="mt-1 text-lg font-bold text-[var(--navy)]">Huấn luyện binh sĩ</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">Một hàng đợi huấn luyện tại một thời điểm. Quân hoàn thành theo giờ máy chủ.</p>
+          </div>
+          <label className="text-xs text-[var(--muted)]">
+            Số lượng mỗi đợt
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={trainingCount}
+              onChange={(event) => setTrainingCount(Math.min(100, Math.max(1, Number(event.target.value) || 1)))}
+              className="mt-1 block w-28 rounded-md border border-[var(--line)] bg-[var(--background)] px-2.5 py-2 text-sm text-[var(--ink)]"
+            />
+          </label>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {([
+            { type: "INFANTRY", label: "Bộ binh", icon: "🛡️", count: snapshot.base.army.infantry, cost: "10 gỗ · 5 đá", damage: 10 },
+            { type: "ARCHERS", label: "Cung thủ", icon: "🏹", count: snapshot.base.army.archers, cost: "15 gỗ · 5 đá", damage: 15 },
+            { type: "CAVALRY", label: "Kỵ binh", icon: "🐎", count: snapshot.base.army.cavalry, cost: "20 gỗ · 10 đá", damage: 20 },
+          ] as const).map((troop) => (
+            <article key={troop.type} className="rounded-xl border border-[var(--line)] p-4">
+              <p className="text-sm font-bold text-[var(--navy)]">{troop.icon} {troop.label}</p>
+              <p className="mt-1 text-lg font-black text-[var(--navy)]">{troop.count.toLocaleString("vi-VN")} quân</p>
+              <p className="text-xs text-[var(--muted)]">{troop.cost}/lính · {troop.damage} sát thương/lính</p>
+              <button
+                type="button"
+                disabled={Boolean(busy) || Boolean(snapshot.base.army.trainingType)}
+                onClick={() => void act(`train-${troop.type}`, {
+                  type: "train",
+                  troopType: troop.type,
+                  count: trainingCount,
+                })}
+                className="mt-3 w-full rounded-lg border border-[var(--teal)] px-3 py-2 text-sm font-bold text-[var(--teal)] disabled:opacity-50"
+              >
+                {busy === `train-${troop.type}` ? "Đang xếp hàng…" : `Huấn luyện ${trainingCount}`}
+              </button>
+            </article>
+          ))}
+        </div>
+        {snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt && (
+          <p className="mt-3 rounded-lg bg-[var(--teal)]/5 px-3 py-2 text-sm text-[var(--navy)]">
+            Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"}; hoàn tất lúc {utcLabel(snapshot.base.army.trainingCompletesAt)}.
+          </p>
+        )}
+        {activeMarch && (
+          <p className="mt-3 rounded-lg bg-rose-400/5 px-3 py-2 text-sm text-[var(--navy)]">
+            {activeMarch.status === "RETURNING" ? "Quân đang trở về từ" : "Quân đang hành quân tới"} {activeMarch.eventTitle}.
+            {activeMarch.status === "RETURNING" && ` Sát thương ${activeMarch.damage.toLocaleString("vi-VN")}, tổn thất ${activeMarch.casualties} quân.`}
+            {" "}{activeMarch.status === "RETURNING" && activeMarch.returnsAt
+              ? `Dự kiến về lúc ${utcLabel(activeMarch.returnsAt)}.`
+              : `Dự kiến tới lúc ${utcLabel(activeMarch.arrivesAt)}.`}
+          </p>
+        )}
+      </section>
+
       {snapshot.pendingRewards.length > 0 && (
         <section className="mt-7">
           <h2 className="mb-3 text-xl font-bold text-[var(--navy)]">🎁 Thưởng chưa nhận</h2>
@@ -208,6 +273,27 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     Thưởng: {event.rewards.map((reward, index) => `H${index + 1} ${reward.wood} gỗ/${reward.stone} đá`).join(" · ")}
                   </p>
+                  {event.eventType === "WORLD_BOSS" && (
+                    <div className="mt-3 max-w-xl">
+                      <div className="flex justify-between gap-2 text-xs font-semibold text-[var(--navy)]">
+                        <span>🐲 Boss toàn server</span>
+                        <span>{event.bossHpRemaining.toLocaleString("vi-VN")} / {event.bossHp.toLocaleString("vi-VN")} HP</span>
+                      </div>
+                      <div
+                        role="progressbar"
+                        aria-label="Máu boss"
+                        aria-valuemin={0}
+                        aria-valuemax={event.bossHp}
+                        aria-valuenow={event.bossHpRemaining}
+                        className="mt-1 h-3 overflow-hidden rounded-full bg-rose-950/20"
+                      >
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-rose-600 to-orange-400 transition-[width]"
+                          style={{ width: `${event.bossHp > 0 ? Math.max(0, Math.min(100, event.bossHpRemaining / event.bossHp * 100)) : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {event.status === "ACTIVE" && (
                   <div className="flex gap-2">
@@ -221,7 +307,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                         {busy === `join-${event.id}` ? "Đang vào…" : snapshot.base.factoryLevel < event.minFactoryLevel ? `Cần nhà máy cấp ${event.minFactoryLevel}` : "Tham gia"}
                       </button>
                     )}
-                    {event.joined && (
+                    {event.joined && event.eventType === "RESOURCE_RUSH" && (
                       <button
                         type="button"
                         disabled={Boolean(busy)}
@@ -234,12 +320,75 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                   </div>
                 )}
               </div>
+              {event.status === "ACTIVE" && event.joined && event.eventType === "WORLD_BOSS" && (
+                <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/5 p-4">
+                  {event.activeMarch ? (
+                    <div className="text-sm text-[var(--navy)]">
+                      <p className="font-bold">
+                        {event.activeMarch.status === "RETURNING" ? "Đạo quân đang trở về căn cứ" : "Đạo quân đang hành quân"}
+                      </p>
+                      <p className="mt-1 text-[var(--muted)]">
+                        {event.activeMarch.infantry} bộ binh · {event.activeMarch.archers} cung thủ · {event.activeMarch.cavalry} kỵ binh
+                        {event.activeMarch.status === "RETURNING" && ` · Gây ${event.activeMarch.damage.toLocaleString("vi-VN")} sát thương · Mất ${event.activeMarch.casualties} quân`}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        {event.activeMarch.status === "RETURNING" && event.activeMarch.returnsAt
+                          ? `Dự kiến về lúc ${utcLabel(event.activeMarch.returnsAt)}`
+                          : `Dự kiến tới lúc ${utcLabel(event.activeMarch.arrivesAt)}`}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-bold text-[var(--navy)]">Điều quân đánh boss</p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Tối đa 500 quân mỗi đạo. Sát thương được tính khi đến nơi; 10% quân số hy sinh và phần còn lại quay về.
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        {([
+                          ["infantry", "Bộ binh", snapshot.base.army.infantry],
+                          ["archers", "Cung thủ", snapshot.base.army.archers],
+                          ["cavalry", "Kỵ binh", snapshot.base.army.cavalry],
+                        ] as const).map(([field, label, available]) => (
+                          <label key={field} className="text-xs text-[var(--muted)]">
+                            {label} · có {available}
+                            <input
+                              type="number"
+                              min={0}
+                              max={available}
+                              value={marchArmy[field]}
+                              onChange={(inputEvent) => setMarchArmy((current) => ({
+                                ...current,
+                                [field]: Math.max(0, Math.min(available, Number(inputEvent.target.value) || 0)),
+                              }))}
+                              className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-2.5 py-2 text-sm text-[var(--ink)]"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={Boolean(busy) || snapshot.base.army.trainingType !== null || Object.values(marchArmy).reduce((sum, count) => sum + count, 0) === 0 || Object.values(marchArmy).reduce((sum, count) => sum + count, 0) > 500}
+                        onClick={() => void act(`march-${event.id}`, {
+                          type: "dispatch",
+                          eventId: event.id,
+                          ...marchArmy,
+                        })}
+                        className="mt-3 rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy === `march-${event.id}` ? "Đang điều quân…" : "Cử quân đi đánh"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               {event.leaderboard.length > 0 && (
                 <ol className="mt-4 grid gap-1 border-t border-[var(--line)] pt-3 sm:grid-cols-2">
                   {event.leaderboard.slice(0, 10).map((player, index) => (
                     <li key={`${event.id}-${index}`} className="flex items-center justify-between gap-3 rounded-md px-2 py-1 text-sm text-[var(--navy)]">
                       <span className="truncate">{index + 1}. {player.name}</span>
-                      <span className="shrink-0 font-bold">{player.score} điểm</span>
+                      <span className="shrink-0 font-bold">
+                        {player.score.toLocaleString("vi-VN")} {event.eventType === "WORLD_BOSS" ? "sát thương" : "điểm"}
+                      </span>
                     </li>
                   ))}
                 </ol>

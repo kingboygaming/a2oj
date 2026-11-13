@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 
 const eventSchema = z.object({
+  eventType: z.enum(["RESOURCE_RUSH", "WORLD_BOSS"]),
   title: z.string().trim().min(3).max(100),
   description: z.string().trim().min(3).max(1_000),
   startsAt: z.string().datetime(),
@@ -21,6 +22,8 @@ const eventSchema = z.object({
   secondRewardStone: z.number().int().min(0).max(100_000),
   thirdRewardWood: z.number().int().min(0).max(100_000),
   thirdRewardStone: z.number().int().min(0).max(100_000),
+  bossHp: z.number().int().min(0).max(100_000_000),
+  marchTravelSeconds: z.number().int().min(30).max(86_400),
 }).superRefine((event, context) => {
   const startsAt = new Date(event.startsAt);
   const endsAt = new Date(event.endsAt);
@@ -40,6 +43,9 @@ const eventSchema = z.object({
     event.thirdRewardWood + event.thirdRewardStone === 0
   ) {
     context.addIssue({ code: "custom", path: ["firstRewardWood"], message: "Cần cấu hình ít nhất một phần thưởng." });
+  }
+  if (event.eventType === "WORLD_BOSS" && event.bossHp < 1_000) {
+    context.addIssue({ code: "custom", path: ["bossHp"], message: "Boss cần ít nhất 1.000 HP." });
   }
 });
 
@@ -80,6 +86,7 @@ export async function POST(request: Request) {
       data: {
         slug,
         ...parsed.data,
+        bossHpRemaining: parsed.data.eventType === "WORLD_BOSS" ? parsed.data.bossHp : 0,
         startsAt: new Date(parsed.data.startsAt),
         endsAt: new Date(parsed.data.endsAt),
       },
