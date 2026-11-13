@@ -415,7 +415,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                     {event.joined && ` · Điểm của bạn: ${event.score}${event.rank ? ` · Hạng ${event.rank}` : ""}`}
                   </p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    Điều kiện: nhà máy cấp {event.minFactoryLevel}+ · đóng góp {event.contributionWoodCost} gỗ/lượt · cooldown {event.contributionCooldownSeconds}s
+                    Điều kiện: Thành chính cấp {event.minFactoryLevel}+ · đóng góp {event.contributionWoodCost} gỗ/lượt · cooldown {event.contributionCooldownSeconds}s
                   </p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     Thưởng: {event.rewards.map((reward, index) => `H${index + 1} ${reward.wood} gỗ/${reward.stone} đá`).join(" · ")}
@@ -447,11 +447,11 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                     {!event.joined && (
                       <button
                         type="button"
-                        disabled={Boolean(busy) || event.participantCount >= event.participantLimit || snapshot.base.factoryLevel < event.minFactoryLevel}
+                        disabled={Boolean(busy) || event.participantCount >= event.participantLimit || snapshot.base.castleLevel < event.minFactoryLevel}
                         onClick={() => void act(`join-${event.id}`, { type: "join", eventId: event.id })}
                         className="rounded-lg border border-[var(--teal)] px-3 py-2 text-sm font-bold text-[var(--teal)] disabled:opacity-50"
                       >
-                        {busy === `join-${event.id}` ? "Đang vào…" : snapshot.base.factoryLevel < event.minFactoryLevel ? `Cần nhà máy cấp ${event.minFactoryLevel}` : "Tham gia"}
+                        {busy === `join-${event.id}` ? "Đang vào…" : snapshot.base.castleLevel < event.minFactoryLevel ? `Cần Thành chính cấp ${event.minFactoryLevel}` : "Tham gia"}
                       </button>
                     )}
                     {event.joined && event.eventType === "RESOURCE_RUSH" && (

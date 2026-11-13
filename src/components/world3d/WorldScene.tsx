@@ -9,16 +9,22 @@ import { WaterSystem } from "./terrain/WaterSystem";
 import { CastleSystem } from "./city/CastleSystem";
 import { VegetationSystem } from "./vegetation/VegetationSystem";
 import { ArmySystem } from "./army/ArmySystem";
-import { ResourceNodes } from "./city/ResourceNodes";
 import { GroundDecals } from "./terrain/GroundDecals";
 import { getHeightAt } from "./terrain/BiomeManager";
+import { WorldMapSystem } from "./interaction/WorldMapSystem";
+import type { WorldMapObject } from "./interaction/worldObjects";
+import type { WorldBuildingType, WorldBuildingView } from "@/lib/world-buildings";
+import { useCameraStore } from "./engine/useCameraStore";
 
 interface WorldSceneProps {
   baseData: {
     factoryLevel: number;
     warehouseLevel: number;
+    castleLevel: number;
+    playerName: string;
     coordinateX: number;
     coordinateZ: number;
+    buildings: WorldBuildingView[];
     army: {
       infantry: number;
       archers: number;
@@ -26,6 +32,13 @@ interface WorldSceneProps {
       marchActive: boolean;
     };
   };
+  selectedWorldObjectId: string | null;
+  selectedPlotIndex: number | null;
+  placementType: WorldBuildingType | null;
+  onSelectWorldObject: (object: WorldMapObject) => void;
+  onSelectPlot: (plotIndex: number) => void;
+  onSelectCastle: () => void;
+  onSelectBuilding: (plotIndex: number) => void;
 }
 
 function LoadingFallback() {
@@ -37,7 +50,17 @@ function LoadingFallback() {
   );
 }
 
-export function WorldScene({ baseData }: WorldSceneProps) {
+export function WorldScene({
+  baseData,
+  selectedWorldObjectId,
+  selectedPlotIndex,
+  placementType,
+  onSelectWorldObject,
+  onSelectPlot,
+  onSelectCastle,
+  onSelectBuilding,
+}: WorldSceneProps) {
+  const viewMode = useCameraStore((state) => state.viewMode);
   // Normalize coordinates to local world space (center around 0,0)
   // The actual coordinates can be very large, so we center the view
   const cityX = 0;
@@ -64,38 +87,39 @@ export function WorldScene({ baseData }: WorldSceneProps) {
       <Suspense fallback={<LoadingFallback />}>
         <CastleSystem
           position={cityPosition}
-          baseData={{
-            factoryLevel: baseData.factoryLevel,
-            warehouseLevel: baseData.warehouseLevel,
-          }}
+          castleLevel={baseData.castleLevel}
+          playerName={baseData.playerName}
+          buildings={baseData.buildings}
+          cityView={viewMode === "city"}
+          selectedPlotIndex={selectedPlotIndex}
+          placementType={placementType}
+          onSelectPlot={onSelectPlot}
+          onSelectCastle={onSelectCastle}
+          onSelectBuilding={onSelectBuilding}
         />
       </Suspense>
 
-      {/* Vegetation */}
-      <Suspense fallback={null}>
-        <VegetationSystem cityPosition={cityPosition} />
-      </Suspense>
-
-      {/* Army */}
-      <Suspense fallback={null}>
-        <ArmySystem
-          position={cityPosition}
-          army={{
-            infantry: baseData.army.infantry,
-            archers: baseData.army.archers,
-            cavalry: baseData.army.cavalry,
-          }}
-          marchActive={baseData.army.marchActive}
-        />
-      </Suspense>
-
-      {/* Resource nodes + ambient NPCs */}
-      <Suspense fallback={null}>
-        <ResourceNodes cityPosition={cityPosition} />
-      </Suspense>
-
-      {/* Ground decals: cobblestone paths, dirt roads */}
-      <GroundDecals cityPosition={cityPosition} />
+      {viewMode === "world" ? (
+        <>
+          <Suspense fallback={null}>
+            <VegetationSystem cityPosition={cityPosition} />
+            <ArmySystem
+              position={cityPosition}
+              army={{
+                infantry: baseData.army.infantry,
+                archers: baseData.army.archers,
+                cavalry: baseData.army.cavalry,
+              }}
+              marchActive={baseData.army.marchActive}
+            />
+            <WorldMapSystem
+              selectedId={selectedWorldObjectId}
+              onSelect={onSelectWorldObject}
+            />
+          </Suspense>
+          <GroundDecals cityPosition={cityPosition} />
+        </>
+      ) : null}
     </>
   );
 }

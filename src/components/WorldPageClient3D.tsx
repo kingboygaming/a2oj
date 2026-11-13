@@ -9,6 +9,14 @@ import type { GraphicsQuality } from "@/components/world3d/engine/GraphicsSettin
 import type { WorldSnapshot } from "@/lib/world";
 import { Minimap } from "@/components/Minimap";
 import { FPSCounter } from "@/components/FPSCounter";
+import { WorldObjectPanel } from "@/components/world3d/interaction/WorldObjectPanel";
+import type { WorldMapObject } from "@/components/world3d/interaction/worldObjects";
+import { CityBuildingPanel } from "@/components/world3d/city/CityBuildingPanel";
+import {
+  WORLD_BUILDING_DEFINITIONS,
+  WORLD_TRAINING_BUILDINGS,
+  type WorldBuildingType,
+} from "@/lib/world-buildings";
 
 /* Lazy-load the heavy 3D engine — no SSR */
 const WorldEngine = dynamic(
@@ -24,7 +32,6 @@ type ActionRequest =
   | { type: "join"; eventId: string }
   | { type: "contribute"; eventId: string }
   | { type: "claim"; eventId: string }
-  | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
   | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number };
 
@@ -46,7 +53,11 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
-  const [activeTab, setActiveTab] = useState<"base" | "army" | "events" | "alliance">("base");
+  const [activeTab, setActiveTab] = useState<"base" | "army" | "events" | "alliance" | "build">("base");
+  const [selectedWorldObject, setSelectedWorldObject] = useState<WorldMapObject | null>(null);
+  const [resourceStates, setResourceStates] = useState<Record<string, { ownerName: string | null; remaining: number }>>({});
+  const [selectedPlotIndex, setSelectedPlotIndex] = useState<number | null>(null);
+  const [placementType, setPlacementType] = useState<WorldBuildingType | null>(null);
 
   const quality = useGraphicsStore((s) => s.quality);
   const setQuality = useGraphicsStore((s) => s.setQuality);
@@ -96,15 +107,81 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     }
   }
 
-  const factoryCost = {
-    wood: (snapshot.base.factoryLevel + 1) * 100,
-    stone: (snapshot.base.factoryLevel + 1) * 50,
-  };
-  const warehouseCost = {
-    wood: (snapshot.base.warehouseLevel + 1) * 150,
-    stone: (snapshot.base.warehouseLevel + 1) * 100,
-  };
-  const upgrading = snapshot.base.upgradeType !== null;
+  async function buildingAction(
+    type: "BUILD" | "UPGRADE" | "DEMOLISH" | "UPGRADE_CASTLE",
+    plotIndex?: number,
+    buildingType?: WorldBuildingType,
+  ) {
+    setBusy("building");
+    setMessage("");
+    setIsError(false);
+    try {
+      const response = await fetch("/api/world/buildings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          ...(plotIndex === undefined ? {} : { plotIndex }),
+          ...(buildingType ? { buildingType } : {}),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Không thể xây dựng công trình.");
+      setMessage(result.message);
+      setPlacementType(null);
+      await refresh();
+    } catch (error) {
+      setIsError(true);
+      setMessage(error instanceof Error ? error.message : "Không thể xây dựng công trình.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function occupyResource(object: Extract<WorldMapObject, { kind: "RESOURCE" }>, troops: { infantry: number; archers: number; cavalry: number }) {
+    setResourceStates((current) => {
+      const previous = current[object.id];
+      return {
+        ...current,
+        [object.id]: {
+          ownerName: "Bạn",
+          remaining: previous?.remaining ?? object.amount,
+        },
+      };
+    });
+    const power = troops.infantry * 10 + troops.archers * 15 + troops.cavalry * 20;
+    return `Chiếm đóng thành công trong prototype (chiến lực ${power}). Máy chủ chưa ghi nhận đạo quân hoặc quyền sở hữu.`;
+  }
+
+  function gatherResource(amount: number) {
+    if (!selectedWorldObject || selectedWorldObject.kind !== "RESOURCE") return "Không tìm thấy khu tài nguyên.";
+    const currentRemaining = resourceStates[selectedWorldObject.id]?.remaining ?? selectedWorldObject.amount;
+    const gathered = Math.min(amount, currentRemaining);
+    setResourceStates((current) => ({
+      ...current,
+      [selectedWorldObject.id]: {
+        ownerName: "Bạn",
+        remaining: Math.max(0, currentRemaining - gathered),
+      },
+    }));
+    return gathered > 0
+      ? `Prototype: khai thác ${gathered.toLocaleString("vi-VN")} ${selectedWorldObject.resource.toLowerCase()}. Chưa cộng tài nguyên vào tài khoản.`
+      : "Khu vực đã cạn; hãy chờ tái tạo trong gameplay backend.";
+  }
+
+  function attackRogueCamp(
+    object: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>,
+    troops: { infantry: number; archers: number; cavalry: number },
+  ) {
+    const power = troops.infantry * 10 + troops.archers * 15 + troops.cavalry * 20;
+    return power >= object.combatPower
+      ? `Mock victory · chiến lực ${power} / ${object.combatPower}. Phần thưởng dự kiến: ${object.reward}; chưa được máy chủ cấp.`
+      : `Mock defeat · chiến lực ${power} / ${object.combatPower}. Hãy huấn luyện thêm quân; không có tổn thất thật.`;
+  }
+
+  const castleBuilding = selectedPlotIndex === null
+    ? null
+    : snapshot.buildings.find((building) => building.plotIndex === selectedPlotIndex) ?? null;
   const activeMarch = snapshot.events.find((event) => event.activeMarch)?.activeMarch ?? null;
 
   return (
@@ -116,8 +193,11 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             baseData={{
               factoryLevel: snapshot.base.factoryLevel,
               warehouseLevel: snapshot.base.warehouseLevel,
+              castleLevel: snapshot.base.castleLevel,
+              playerName: snapshot.base.playerName,
               coordinateX: snapshot.base.coordinateX,
               coordinateZ: snapshot.base.coordinateZ,
+              buildings: snapshot.buildings,
               army: {
                 infantry: snapshot.base.army.infantry,
                 archers: snapshot.base.army.archers,
@@ -125,9 +205,68 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 marchActive: snapshot.base.army.marchActive,
               },
             }}
+            selectedWorldObjectId={selectedWorldObject?.id ?? null}
+            selectedPlotIndex={selectedPlotIndex}
+            placementType={placementType}
+            onSelectWorldObject={(object) => {
+              setSelectedWorldObject(object);
+              setShowPanel(false);
+            }}
+            onSelectPlot={(plotIndex) => {
+              setSelectedWorldObject(null);
+              setSelectedPlotIndex(plotIndex);
+              setPlacementType(null);
+              setActiveTab("build");
+              setShowPanel(true);
+            }}
+            onSelectCastle={() => {
+              setSelectedPlotIndex(null);
+              setPlacementType(null);
+              setActiveTab("base");
+              setShowPanel(true);
+            }}
+            onSelectBuilding={(plotIndex) => {
+              setSelectedWorldObject(null);
+              setSelectedPlotIndex(plotIndex);
+              setPlacementType(null);
+              setActiveTab("build");
+              setShowPanel(true);
+            }}
           />
         </WorldEngine>
       </div>
+
+      {viewMode === "world" && selectedWorldObject && (
+        <div className="absolute left-3 top-28 z-20">
+          <WorldObjectPanel
+            key={selectedWorldObject.id}
+            object={selectedWorldObject}
+            army={snapshot.base.army}
+            ownerName={
+              selectedWorldObject.kind === "RESOURCE"
+                ? resourceStates[selectedWorldObject.id]?.ownerName ?? null
+                : null
+            }
+            remaining={
+              selectedWorldObject.kind === "RESOURCE"
+                ? resourceStates[selectedWorldObject.id]?.remaining ?? selectedWorldObject.amount
+                : 0
+            }
+            onOccupy={(troops) =>
+              selectedWorldObject.kind === "RESOURCE"
+                ? occupyResource(selectedWorldObject, troops)
+                : "Đối tượng không thể chiếm đóng."
+            }
+            onGather={gatherResource}
+            onAttack={(troops) =>
+              selectedWorldObject.kind === "ROGUE_CAMP"
+                ? attackRogueCamp(selectedWorldObject, troops)
+                : "Đối tượng không thể tấn công."
+            }
+            onClose={() => setSelectedWorldObject(null)}
+          />
+        </div>
+      )}
 
       {/* ── Top bar overlay ── */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
@@ -227,18 +366,18 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
           {/* Tabs */}
           <div className="mb-3 flex gap-1">
-            {(["base", "army", "events", "alliance"] as const).map((tab) => (
+            {(["base", "army", "events", "alliance", "build"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`flex-1 rounded-md px-2 py-1.5 text-xs font-bold transition ${
+                className={`min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-bold transition sm:text-xs ${
                   activeTab === tab
                     ? "bg-[var(--teal)] text-white"
                     : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                {tab === "base" ? "🏗️ Căn cứ" : tab === "army" ? "⚔️ Quân" : tab === "events" ? "📅 Sự kiện" : "🤝 Liên minh"}
+                {tab === "base" ? "🏰 Căn cứ" : tab === "army" ? "⚔️ Quân" : tab === "events" ? "📅 Sự kiện" : tab === "alliance" ? "🤝 Liên minh" : "🏗️ Xây"}
               </button>
             ))}
           </div>
@@ -254,46 +393,110 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 </p>
               </div>
 
-              {/* Factory */}
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-teal-400">🏭 Nhà máy cấp {snapshot.base.factoryLevel}</p>
-                    <p className="mt-0.5 text-xs text-white/50">Sản xuất gỗ và đá</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={Boolean(busy) || upgrading || snapshot.base.factoryLevel >= 20}
-                  onClick={() => void act("factory", { type: "upgrade", building: "FACTORY" })}
-                  className="mt-2 w-full rounded-md bg-teal-600 px-2 py-1.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {busy === "factory" ? "…" : `Nâng cấp · ${factoryCost.wood} gỗ + ${factoryCost.stone} đá`}
-                </button>
-              </div>
-
-              {/* Warehouse */}
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-teal-400">🏗️ Kho cấp {snapshot.base.warehouseLevel}</p>
-                    <p className="mt-0.5 text-xs text-white/50">Sức chứa: {snapshot.base.capacity.toLocaleString("vi-VN")}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={Boolean(busy) || upgrading || snapshot.base.warehouseLevel >= 20}
-                  onClick={() => void act("warehouse", { type: "upgrade", building: "WAREHOUSE" })}
-                  className="mt-2 w-full rounded-md border border-teal-500 px-2 py-1.5 text-xs font-bold text-teal-400 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {busy === "warehouse" ? "…" : `Nâng cấp · ${warehouseCost.wood} gỗ + ${warehouseCost.stone} đá`}
-                </button>
-              </div>
-
-              {upgrading && snapshot.base.upgradeCompletesAt && (
-                <p className="rounded-md bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-300">
-                  ⏳ Đang nâng cấp; hoàn tất lúc {utcLabel(snapshot.base.upgradeCompletesAt)}
+              <div className="rounded-xl border border-amber-200/10 bg-gradient-to-br from-amber-300/10 to-transparent p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/70">Thành chính</p>
+                <p className="mt-1 text-lg font-bold text-white">{snapshot.base.playerName}</p>
+                <p className="mt-1 text-xs text-white/55">
+                  Cấp {snapshot.base.castleLevel} · {snapshot.buildings.length}/12 ô đất đã sử dụng · sức chứa {snapshot.base.capacity.toLocaleString("vi-VN")}
                 </p>
+                <p className="mt-1 text-xs text-white/55">
+                  Chiến lực {(
+                    snapshot.base.army.infantry * 10 +
+                    snapshot.base.army.archers * 15 +
+                    snapshot.base.army.cavalry * 20
+                  ).toLocaleString("vi-VN")}
+                </p>
+                <p className="mt-2 text-[10px] leading-4 text-white/40">
+                  Các công trình sản xuất chỉ xuất hiện sau khi bạn tự xây dựng. Dữ liệu tài nguyên hiện có không bị đặt lại.
+                </p>
+                {snapshot.base.castlePendingLevel ? (
+                  <p className="mt-3 rounded-lg bg-amber-200/10 px-3 py-2 text-xs text-amber-100">
+                    ⏳ Đang nâng cấp lên cấp {snapshot.base.castlePendingLevel} · {snapshot.base.castleUpgradeCompletesAt ? utcLabel(snapshot.base.castleUpgradeCompletesAt) : ""}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={
+                      Boolean(busy) ||
+                      snapshot.base.castleLevel >= 20 ||
+                      snapshot.base.wood < 250 * (snapshot.base.castleLevel + 1) ||
+                      snapshot.base.stone < 150 * (snapshot.base.castleLevel + 1)
+                    }
+                    onClick={() => void buildingAction("UPGRADE_CASTLE")}
+                    className="mt-3 w-full rounded-lg border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-200/15 disabled:opacity-40"
+                  >
+                    {snapshot.base.castleLevel >= 20
+                      ? "Lâu đài đạt cấp tối đa"
+                      : `Nâng cấp lâu đài → cấp ${snapshot.base.castleLevel + 1} · ${250 * (snapshot.base.castleLevel + 1)} gỗ + ${150 * (snapshot.base.castleLevel + 1)} đá`}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode("city");
+                    setActiveTab("build");
+                    setShowPanel(true);
+                  }}
+                  className="mt-3 w-full rounded-lg border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-200/15"
+                >
+                  🏰 Vào thành phố · xây dựng
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "build" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-200/80">Quy hoạch thành phố</p>
+                  <p className="mt-1 text-[10px] text-white/45">Chọn ô đất trong cảnh 3D để xây hoặc quản lý công trình.</p>
+                </div>
+                {viewMode !== "city" && (
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("city")}
+                    className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1.5 text-[10px] font-bold text-white"
+                  >
+                    Mở City View
+                  </button>
+                )}
+              </div>
+              <CityBuildingPanel
+                plotIndex={selectedPlotIndex}
+                building={castleBuilding}
+                castleLevel={snapshot.base.castleLevel}
+                wood={snapshot.base.wood}
+                stone={snapshot.base.stone}
+                busy={Boolean(busy)}
+                onChoose={(type) => setPlacementType(type)}
+                onAction={(type, plotIndex, buildingType) => {
+                  if (type === "BUILD" && !buildingType) return;
+                  void buildingAction(type, plotIndex, buildingType);
+                }}
+              />
+              {placementType && selectedPlotIndex !== null && !castleBuilding && (
+                <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs text-emerald-100">
+                  <p className="font-bold">Ghost preview · {WORLD_BUILDING_DEFINITIONS[placementType].name}</p>
+                  <p className="mt-1 text-white/55">Ô đất {selectedPlotIndex + 1}; xác nhận để trừ tài nguyên và lưu công trình trên máy chủ.</p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      onClick={() => void buildingAction("BUILD", selectedPlotIndex, placementType)}
+                      className="flex-1 rounded-lg bg-emerald-700 px-3 py-2 font-bold text-white disabled:opacity-40"
+                    >
+                      Xác nhận xây · {WORLD_BUILDING_DEFINITIONS[placementType].woodCost}🪵 {WORLD_BUILDING_DEFINITIONS[placementType].stoneCost}🪨
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlacementType(null)}
+                      className="rounded-lg border border-white/15 px-3 py-2 text-white/70"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -313,25 +516,33 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 />
               </div>
               {([
-                { type: "INFANTRY" as const, label: "🛡️ Bộ binh", count: snapshot.base.army.infantry, cost: "10 gỗ · 5 đá", dmg: 10 },
-                { type: "ARCHERS" as const, label: "🏹 Cung thủ", count: snapshot.base.army.archers, cost: "15 gỗ · 5 đá", dmg: 15 },
-                { type: "CAVALRY" as const, label: "🐎 Kỵ binh", count: snapshot.base.army.cavalry, cost: "20 gỗ · 10 đá", dmg: 20 },
-              ]).map((troop) => (
-                <div key={troop.type} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 p-3">
-                  <div>
-                    <p className="text-sm font-bold text-white">{troop.label}</p>
-                    <p className="text-xs text-white/50">{troop.count.toLocaleString("vi-VN")} quân · {troop.cost}/lính</p>
+                { type: "INFANTRY" as const, label: "🛡️ Bộ binh", count: snapshot.base.army.infantry, cost: "10 gỗ · 5 đá" },
+                { type: "ARCHERS" as const, label: "🏹 Cung thủ", count: snapshot.base.army.archers, cost: "15 gỗ · 5 đá" },
+                { type: "CAVALRY" as const, label: "🐎 Kỵ binh", count: snapshot.base.army.cavalry, cost: "20 gỗ · 10 đá" },
+              ]).map((troop) => {
+                const requiredType = WORLD_TRAINING_BUILDINGS[troop.type];
+                const requiredName = WORLD_BUILDING_DEFINITIONS[requiredType].name;
+                const hasBuilding = snapshot.buildings.some(
+                  (building) => building.type === requiredType && (building.level > 0 || building.status === "COMPLETED"),
+                );
+                return (
+                  <div key={troop.type} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 p-3">
+                    <div>
+                      <p className="text-sm font-bold text-white">{troop.label}</p>
+                      <p className="text-xs text-white/50">{troop.count.toLocaleString("vi-VN")} quân · {troop.cost}/lính</p>
+                      <p className="mt-1 text-[10px] text-white/40">{hasBuilding ? requiredName : `Cần xây ${requiredName}`}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={Boolean(busy) || Boolean(snapshot.base.army.trainingType) || !hasBuilding}
+                      onClick={() => void act(`train-${troop.type}`, { type: "train", troopType: troop.type, count: trainingCount })}
+                      className="rounded-md border border-teal-500 px-2.5 py-1 text-xs font-bold text-teal-400 disabled:opacity-40"
+                    >
+                      {busy === `train-${troop.type}` ? "…" : `+${trainingCount}`}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    disabled={Boolean(busy) || Boolean(snapshot.base.army.trainingType)}
-                    onClick={() => void act(`train-${troop.type}`, { type: "train", troopType: troop.type, count: trainingCount })}
-                    className="rounded-md border border-teal-500 px-2.5 py-1 text-xs font-bold text-teal-400 disabled:opacity-40"
-                  >
-                    {busy === `train-${troop.type}` ? "…" : `+${trainingCount}`}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
               {snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt && (
                 <p className="rounded-md bg-teal-500/10 px-2.5 py-1.5 text-xs text-teal-300">
                   ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"} · {utcLabel(snapshot.base.army.trainingCompletesAt)}
@@ -381,15 +592,16 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                       </p>
                       <p className="mt-0.5 text-sm font-bold text-white">{event.title}</p>
                       <p className="mt-0.5 text-xs text-white/40">{event.participantCount}/{event.participantLimit} người</p>
+                      <p className="mt-0.5 text-[10px] text-white/40">Yêu cầu Thành chính cấp {event.minFactoryLevel}+</p>
                     </div>
                     {event.status === "ACTIVE" && !event.joined && (
                       <button
                         type="button"
-                        disabled={Boolean(busy)}
+                        disabled={Boolean(busy) || snapshot.base.castleLevel < event.minFactoryLevel}
                         onClick={() => void act(`join-${event.id}`, { type: "join", eventId: event.id })}
                         className="shrink-0 rounded-md border border-teal-500 px-2 py-1 text-xs font-bold text-teal-400 disabled:opacity-40"
                       >
-                        Tham gia
+                        {snapshot.base.castleLevel < event.minFactoryLevel ? `Cần cấp ${event.minFactoryLevel}` : "Tham gia"}
                       </button>
                     )}
                     {event.status === "ACTIVE" && event.joined && event.eventType === "RESOURCE_RUSH" && (

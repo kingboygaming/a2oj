@@ -318,6 +318,126 @@ export function createBarracks(): THREE.Group {
   return group;
 }
 
+export function createArcheryRange(): THREE.Group {
+  const group = new THREE.Group();
+  const hall = new THREE.Mesh(box(6, 2.4, 3.2), WHITE_STONE);
+  const roof = new THREE.Mesh(box(6.5, 0.35, 3.7, 0, 2.4), ROOF_BLUE);
+  hall.castShadow = true;
+  roof.castShadow = true;
+  group.add(hall, roof);
+  for (const x of [-2.2, 0, 2.2]) {
+    const target = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.65, 0.65, 0.16, 12),
+      new THREE.MeshStandardMaterial({ color: 0xc98d43, roughness: 0.8 }),
+    );
+    target.rotation.x = Math.PI / 2;
+    target.position.set(x, 1.15, -3.4);
+    group.add(target);
+    const center = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.18, 8),
+      new THREE.MeshStandardMaterial({ color: 0x9b2820 }),
+    );
+    center.rotation.x = Math.PI / 2;
+    center.position.set(x, 1.15, -3.52);
+    group.add(center);
+  }
+  for (const x of [-2.4, 2.4]) {
+    group.add(new THREE.Mesh(box(0.12, 1.8, 0.12, x, 0.4, 1.7), WOOD));
+  }
+  return group;
+}
+
+export function createStable(): THREE.Group {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(box(6.5, 2.6, 4.2), WOOD);
+  const roofGeo = new THREE.ConeGeometry(4.2, 2.1, 4);
+  roofGeo.rotateY(Math.PI / 4);
+  roofGeo.translate(0, 3.65, 0);
+  const roof = new THREE.Mesh(roofGeo, ROOF_RED);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  roof.castShadow = true;
+  group.add(body, roof);
+  for (const x of [-2.1, 0, 2.1]) {
+    group.add(new THREE.Mesh(box(0.13, 2.1, 0.13, x, 0, 2.12), DARK_STONE));
+  }
+  group.add(new THREE.Mesh(box(3.2, 0.18, 0.16, 0, 1.1, 2.2), WOOD));
+  for (const x of [-1.4, 1.4]) {
+    group.add(new THREE.Mesh(box(0.65, 1.1, 0.08, x, 0, 2.22), DOOR));
+  }
+  return group;
+}
+
+export function createSiegeWorkshop(): THREE.Group {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(box(6.8, 2.5, 4.5), DARK_STONE);
+  const roof = new THREE.Mesh(box(7.2, 0.35, 4.9, 0, 2.5), ROOF_RED);
+  body.castShadow = true;
+  roof.castShadow = true;
+  group.add(body, roof);
+  for (const x of [-2.5, 2.5]) {
+    const wheel = new THREE.Mesh(
+      new THREE.TorusGeometry(0.85, 0.12, 6, 12),
+      WOOD,
+    );
+    wheel.position.set(x, 0.95, 2.35);
+    group.add(wheel);
+    group.add(new THREE.Mesh(cyl(0.12, 0.12, 0.25, x, 0.85, 2.35), METAL));
+  }
+  group.add(new THREE.Mesh(box(0.2, 2.1, 0.2, 0, 0.4, -2.35), WOOD));
+  group.add(new THREE.Mesh(box(0.16, 0.16, 4.4, 0, 2.35, -0.1), WOOD));
+  return group;
+}
+
+export function createIronMine(): THREE.Group {
+  const group = new THREE.Group();
+  const entrance = new THREE.Mesh(box(4.4, 3.8, 0.6), DARK_STONE);
+  entrance.castShadow = true;
+  group.add(entrance);
+  group.add(new THREE.Mesh(box(2.2, 2.6, 0.18, 0, 0, 0.38), DOOR));
+  for (const x of [-2.5, 2.5]) {
+    const support = new THREE.Mesh(box(0.22, 3.5, 0.24, x, 0, 0.15), WOOD);
+    support.castShadow = true;
+    group.add(support);
+  }
+  const beam = new THREE.Mesh(box(5.2, 0.3, 0.28, 0, 3.35, 0.15), WOOD);
+  group.add(beam);
+  for (let i = 0; i < 4; i++) {
+    const ore = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.5 + (i % 2) * 0.15, 0),
+      new THREE.MeshStandardMaterial({ color: 0x62656a, metalness: 0.6, roughness: 0.38 }),
+    );
+    ore.position.set(-2.2 + i * 1.45, 0.35, 1.25);
+    ore.scale.y = 0.7;
+    group.add(ore);
+  }
+  return group;
+}
+
+export function createFarm(): THREE.Group {
+  const group = new THREE.Group();
+  for (let row = 0; row < 5; row++) {
+    const cropRow = new THREE.Mesh(
+      new THREE.BoxGeometry(5.5, 0.08, 0.35),
+      new THREE.MeshStandardMaterial({ color: row % 2 ? 0x9c9b3b : 0x727d2f, roughness: 0.95 }),
+    );
+    cropRow.position.set(0, 0.15 + (row % 2) * 0.06, -2 + row);
+    group.add(cropRow);
+  }
+  const windmill = new THREE.Mesh(box(0.5, 3.5, 0.5, -2.5, 0, -3.4), WHITE_STONE);
+  windmill.castShadow = true;
+  group.add(windmill);
+  const hub = new THREE.Mesh(new THREE.SphereGeometry(0.23, 8, 6), METAL);
+  hub.position.set(-2.25, 3.1, -3.4);
+  group.add(hub);
+  for (let i = 0; i < 4; i++) {
+    const blade = new THREE.Mesh(box(0.18, 2.1, 0.12, -2.25, 3.1, -3.4), WOOD);
+    blade.rotation.z = i * Math.PI / 2;
+    group.add(blade);
+  }
+  return group;
+}
+
 /* ── Research Lab ── */
 export function createResearchLab(): THREE.Group {
   const group = new THREE.Group();

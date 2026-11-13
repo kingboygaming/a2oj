@@ -1,6 +1,14 @@
 import { Prisma } from "@prisma/client";
 import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  WORLD_BUILDING_DEFINITIONS,
+  WORLD_BUILDING_PLOT_COUNT,
+  WORLD_TRAINING_BUILDINGS,
+  isWorldBuildingType,
+  type WorldBuildingType,
+  type WorldBuildingView,
+} from "@/lib/world-buildings";
 
 export const WORLD_OFFLINE_CAP_MS = 48 * 60 * 60 * 1000;
 export const WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
@@ -32,6 +40,9 @@ type WorldBaseState = {
   stoneRemainder: number;
   factoryLevel: number;
   warehouseLevel: number;
+  castleLevel: number;
+  castlePendingLevel: number | null;
+  castleUpgradeCompletesAt: Date | null;
   upgradeType: string | null;
   upgradeCompletesAt: Date | null;
   infantry: number;
@@ -56,6 +67,9 @@ type WorldProgress = {
   stoneRemainder: number;
   factoryLevel: number;
   warehouseLevel: number;
+  castleLevel: number;
+  castlePendingLevel: number | null;
+  castleUpgradeCompletesAt: Date | null;
   upgradeType: string | null;
   upgradeCompletesAt: Date | null;
   lastSimulatedAt: Date;
@@ -68,7 +82,12 @@ type WorldProgress = {
 export type WorldSnapshot = {
   userId: string;
   now: string;
+  buildings: WorldBuildingView[];
   base: {
+    playerName: string;
+    castleLevel: number;
+    castlePendingLevel: number | null;
+    castleUpgradeCompletesAt: string | null;
     coordinateX: number;
     coordinateZ: number;
     activePvpAttackId: string | null;
@@ -192,10 +211,6 @@ export class WorldActionError extends Error {
   }
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
 function requireWorldCoordinates(
   coordinates: readonly [number, number] | null,
   attackId: string,
@@ -208,7 +223,72 @@ function productionFor(factoryLevel: number, resource: "wood" | "stone") {
   return factoryLevel * (resource === "wood" ? 20 : 10);
 }
 
-export function calculateWorldProgress(base: WorldBaseState, now: Date): WorldProgress {
+type WorldBuildingState = {
+  buildingType: string;
+  level: number;
+  pendingLevel: number | null;
+  completedAt: Date | null;
+  completesAt: Date;
+};
+
+function buildingLevelSumAt(
+  buildings: WorldBuildingState[],
+  buildingType: string,
+  timestamp: number,
+) {
+  return buildings.reduce(
+    (total, building) =>
+      total + (building.buildingType === buildingType
+        ? activeBuildingLevelAt(building, timestamp)
+        : 0),
+    0,
+  );
+}
+
+function worldResourceCapacity(
+  warehouseLevel: number,
+  buildings: WorldBuildingState[],
+  timestamp: number,
+) {
+  return (
+    warehouseLevel + buildingLevelSumAt(buildings, "WAREHOUSE", timestamp)
+  ) * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+}
+
+function activeBuildingLevelAt(
+  building: WorldBuildingState,
+  timestamp: number,
+) {
+  if (building.pendingLevel !== null && timestamp >= building.completesAt.getTime()) {
+    return building.pendingLevel;
+  }
+  if (building.completedAt && timestamp >= building.completedAt.getTime()) {
+    return building.level;
+  }
+  return 0;
+}
+
+function buildingProductionAt(
+  buildings: WorldBuildingState[],
+  timestamp: number,
+  resource: "wood" | "stone",
+) {
+  const buildingType = resource === "wood" ? "LUMBER_MILL" : "STONE_QUARRY";
+  const ratePerLevel = resource === "wood" ? 20 : 10;
+  return buildings.reduce(
+    (total, building) =>
+      total + (building.buildingType === buildingType
+        ? activeBuildingLevelAt(building, timestamp) * ratePerLevel
+        : 0),
+    0,
+  );
+}
+
+export function calculateWorldProgress(
+  base: WorldBaseState,
+  now: Date,
+  buildings: WorldBuildingState[] = [],
+): WorldProgress {
   const rawElapsedMs = Math.max(0, now.getTime() - base.lastSimulatedAt.getTime());
   const elapsedMs = Math.min(rawElapsedMs, WORLD_OFFLINE_CAP_MS);
   const accrualStart = new Date(now.getTime() - elapsedMs);
@@ -222,63 +302,68 @@ export function calculateWorldProgress(base: WorldBaseState, now: Date): WorldPr
     upgradeFinished && base.upgradeType === "WAREHOUSE"
       ? base.warehouseLevel + 1
       : base.warehouseLevel;
+  const castleUpgradeFinished =
+    base.castlePendingLevel !== null &&
+    base.castleUpgradeCompletesAt !== null &&
+    base.castleUpgradeCompletesAt <= now;
+  const nextCastleLevel = castleUpgradeFinished
+    ? base.castlePendingLevel ?? base.castleLevel
+    : base.castleLevel;
   const upgradeAt = base.upgradeCompletesAt?.getTime();
-
-  function earned(resource: "wood" | "stone") {
-    if (!elapsedMs) return 0;
-    if (upgradeAt === undefined || !upgradeFinished || base.upgradeType !== "FACTORY") {
-      return (elapsedMs / 3_600_000) * productionFor(base.factoryLevel, resource);
-    }
-
-    const boundary = clamp(upgradeAt, accrualStart.getTime(), now.getTime());
-    const beforeMs = boundary - accrualStart.getTime();
-    const afterMs = now.getTime() - boundary;
-    return (
-      (beforeMs / 3_600_000) * productionFor(base.factoryLevel, resource) +
-      (afterMs / 3_600_000) * productionFor(nextFactoryLevel, resource)
-    );
+  const boundaries = new Set<number>([accrualStart.getTime(), now.getTime()]);
+  if (upgradeAt !== undefined && upgradeAt > accrualStart.getTime() && upgradeAt < now.getTime()) {
+    boundaries.add(upgradeAt);
   }
-
+  for (const building of buildings) {
+    for (const date of [building.completedAt, building.completesAt]) {
+      const timestamp = date?.getTime();
+      if (timestamp !== undefined && timestamp > accrualStart.getTime() && timestamp < now.getTime()) {
+        boundaries.add(timestamp);
+      }
+    }
+  }
+  const timeline = [...boundaries].sort((left, right) => left - right);
   let wood = base.wood;
   let stone = base.stone;
   let woodRemainder = base.woodRemainder;
   let stoneRemainder = base.stoneRemainder;
-  const warehouseUpgradeInInterval =
-    upgradeFinished &&
-    base.upgradeType === "WAREHOUSE" &&
-    upgradeAt !== undefined &&
-    upgradeAt > accrualStart.getTime();
 
-  if (warehouseUpgradeInInterval && upgradeAt !== undefined) {
-    const beforeHours = (upgradeAt - accrualStart.getTime()) / 3_600_000;
-    const afterHours = (now.getTime() - upgradeAt) / 3_600_000;
-    wood = Math.min(
-      base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
-      wood + woodRemainder + beforeHours * productionFor(base.factoryLevel, "wood"),
-    );
-    stone = Math.min(
-      base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
-      stone + stoneRemainder + beforeHours * productionFor(base.factoryLevel, "stone"),
-    );
-    wood = Math.min(
-      nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
-      wood + afterHours * productionFor(base.factoryLevel, "wood"),
-    );
-    stone = Math.min(
-      nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
-      stone + afterHours * productionFor(base.factoryLevel, "stone"),
-    );
-  } else {
-    const capacity = nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
-    wood = Math.min(capacity, wood + woodRemainder + earned("wood"));
-    stone = Math.min(capacity, stone + stoneRemainder + earned("stone"));
+  for (let index = 0; index < timeline.length - 1; index++) {
+    const start = timeline[index];
+    const end = timeline[index + 1];
+    const midpoint = start + (end - start) / 2;
+    const factoryLevel = base.factoryLevel +
+      (base.upgradeType === "FACTORY" && upgradeAt !== undefined && midpoint >= upgradeAt ? 1 : 0);
+    const warehouseLevel = base.warehouseLevel +
+      (base.upgradeType === "WAREHOUSE" && upgradeAt !== undefined && midpoint >= upgradeAt ? 1 : 0) +
+      buildingLevelSumAt(buildings, "WAREHOUSE", midpoint);
+    const capacity = warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+    wood = Math.min(wood, capacity);
+    stone = Math.min(stone, capacity);
+    const hours = (end - start) / 3_600_000;
+    const woodRate = productionFor(factoryLevel, "wood") + buildingProductionAt(buildings, midpoint, "wood");
+    const stoneRate = productionFor(factoryLevel, "stone") + buildingProductionAt(buildings, midpoint, "stone");
+    if (wood < capacity) {
+      const total = woodRemainder + hours * woodRate;
+      wood += Math.floor(total);
+      woodRemainder = total - Math.floor(total);
+    }
+    if (stone < capacity) {
+      const total = stoneRemainder + hours * stoneRate;
+      stone += Math.floor(total);
+      stoneRemainder = total - Math.floor(total);
+    }
+    wood = Math.min(wood, capacity);
+    stone = Math.min(stone, capacity);
+    if (wood >= capacity) woodRemainder = 0;
+    if (stone >= capacity) stoneRemainder = 0;
   }
 
-  const capacity = nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
-  const finalWood = Math.floor(Math.min(capacity, wood));
-  const finalStone = Math.floor(Math.min(capacity, stone));
-  woodRemainder = finalWood >= capacity ? 0 : Math.min(0.999_999_999, wood - finalWood);
-  stoneRemainder = finalStone >= capacity ? 0 : Math.min(0.999_999_999, stone - finalStone);
+  const finalCapacity = worldResourceCapacity(nextWarehouseLevel, buildings, now.getTime());
+  const finalWood = Math.floor(Math.min(finalCapacity, wood));
+  const finalStone = Math.floor(Math.min(finalCapacity, stone));
+  woodRemainder = finalWood >= finalCapacity ? 0 : Math.min(0.999_999_999, wood - finalWood);
+  stoneRemainder = finalStone >= finalCapacity ? 0 : Math.min(0.999_999_999, stone - finalStone);
 
   return {
     wood: finalWood,
@@ -287,6 +372,9 @@ export function calculateWorldProgress(base: WorldBaseState, now: Date): WorldPr
     stoneRemainder,
     factoryLevel: nextFactoryLevel,
     warehouseLevel: nextWarehouseLevel,
+    castleLevel: nextCastleLevel,
+    castlePendingLevel: castleUpgradeFinished ? null : base.castlePendingLevel,
+    castleUpgradeCompletesAt: castleUpgradeFinished ? null : base.castleUpgradeCompletesAt,
     upgradeType: upgradeFinished ? null : base.upgradeType,
     upgradeCompletesAt: upgradeFinished ? null : base.upgradeCompletesAt,
     lastSimulatedAt: now,
@@ -359,7 +447,17 @@ async function advanceWorld(userId: string, now: Date) {
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
-    const progress = calculateWorldProgress(base, now);
+    const buildings = await prisma.worldBuilding.findMany({
+      where: { baseId: base.id },
+      select: {
+        buildingType: true,
+        level: true,
+        pendingLevel: true,
+        completedAt: true,
+        completesAt: true,
+      },
+    });
+    const progress = calculateWorldProgress(base, now, buildings);
     const updated = await prisma.worldBase.updateMany({
       where: { id: base.id, version: base.version },
       data: {
@@ -369,6 +467,9 @@ async function advanceWorld(userId: string, now: Date) {
         stoneRemainder: progress.stoneRemainder,
         factoryLevel: progress.factoryLevel,
         warehouseLevel: progress.warehouseLevel,
+        castleLevel: progress.castleLevel,
+        castlePendingLevel: progress.castlePendingLevel,
+        castleUpgradeCompletesAt: progress.castleUpgradeCompletesAt,
         upgradeType: progress.upgradeType,
         upgradeCompletesAt: progress.upgradeCompletesAt,
         lastSimulatedAt: now,
@@ -593,9 +694,29 @@ async function processWorldBaseAttacks(now: Date) {
         if (!claimed.count) return false;
 
         const attack = await tx.worldBaseAttack.findUniqueOrThrow({ where: { id } });
-        const [attackerBase, defenderBase] = await Promise.all([
+        const [attackerBase, defenderBase, attackerBuildings, defenderBuildings] = await Promise.all([
           tx.worldBase.findUnique({ where: { userId: attack.attackerUserId } }),
           tx.worldBase.findUnique({ where: { userId: attack.defenderUserId } }),
+          tx.worldBuilding.findMany({
+            where: { base: { userId: attack.attackerUserId } },
+            select: {
+              buildingType: true,
+              level: true,
+              pendingLevel: true,
+              completedAt: true,
+              completesAt: true,
+            },
+          }),
+          tx.worldBuilding.findMany({
+            where: { base: { userId: attack.defenderUserId } },
+            select: {
+              buildingType: true,
+              level: true,
+              pendingLevel: true,
+              completedAt: true,
+              completesAt: true,
+            },
+          }),
         ]);
         if (!attackerBase || !defenderBase) {
           throw new Error(`Base attack ${id} references a missing player base.`);
@@ -641,10 +762,13 @@ async function processWorldBaseAttacks(now: Date) {
               defenderBase.cavalry,
               0.1,
             );
-        const attackerProgress = calculateWorldProgress(attackerBase, now);
-        const defenderProgress = calculateWorldProgress(defenderBase, now);
-        const attackerCapacity =
-          attackerProgress.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+        const attackerProgress = calculateWorldProgress(attackerBase, now, attackerBuildings);
+        const defenderProgress = calculateWorldProgress(defenderBase, now, defenderBuildings);
+        const attackerCapacity = worldResourceCapacity(
+          attackerProgress.warehouseLevel,
+          attackerBuildings,
+          now.getTime(),
+        );
         const stolenWood = attackerWins
           ? Math.min(
               Math.floor(defenderProgress.wood * BASE_ATTACK_LOOT_RATE),
@@ -660,6 +784,7 @@ async function processWorldBaseAttacks(now: Date) {
         let newDefenderCoordinates: readonly [number, number] | null = null;
 
         if (attackerWins) {
+          await tx.worldBuilding.deleteMany({ where: { baseId: defenderBase.id } });
           await tx.worldMarch.updateMany({
             where: {
               userId: attack.defenderUserId,
@@ -712,6 +837,9 @@ async function processWorldBaseAttacks(now: Date) {
               attackerProgress.stone + stolenStone >= attackerCapacity ? 0 : attackerProgress.stoneRemainder,
             factoryLevel: attackerProgress.factoryLevel,
             warehouseLevel: attackerProgress.warehouseLevel,
+            castleLevel: attackerProgress.castleLevel,
+            castlePendingLevel: attackerProgress.castlePendingLevel,
+            castleUpgradeCompletesAt: attackerProgress.castleUpgradeCompletesAt,
             upgradeType: attackerProgress.upgradeType,
             upgradeCompletesAt: attackerProgress.upgradeCompletesAt,
             infantry: attackerTroopsAfterReturn.infantry,
@@ -726,12 +854,15 @@ async function processWorldBaseAttacks(now: Date) {
 
         const defenderData = attackerWins
           ? {
-              wood: 200,
+              wood: 350,
               woodRemainder: 0,
-              stone: 100,
+              stone: 250,
               stoneRemainder: 0,
-              factoryLevel: 1,
+              factoryLevel: 0,
               warehouseLevel: 1,
+              castleLevel: 1,
+              castlePendingLevel: null,
+              castleUpgradeCompletesAt: null,
               upgradeType: null,
               upgradeCompletesAt: null,
               infantry: 0,
@@ -751,6 +882,9 @@ async function processWorldBaseAttacks(now: Date) {
               stoneRemainder: defenderProgress.stoneRemainder,
               factoryLevel: defenderProgress.factoryLevel,
               warehouseLevel: defenderProgress.warehouseLevel,
+              castleLevel: defenderProgress.castleLevel,
+              castlePendingLevel: defenderProgress.castlePendingLevel,
+              castleUpgradeCompletesAt: defenderProgress.castleUpgradeCompletesAt,
               upgradeType: defenderProgress.upgradeType,
               upgradeCompletesAt: defenderProgress.upgradeCompletesAt,
               infantry: defenderBase.infantry - defenderLosses.infantry,
@@ -1048,6 +1182,16 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   await processScheduledWorldJobs(now);
   const world = await advanceWorld(userId, now);
   const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
+  const [player, baseBuildings] = await Promise.all([
+    prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { username: true, displayName: true },
+    }),
+    prisma.worldBuilding.findMany({
+      where: { baseId: base.id },
+      orderBy: { plotIndex: "asc" },
+    }),
+  ]);
   if (base.coordinateX === null || base.coordinateZ === null) {
     throw new Error(`World base for user ${userId} is missing coordinates after initialization.`);
   }
@@ -1140,7 +1284,39 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   return {
     userId,
     now: now.toISOString(),
+    buildings: baseBuildings.map((building) => {
+      const complete = building.completesAt <= now;
+      const currentLevel = complete
+        ? building.pendingLevel ?? building.level
+        : building.level;
+      if (!isWorldBuildingType(building.buildingType)) {
+        throw new Error(`Unknown world building type ${building.buildingType}.`);
+      }
+      const status = complete
+        ? "COMPLETED"
+        : building.status === "UPGRADING"
+          ? "UPGRADING"
+          : building.status === "CONSTRUCTING"
+            ? "CONSTRUCTING"
+            : null;
+      if (!status) throw new Error(`Unknown world building status ${building.status}.`);
+      return {
+        id: building.id,
+        type: building.buildingType,
+        plotIndex: building.plotIndex,
+        level: currentLevel,
+        pendingLevel: complete ? null : building.pendingLevel,
+        status,
+        startedAt: building.startedAt.toISOString(),
+        completedAt: complete ? building.completesAt.toISOString() : building.completedAt?.toISOString() ?? null,
+        completesAt: building.completesAt.toISOString(),
+      };
+    }),
     base: {
+      playerName: player.displayName || player.username,
+      castleLevel: base.castleLevel,
+      castlePendingLevel: base.castlePendingLevel,
+      castleUpgradeCompletesAt: base.castleUpgradeCompletesAt?.toISOString() ?? null,
       coordinateX: base.coordinateX,
       coordinateZ: base.coordinateZ,
       activePvpAttackId: base.activePvpAttackId,
@@ -1152,9 +1328,13 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       upgradeType: base.upgradeType,
       upgradeCompletesAt: base.upgradeCompletesAt?.toISOString() ?? null,
       lastSimulatedAt: base.lastSimulatedAt.toISOString(),
-      capacity: base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
-      woodPerHour: productionFor(base.factoryLevel, "wood"),
-      stonePerHour: productionFor(base.factoryLevel, "stone"),
+      capacity: worldResourceCapacity(base.warehouseLevel, baseBuildings, now.getTime()),
+      woodPerHour:
+        productionFor(base.factoryLevel, "wood") +
+        buildingLevelSumAt(baseBuildings, "LUMBER_MILL", now.getTime()) * 20,
+      stonePerHour:
+        productionFor(base.factoryLevel, "stone") +
+        buildingLevelSumAt(baseBuildings, "STONE_QUARRY", now.getTime()) * 10,
       army: {
         infantry: base.infantry,
         archers: base.archers,
@@ -1275,6 +1455,196 @@ function eventIsActive(event: { startsAt: Date; endsAt: Date; status?: string },
     event.status !== "COMPLETED" &&
     event.startsAt <= now &&
     event.endsAt > now;
+}
+
+export async function performWorldBuildingAction(
+  userId: string,
+  action:
+    | { type: "BUILD"; plotIndex: number; buildingType: WorldBuildingType }
+    | { type: "UPGRADE" | "DEMOLISH"; plotIndex: number }
+    | { type: "UPGRADE_CASTLE" },
+  now = new Date(),
+) {
+  if (
+    action.type !== "UPGRADE_CASTLE" &&
+    (!Number.isInteger(action.plotIndex) || action.plotIndex < 0 || action.plotIndex >= WORLD_BUILDING_PLOT_COUNT)
+  ) {
+    throw new WorldActionError("Ô đất xây dựng không hợp lệ.", 400);
+  }
+  await advanceWorld(userId, now);
+
+  return prisma.$transaction(async (tx) => {
+    const base = await tx.worldBase.findUnique({ where: { userId } });
+    if (!base) throw new WorldActionError("Chưa khởi tạo căn cứ.", 404);
+    if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
+
+    if (action.type === "UPGRADE_CASTLE") {
+      if (base.castlePendingLevel !== null) {
+        throw new WorldActionError("Lâu đài chính đang được nâng cấp.", 409);
+      }
+      if (base.castleLevel >= MAX_BUILDING_LEVEL) {
+        throw new WorldActionError("Lâu đài chính đã đạt cấp tối đa.", 409);
+      }
+      const nextLevel = base.castleLevel + 1;
+      const woodCost = 250 * nextLevel;
+      const stoneCost = 150 * nextLevel;
+      const completesAt = new Date(now.getTime() + nextLevel * 5 * 60_000);
+      const started = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: base.version,
+          activePvpAttackId: null,
+          castlePendingLevel: null,
+          wood: { gte: woodCost },
+          stone: { gte: stoneCost },
+        },
+        data: {
+          wood: { decrement: woodCost },
+          stone: { decrement: stoneCost },
+          castlePendingLevel: nextLevel,
+          castleUpgradeCompletesAt: completesAt,
+          version: { increment: 1 },
+        },
+      });
+      if (!started.count) {
+        if (base.wood < woodCost || base.stone < stoneCost) {
+          throw new WorldActionError(`Cần ${woodCost} gỗ và ${stoneCost} đá để nâng cấp lâu đài.`, 400);
+        }
+        throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
+      }
+      return { message: `Đang nâng cấp lâu đài chính lên cấp ${nextLevel}; hoàn tất lúc ${completesAt.toISOString()}.` };
+    }
+
+    const existing = await tx.worldBuilding.findUnique({
+      where: { baseId_plotIndex: { baseId: base.id, plotIndex: action.plotIndex } },
+    });
+
+    if (action.type === "BUILD") {
+      if (existing) throw new WorldActionError("Ô đất này đã có công trình.", 409);
+      const definition = WORLD_BUILDING_DEFINITIONS[action.buildingType];
+      if (base.castleLevel < definition.requiredCastleLevel) {
+        throw new WorldActionError(`Cần Thành chính cấp ${definition.requiredCastleLevel} để xây ${definition.name}.`, 409);
+      }
+      const paid = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: base.version,
+          activePvpAttackId: null,
+          wood: { gte: definition.woodCost },
+          stone: { gte: definition.stoneCost },
+        },
+        data: {
+          wood: { decrement: definition.woodCost },
+          stone: { decrement: definition.stoneCost },
+          version: { increment: 1 },
+        },
+      });
+      if (!paid.count) {
+        if (base.wood < definition.woodCost || base.stone < definition.stoneCost) {
+          throw new WorldActionError(`Cần ${definition.woodCost} gỗ và ${definition.stoneCost} đá để xây ${definition.name}.`, 400);
+        }
+        throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
+      }
+      const completesAt = new Date(now.getTime() + definition.constructionSeconds * 1000);
+      await tx.worldBuilding.create({
+        data: {
+          baseId: base.id,
+          plotIndex: action.plotIndex,
+          buildingType: action.buildingType,
+          level: 0,
+          pendingLevel: 1,
+          status: "CONSTRUCTING",
+          startedAt: now,
+          completesAt,
+        },
+      });
+      return { message: `Đã khởi công ${definition.name}; hoàn tất lúc ${completesAt.toISOString()}.` };
+    }
+
+    if (!existing) throw new WorldActionError("Ô đất không có công trình để thao tác.", 404);
+    if (!isWorldBuildingType(existing.buildingType)) {
+      throw new Error(`Unknown world building type ${existing.buildingType}.`);
+    }
+    if (existing.completesAt > now) {
+      throw new WorldActionError("Chờ công trình hoàn tất trước khi nâng cấp hoặc phá bỏ.", 409);
+    }
+    const currentLevel = existing.pendingLevel ?? existing.level;
+    const definition = WORLD_BUILDING_DEFINITIONS[existing.buildingType];
+
+    if (action.type === "UPGRADE") {
+      if (currentLevel >= MAX_BUILDING_LEVEL) {
+        throw new WorldActionError("Công trình đã đạt cấp tối đa.", 409);
+      }
+      const nextLevel = currentLevel + 1;
+      const woodCost = definition.woodCost * nextLevel;
+      const stoneCost = definition.stoneCost * nextLevel;
+      const paid = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: base.version,
+          activePvpAttackId: null,
+          wood: { gte: woodCost },
+          stone: { gte: stoneCost },
+        },
+        data: {
+          wood: { decrement: woodCost },
+          stone: { decrement: stoneCost },
+          version: { increment: 1 },
+        },
+      });
+      if (!paid.count) {
+        if (base.wood < woodCost || base.stone < stoneCost) {
+          throw new WorldActionError(`Cần ${woodCost} gỗ và ${stoneCost} đá để nâng cấp.`, 400);
+        }
+        throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
+      }
+      const completedAt = existing.pendingLevel !== null
+        ? existing.completesAt
+        : existing.completedAt;
+      const completesAt = new Date(now.getTime() + definition.constructionSeconds * nextLevel * 1000);
+      const upgraded = await tx.worldBuilding.updateMany({
+        where: { id: existing.id, completesAt: existing.completesAt },
+        data: {
+          level: currentLevel,
+          pendingLevel: nextLevel,
+          status: "UPGRADING",
+          startedAt: now,
+          completedAt,
+          completesAt,
+        },
+      });
+      if (!upgraded.count) throw new WorldActionError("Công trình vừa được cập nhật. Hãy tải lại.", 409);
+      return { message: `Đang nâng cấp ${definition.name} lên cấp ${nextLevel}.` };
+    }
+
+    const refundWood = Math.floor(definition.woodCost * currentLevel * 0.25);
+    const refundStone = Math.floor(definition.stoneCost * currentLevel * 0.25);
+    const otherBuildings = await tx.worldBuilding.findMany({
+      where: { baseId: base.id, id: { not: existing.id } },
+      select: {
+        buildingType: true,
+        level: true,
+        pendingLevel: true,
+        completedAt: true,
+        completesAt: true,
+      },
+    });
+    const capacity = worldResourceCapacity(base.warehouseLevel, otherBuildings, now.getTime());
+    const removed = await tx.worldBuilding.deleteMany({
+      where: { id: existing.id, completesAt: existing.completesAt },
+    });
+    if (!removed.count) throw new WorldActionError("Công trình vừa được cập nhật. Hãy tải lại.", 409);
+    const refunded = await tx.worldBase.updateMany({
+      where: { id: base.id, version: base.version, activePvpAttackId: null },
+      data: {
+        wood: Math.min(capacity, base.wood + refundWood),
+        stone: Math.min(capacity, base.stone + refundStone),
+        version: { increment: 1 },
+      },
+    });
+    if (!refunded.count) throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
+    return { message: `Đã phá dỡ ${definition.name}; hoàn lại ${refundWood} gỗ và ${refundStone} đá.` };
+  });
 }
 
 export async function performWorldAction(
@@ -1449,6 +1819,18 @@ export async function performWorldAction(
     if (base.trainingType) {
       throw new WorldActionError("Hàng đợi đang huấn luyện một đạo quân.", 409);
     }
+    const trainingBuilding = await prisma.worldBuilding.findFirst({
+      where: {
+        baseId: base.id,
+        buildingType: WORLD_TRAINING_BUILDINGS[action.troopType],
+        OR: [{ level: { gt: 0 } }, { completesAt: { lte: now } }],
+      },
+      select: { id: true },
+    });
+    if (!trainingBuilding) {
+      const requiredBuilding = WORLD_BUILDING_DEFINITIONS[WORLD_TRAINING_BUILDINGS[action.troopType]];
+      throw new WorldActionError(`Cần xây xong ${requiredBuilding.name} trước khi huấn luyện ${stats.label}.`, 409);
+    }
     const troopField =
       action.troopType === "INFANTRY"
         ? "infantry"
@@ -1564,8 +1946,8 @@ export async function performWorldAction(
       if (!event || event.status === "CANCELED" || !eventIsActive(event, now)) {
         throw new WorldActionError("Sự kiện hiện không mở.", 409);
       }
-      if (base.factoryLevel < event.minFactoryLevel) {
-        throw new WorldActionError(`Cần nhà máy cấp ${event.minFactoryLevel} để tham gia.`, 403);
+      if (base.castleLevel < event.minFactoryLevel) {
+        throw new WorldActionError(`Cần Thành chính cấp ${event.minFactoryLevel} để tham gia.`, 403);
       }
       const existing = await tx.worldEventParticipation.findUnique({
         where: { eventId_userId: { eventId: event.id, userId } },

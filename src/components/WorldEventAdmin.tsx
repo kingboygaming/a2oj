@@ -218,7 +218,7 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
           <legend className="px-1 text-sm font-bold text-[var(--navy)]">Điều kiện và giới hạn</legend>
           <div className="grid gap-3 sm:grid-cols-3">
             <NumberField label="Số người tối đa" name="participantLimit" defaultValue={200} min={1} max={10000} />
-            <NumberField label="Cấp nhà máy tối thiểu" name="minFactoryLevel" defaultValue={1} min={1} max={20} />
+            <NumberField label="Cấp Thành chính tối thiểu" name="minFactoryLevel" defaultValue={1} min={1} max={20} />
             <NumberField label="Gỗ mỗi lượt đóng góp" name="contributionWoodCost" defaultValue={10} min={1} max={10000} />
             <NumberField label="Cooldown (giây)" name="contributionCooldownSeconds" defaultValue={5} min={1} max={3600} />
           </div>
@@ -272,7 +272,7 @@ export function WorldEventAdmin({ initialEvents }: { initialEvents: AdminEvent[]
                     </div>
                     <p className="mt-1 text-sm text-[var(--muted)]">{event.description}</p>
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      {localTimeLabel(event.startsAt)} – {localTimeLabel(event.endsAt)} · {event.registeredCount}/{event.participantLimit} người · Nhà máy cấp {event.minFactoryLevel}+ · {event.contributionWoodCost} gỗ/lượt · cooldown {event.contributionCooldownSeconds}s
+                      {localTimeLabel(event.startsAt)} – {localTimeLabel(event.endsAt)} · {event.registeredCount}/{event.participantLimit} người · Thành chính cấp {event.minFactoryLevel}+ · {event.contributionWoodCost} gỗ/lượt · cooldown {event.contributionCooldownSeconds}s
                     </p>
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Thưởng: {event.rewards.map((reward, index) => `H${index + 1} ${reward.wood} gỗ/${reward.stone} đá`).join(" · ")}

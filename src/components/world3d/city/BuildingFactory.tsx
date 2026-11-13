@@ -12,7 +12,13 @@ import {
   createBarracks,
   createResearchLab,
   createWallSegment,
+  createArcheryRange,
+  createFarm,
+  createIronMine,
+  createSiegeWorkshop,
+  createStable,
 } from "./BuildingModels";
+import type { WorldBuildingType } from "@/lib/world-buildings";
 
 interface BuildingProps {
   position: [number, number, number];
@@ -75,4 +81,63 @@ export function ResearchLab({ position, rotation }: BuildingProps) {
 export function WallSegment({ position, rotation, length = 6 }: BuildingProps & { length?: number }) {
   const gen = useMemo(() => () => createWallSegment(length), [length]);
   return <BuildingWrapper generator={gen} position={position} rotation={rotation} />;
+}
+
+export function WorldBuildingModel({
+  type,
+  level,
+  position,
+  ghost = false,
+}: {
+  type: WorldBuildingType;
+  level: number;
+  position: [number, number, number];
+  ghost?: boolean;
+}) {
+  const model = useMemo(() => {
+    const building =
+      type === "BARRACKS" ? createBarracks()
+        : type === "ARCHERY_RANGE" ? createArcheryRange()
+          : type === "STABLE" ? createStable()
+            : type === "SIEGE_WORKSHOP" ? createSiegeWorkshop()
+              : type === "MILITARY_ACADEMY" ? createResearchLab()
+                : type === "LUMBER_MILL" ? createFactory(level)
+                  : type === "IRON_MINE" ? createIronMine()
+                    : type === "STONE_QUARRY" ? createRockQuarry()
+                      : type === "FARM" ? createFarm()
+                        : createWarehouse(level);
+    if (ghost) {
+      building.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0x55e6a5,
+            transparent: true,
+            opacity: 0.48,
+            depthWrite: false,
+          });
+        }
+      });
+    }
+    return building;
+  }, [ghost, level, type]);
+
+  return (
+    <group position={position}>
+      <primitive object={model} />
+    </group>
+  );
+}
+
+function createRockQuarry() {
+  const group = new THREE.Group();
+  for (let index = 0; index < 5; index++) {
+    const rock = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.9 + (index % 2) * 0.35, 0),
+      new THREE.MeshStandardMaterial({ color: 0x85817c, roughness: 0.88 }),
+    );
+    rock.position.set(Math.cos(index * 1.25) * 1.8, 0.5, Math.sin(index * 1.25) * 1.8);
+    rock.castShadow = true;
+    group.add(rock);
+  }
+  return group;
 }
