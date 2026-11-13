@@ -6,8 +6,6 @@ const RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
 const MAX_BUILDING_LEVEL = 20;
 const JOB_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_JOB_ATTEMPTS = 5;
-const CONTRIBUTION_COOLDOWN_MS = 5_000;
-const CONTRIBUTION_WOOD_COST = 10;
 
 type WorldBaseState = {
   id: string;
@@ -66,9 +64,13 @@ export type WorldSnapshot = {
     description: string;
     startsAt: string;
     endsAt: string;
-    status: "SCHEDULED" | "ACTIVE" | "COMPLETED" | "PROCESSING";
+    status: "SCHEDULED" | "ACTIVE" | "COMPLETED" | "PROCESSING" | "CANCELED";
     participantCount: number;
     participantLimit: number;
+    minFactoryLevel: number;
+    contributionWoodCost: number;
+    contributionCooldownSeconds: number;
+    rewards: Array<{ wood: number; stone: number }>;
     joined: boolean;
     score: number;
     rank: number | null;
@@ -312,6 +314,13 @@ export async function processScheduledWorldJobs(now = new Date()) {
           tx.worldJob.findUniqueOrThrow({ where: { id: candidate.id } }),
           tx.worldEvent.findUniqueOrThrow({ where: { id: candidate.eventId } }),
         ]);
+        if (job.status === "CANCELED" || event.status === "CANCELED") {
+          await tx.worldJob.update({
+            where: { id: candidate.id },
+            data: { status: "CANCELED", lockedAt: null },
+          });
+          return;
+        }
         if (job.status === "COMPLETED" || event.status === "COMPLETED") {
           await tx.worldJob.update({
             where: { id: candidate.id },
@@ -327,9 +336,9 @@ export async function processScheduledWorldJobs(now = new Date()) {
           select: { id: true, score: true },
         });
         const rewards = [
-          { wood: 500, stone: 250 },
-          { wood: 300, stone: 150 },
-          { wood: 150, stone: 75 },
+          { wood: event.firstRewardWood, stone: event.firstRewardStone },
+          { wood: event.secondRewardWood, stone: event.secondRewardStone },
+          { wood: event.thirdRewardWood, stone: event.thirdRewardStone },
         ];
         for (const [index, participant] of participants.filter((entry) => entry.score > 0).slice(0, 3).entries()) {
           await tx.worldEventParticipation.update({
@@ -434,7 +443,9 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       const participantIndex = event.participants.findIndex((entry) => entry.userId === userId);
       const joined = participantIndex >= 0;
       const status: WorldSnapshot["events"][number]["status"] =
-        now < event.startsAt
+        event.status === "CANCELED"
+          ? "CANCELED"
+          : now < event.startsAt
           ? "SCHEDULED"
           : now < event.endsAt
             ? "ACTIVE"
@@ -450,6 +461,14 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
         status,
         participantCount: event.participantCount,
         participantLimit: event.participantLimit,
+        minFactoryLevel: event.minFactoryLevel,
+        contributionWoodCost: event.contributionWoodCost,
+        contributionCooldownSeconds: event.contributionCooldownSeconds,
+        rewards: [
+          { wood: event.firstRewardWood, stone: event.firstRewardStone },
+          { wood: event.secondRewardWood, stone: event.secondRewardStone },
+          { wood: event.thirdRewardWood, stone: event.thirdRewardStone },
+        ],
         joined,
         score: joined ? event.participants[participantIndex].score : 0,
         rank: joined ? participantIndex + 1 : null,
@@ -523,10 +542,14 @@ export async function performWorldAction(
   }
 
   if (action.type === "join") {
+    const base = await advanceWorld(userId, now);
     await prisma.$transaction(async (tx) => {
       const event = await tx.worldEvent.findUnique({ where: { id: action.eventId } });
-      if (!event || !eventIsActive(event, now)) {
+      if (!event || event.status === "CANCELED" || !eventIsActive(event, now)) {
         throw new WorldActionError("Sự kiện hiện không mở.", 409);
+      }
+      if (base.factoryLevel < event.minFactoryLevel) {
+        throw new WorldActionError(`Cần nhà máy cấp ${event.minFactoryLevel} để tham gia.`, 403);
       }
       const existing = await tx.worldEventParticipation.findUnique({
         where: { eventId_userId: { eventId: event.id, userId } },
@@ -553,7 +576,7 @@ export async function performWorldAction(
     const current = await advanceWorld(userId, now);
     await prisma.$transaction(async (tx) => {
       const event = await tx.worldEvent.findUnique({ where: { id: action.eventId } });
-      if (!event || !eventIsActive(event, now)) {
+      if (!event || event.status === "CANCELED" || !eventIsActive(event, now)) {
         throw new WorldActionError("Sự kiện hiện không mở.", 409);
       }
       const participation = await tx.worldEventParticipation.findUnique({
@@ -563,24 +586,28 @@ export async function performWorldAction(
       if (!participation) throw new WorldActionError("Hãy tham gia sự kiện trước.", 400);
       if (
         participation.lastContributionAt &&
-        now.getTime() - participation.lastContributionAt.getTime() < CONTRIBUTION_COOLDOWN_MS
+        now.getTime() - participation.lastContributionAt.getTime() <
+          event.contributionCooldownSeconds * 1000
       ) {
-        throw new WorldActionError("Hãy đợi vài giây trước lượt đóng góp tiếp theo.", 429);
+        throw new WorldActionError(
+          `Hãy đợi ${event.contributionCooldownSeconds} giây trước lượt đóng góp tiếp theo.`,
+          429,
+        );
       }
       const spent = await tx.worldBase.updateMany({
         where: {
           userId,
           version: current.version,
-          wood: { gte: CONTRIBUTION_WOOD_COST },
+          wood: { gte: event.contributionWoodCost },
         },
         data: {
-          wood: { decrement: CONTRIBUTION_WOOD_COST },
+          wood: { decrement: event.contributionWoodCost },
           version: { increment: 1 },
         },
       });
       if (!spent.count) throw new WorldActionError("Không đủ 10 gỗ hoặc tài nguyên vừa thay đổi.", 400);
 
-      const cooldownBefore = new Date(now.getTime() - CONTRIBUTION_COOLDOWN_MS);
+      const cooldownBefore = new Date(now.getTime() - event.contributionCooldownSeconds * 1000);
       const scored = await tx.worldEventParticipation.updateMany({
         where: {
           eventId: event.id,
@@ -595,9 +622,18 @@ export async function performWorldAction(
           lastContributionAt: now,
         },
       });
-      if (!scored.count) throw new WorldActionError("Hãy đợi vài giây trước lượt đóng góp tiếp theo.", 429);
+      if (!scored.count) {
+        throw new WorldActionError(
+          `Hãy đợi ${event.contributionCooldownSeconds} giây trước lượt đóng góp tiếp theo.`,
+          429,
+        );
+      }
     });
-    return { message: "Đã đóng góp 10 gỗ và nhận 1 điểm sự kiện." };
+    const event = await prisma.worldEvent.findUniqueOrThrow({
+      where: { id: action.eventId },
+      select: { contributionWoodCost: true },
+    });
+    return { message: `Đã đóng góp ${event.contributionWoodCost} gỗ và nhận 1 điểm sự kiện.` };
   }
 
   const current = await advanceWorld(userId, now);

@@ -90,7 +90,7 @@ export default async function AdminPage() {
         )}
       </section>
 
-      <section aria-label="Các khu vực quản trị" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-9">
+      <section aria-label="Các khu vực quản trị" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-10">
         <AdminModule title="Bài tập" detail={`${problemCount} đề · ${publishedCount} đã xuất bản`} href="/admin/problems" />
         <AdminModule title="Đăng tin" detail="Tạo thông báo hiển thị trên trang chủ" href="/admin/news" />
         <AdminModule title="Quản lý tài khoản" detail={`${userCount} tài khoản`} href="/admin/users" />
@@ -100,6 +100,7 @@ export default async function AdminPage() {
         <AdminModule title="Gacha" detail="Banner, thẻ và tỉ lệ rơi" href="/admin/gacha" />
         <AdminModule title="Card Studio" detail="Tạo thẻ sưu tầm và thẻ chiến đấu PvP" href="/admin/cards/new" />
         <AdminModule title="Quản lý thẻ" detail="Chỉnh sửa thẻ và chỉ số đã tạo" href="/admin/cards" />
+        <AdminModule title="Sự kiện thế giới" detail="Lịch, điều kiện tham gia và phần thưởng" href="/admin/world" />
       </section>
     </div>
   );

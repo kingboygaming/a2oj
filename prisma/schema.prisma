@@ -541,6 +541,15 @@ model WorldEvent {
   endsAt            DateTime
   participantLimit  Int      @default(200)
   participantCount  Int      @default(0)
+  minFactoryLevel   Int      @default(1)
+  contributionWoodCost Int   @default(10)
+  contributionCooldownSeconds Int @default(5)
+  firstRewardWood   Int      @default(500)
+  firstRewardStone  Int      @default(250)
+  secondRewardWood  Int      @default(300)
+  secondRewardStone Int      @default(150)
+  thirdRewardWood   Int      @default(150)
+  thirdRewardStone  Int      @default(75)
   status            String   @default("SCHEDULED")
   createdAt         DateTime @default(now())
   participants      WorldEventParticipation[]

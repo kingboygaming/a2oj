@@ -186,7 +186,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
       <section className="mt-7">
         <div className="mb-3">
           <h2 className="text-xl font-bold text-[var(--navy)]">📅 Sự kiện thế giới</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">Ngày hội tài nguyên diễn ra theo ngày UTC; đóng góp tốn 10 gỗ, có giới hạn 200 người.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Sự kiện có lịch, điều kiện tham gia và phần thưởng theo thứ hạng.</p>
         </div>
         <div className="space-y-4">
           {snapshot.events.map((event) => (
@@ -194,7 +194,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-[var(--teal)]">
-                    {event.status === "ACTIVE" ? "Đang diễn ra" : event.status === "SCHEDULED" ? "Sắp diễn ra" : event.status === "PROCESSING" ? "Đang tổng kết" : "Đã kết thúc"}
+                    {event.status === "ACTIVE" ? "Đang diễn ra" : event.status === "SCHEDULED" ? "Sắp diễn ra" : event.status === "PROCESSING" ? "Đang tổng kết" : event.status === "CANCELED" ? "Đã hủy" : "Đã kết thúc"}
                   </p>
                   <h3 className="mt-1 text-lg font-bold text-[var(--navy)]">{event.title}</h3>
                   <p className="mt-1 text-sm text-[var(--muted)]">{event.description}</p>
@@ -202,17 +202,23 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                     {utcLabel(event.startsAt)} – {utcLabel(event.endsAt)} · {event.participantCount}/{event.participantLimit} người
                     {event.joined && ` · Điểm của bạn: ${event.score}${event.rank ? ` · Hạng ${event.rank}` : ""}`}
                   </p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Điều kiện: nhà máy cấp {event.minFactoryLevel}+ · đóng góp {event.contributionWoodCost} gỗ/lượt · cooldown {event.contributionCooldownSeconds}s
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Thưởng: {event.rewards.map((reward, index) => `H${index + 1} ${reward.wood} gỗ/${reward.stone} đá`).join(" · ")}
+                  </p>
                 </div>
                 {event.status === "ACTIVE" && (
                   <div className="flex gap-2">
                     {!event.joined && (
                       <button
                         type="button"
-                        disabled={Boolean(busy) || event.participantCount >= event.participantLimit}
+                        disabled={Boolean(busy) || event.participantCount >= event.participantLimit || snapshot.base.factoryLevel < event.minFactoryLevel}
                         onClick={() => void act(`join-${event.id}`, { type: "join", eventId: event.id })}
                         className="rounded-lg border border-[var(--teal)] px-3 py-2 text-sm font-bold text-[var(--teal)] disabled:opacity-50"
                       >
-                        {busy === `join-${event.id}` ? "Đang vào…" : "Tham gia"}
+                        {busy === `join-${event.id}` ? "Đang vào…" : snapshot.base.factoryLevel < event.minFactoryLevel ? `Cần nhà máy cấp ${event.minFactoryLevel}` : "Tham gia"}
                       </button>
                     )}
                     {event.joined && (
@@ -222,7 +228,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                         onClick={() => void act(`contribute-${event.id}`, { type: "contribute", eventId: event.id })}
                         className="rounded-lg bg-[var(--teal)] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                       >
-                        {busy === `contribute-${event.id}` ? "Đang gửi…" : "Đóng góp 10 gỗ"}
+                        {busy === `contribute-${event.id}` ? "Đang gửi…" : `Đóng góp ${event.contributionWoodCost} gỗ`}
                       </button>
                     )}
                   </div>

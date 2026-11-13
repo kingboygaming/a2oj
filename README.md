@@ -232,3 +232,5 @@ Mục **Giải trí → Thế giới** có căn cứ sản xuất gỗ/đá, nâ
 Sự kiện và tác vụ tổng kết được lưu trong PostgreSQL/SQLite. Tác vụ dùng khóa duy nhất, claim có lease, retry tối đa 5 lần và ghi lỗi vào log máy chủ; trang thế giới cũng xử lý các tác vụ đến hạn để không phụ thuộc vào tiến trình chạy liên tục. Vercel Cron gọi `/api/cron/world` mỗi ngày như cơ chế dự phòng. Đặt biến môi trường `CRON_SECRET` trên Vercel để xác thực request Cron; trên local, có thể gọi API chơi bình thường mà không cần Cron vì tiến trình được cập nhật theo timestamp khi truy cập.
 
 Đây là vòng chơi nền tảng: chưa bao gồm chiến tranh lãnh thổ, boss, liên minh, quân đội hay nhiệm vụ cộng đồng.
+
+Quản trị viên tạo và đổi lịch sự kiện tại `/admin/world`. Có thể cấu hình thời lượng (tối đa 30 ngày), số người tham gia, cấp nhà máy tối thiểu, giá/cooldown mỗi lượt đóng góp và thưởng gỗ/đá cho ba hạng đầu. Sự kiện chỉ đổi lịch hoặc hủy được trước khi bắt đầu; sự kiện hằng ngày do hệ thống tạo không thể bị quản trị viên sửa.
