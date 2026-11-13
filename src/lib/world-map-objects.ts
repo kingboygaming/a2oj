@@ -28,6 +28,7 @@ export type WorldMapObject =
       troopCount: number;
       combatPower: number;
       reward: string;
+      rewardItemKey: string;
       x: number;
       z: number;
     };
@@ -46,13 +47,30 @@ export const RESOURCE_NODES: Extract<WorldMapObject, { kind: "RESOURCE" }>[] = [
 ];
 
 export const ROGUE_CAMPS: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>[] = [
-  { id: "camp-01", kind: "ROGUE_CAMP", name: "Trại Goblin Bìa Rừng", monsterType: "Goblin", tier: "LEVEL_1", level: 1, troopCount: 24, combatPower: 90, reward: "Gỗ, đá và kinh nghiệm", x: 28, z: 34 },
-  { id: "camp-02", kind: "ROGUE_CAMP", name: "Hang Sói Xám", monsterType: "Sói hoang", tier: "LEVEL_2", level: 2, troopCount: 48, combatPower: 180, reward: "Gỗ, đá và nguyên liệu", x: -31, z: -21 },
-  { id: "camp-03", kind: "ROGUE_CAMP", name: "Pháo Đài Lưu Khấu", monsterType: "Lưu khấu", tier: "LEVEL_3", level: 3, troopCount: 90, combatPower: 330, reward: "Tài nguyên và vật phẩm nâng cấp", x: 79, z: 65 },
-  { id: "camp-elite", kind: "ROGUE_CAMP", name: "Ổ Quái Tinh Anh", monsterType: "Quái tinh anh", tier: "ELITE", level: 5, troopCount: 140, combatPower: 520, reward: "Vật phẩm hiếm và nguyên liệu chế tạo", x: -82, z: 73 },
+  { id: "camp-01", kind: "ROGUE_CAMP", name: "Trại Goblin Bìa Rừng", monsterType: "Goblin", tier: "LEVEL_1", level: 1, troopCount: 24, combatPower: 90, reward: "Gỗ, đá và kinh nghiệm", rewardItemKey: "GOBLIN_FANG", x: 28, z: 34 },
+  { id: "camp-02", kind: "ROGUE_CAMP", name: "Hang Sói Xám", monsterType: "Sói hoang", tier: "LEVEL_2", level: 2, troopCount: 48, combatPower: 180, reward: "Gỗ, đá và nguyên liệu", rewardItemKey: "WOLF_PELT", x: -31, z: -21 },
+  { id: "camp-03", kind: "ROGUE_CAMP", name: "Pháo Đài Lưu Khấu", monsterType: "Lưu khấu", tier: "LEVEL_3", level: 3, troopCount: 90, combatPower: 330, reward: "Tài nguyên và vật phẩm nâng cấp", rewardItemKey: "BANDIT_TOKEN", x: 79, z: 65 },
+  { id: "camp-elite", kind: "ROGUE_CAMP", name: "Ổ Quái Tinh Anh", monsterType: "Quái tinh anh", tier: "ELITE", level: 5, troopCount: 140, combatPower: 520, reward: "Vật phẩm hiếm và nguyên liệu chế tạo", rewardItemKey: "ELITE_CORE", x: -82, z: 73 },
 ];
 
 export const WORLD_MAP_OBJECTS = [...RESOURCE_NODES, ...ROGUE_CAMPS];
+export const MAX_RESOURCE_NODE_OCCUPANCY = 3;
+export const RESOURCE_NODE_OCCUPATION_MS = 24 * 60 * 60 * 1000;
+export const RESOURCE_NODE_RESPAWN_MS = 24 * 60 * 60 * 1000;
+export const WORLD_MAP_MARCH_TROOP_LIMIT = 500;
+export const WORLD_MAP_TROOP_RETURN_MS = 5 * 60 * 1000;
+export const ROGUE_CAMP_RESPAWN_MS = {
+  DEFAULT: 6 * 60 * 60 * 1000,
+  ELITE: 24 * 60 * 60 * 1000,
+} as const;
+
+export function worldMapTravelMilliseconds(x: number, z: number) {
+  const distanceMeters = Math.hypot(x, z) * 200;
+  return Math.min(
+    2 * 60 * 60 * 1000,
+    Math.max(30_000, Math.ceil(distanceMeters / 10_000 * 5 * 60_000)),
+  );
+}
 
 export function resourceKindLabel(kind: ResourceNodeKind) {
   switch (kind) {

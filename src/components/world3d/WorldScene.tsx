@@ -12,8 +12,9 @@ import { ArmySystem } from "./army/ArmySystem";
 import { GroundDecals } from "./terrain/GroundDecals";
 import { getHeightAt } from "./terrain/BiomeManager";
 import { WorldMapSystem } from "./interaction/WorldMapSystem";
-import type { WorldMapObject } from "./interaction/worldObjects";
+import type { WorldMapObject } from "@/lib/world-map-objects";
 import type { WorldBuildingType, WorldBuildingView } from "@/lib/world-buildings";
+import type { WorldMapObjectState } from "@/lib/world";
 import { useCameraStore } from "./engine/useCameraStore";
 
 interface WorldSceneProps {
@@ -33,6 +34,8 @@ interface WorldSceneProps {
     };
   };
   selectedWorldObjectId: string | null;
+  mapObjectStates: WorldMapObjectState[];
+  currentUserId: string;
   selectedPlotIndex: number | null;
   placementType: WorldBuildingType | null;
   onSelectWorldObject: (object: WorldMapObject) => void;
@@ -53,6 +56,8 @@ function LoadingFallback() {
 export function WorldScene({
   baseData,
   selectedWorldObjectId,
+  mapObjectStates,
+  currentUserId,
   selectedPlotIndex,
   placementType,
   onSelectWorldObject,
@@ -114,6 +119,8 @@ export function WorldScene({
             />
             <WorldMapSystem
               selectedId={selectedWorldObjectId}
+              objectStates={mapObjectStates}
+              currentUserId={currentUserId}
               onSelect={onSelectWorldObject}
             />
           </Suspense>

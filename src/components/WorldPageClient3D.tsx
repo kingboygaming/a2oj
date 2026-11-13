@@ -10,13 +10,15 @@ import type { WorldSnapshot } from "@/lib/world";
 import { Minimap } from "@/components/Minimap";
 import { FPSCounter } from "@/components/FPSCounter";
 import { WorldObjectPanel } from "@/components/world3d/interaction/WorldObjectPanel";
-import type { WorldMapObject } from "@/components/world3d/interaction/worldObjects";
+import type { WorldMapObject } from "@/lib/world-map-objects";
 import { CityBuildingPanel } from "@/components/world3d/city/CityBuildingPanel";
+import { WorldResearchPanel } from "@/components/world3d/city/WorldResearchPanel";
 import {
   WORLD_BUILDING_DEFINITIONS,
   WORLD_TRAINING_BUILDINGS,
   type WorldBuildingType,
 } from "@/lib/world-buildings";
+import type { WorldResearchKey } from "@/lib/world-research";
 
 /* Lazy-load the heavy 3D engine — no SSR */
 const WorldEngine = dynamic(
@@ -34,6 +36,10 @@ type ActionRequest =
   | { type: "claim"; eventId: string }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
   | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number };
+
+type WorldMapActionRequest =
+  | { type: "GATHER"; targetId: string }
+  | { type: "DISPATCH"; targetId: string; infantry: number; archers: number; cavalry: number };
 
 function utcLabel(value: string) {
   return `${value.slice(0, 16).replace("T", " ")} UTC`;
@@ -53,9 +59,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
-  const [activeTab, setActiveTab] = useState<"base" | "army" | "events" | "alliance" | "build">("base");
+  const [activeTab, setActiveTab] = useState<"base" | "army" | "research" | "events" | "alliance" | "build">("base");
   const [selectedWorldObject, setSelectedWorldObject] = useState<WorldMapObject | null>(null);
-  const [resourceStates, setResourceStates] = useState<Record<string, { ownerName: string | null; remaining: number }>>({});
   const [selectedPlotIndex, setSelectedPlotIndex] = useState<number | null>(null);
   const [placementType, setPlacementType] = useState<WorldBuildingType | null>(null);
 
@@ -138,47 +143,47 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     }
   }
 
-  function occupyResource(object: Extract<WorldMapObject, { kind: "RESOURCE" }>, troops: { infantry: number; archers: number; cavalry: number }) {
-    setResourceStates((current) => {
-      const previous = current[object.id];
-      return {
-        ...current,
-        [object.id]: {
-          ownerName: "Bạn",
-          remaining: previous?.remaining ?? object.amount,
-        },
-      };
+  async function researchAction(researchKey: WorldResearchKey) {
+    setBusy("research");
+    setMessage("");
+    setIsError(false);
+    try {
+      const response = await fetch("/api/world/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ researchKey }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Không thể bắt đầu nghiên cứu.");
+      setMessage(result.message);
+      await refresh();
+    } catch (error) {
+      setIsError(true);
+      setMessage(error instanceof Error ? error.message : "Không thể bắt đầu nghiên cứu.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function worldMapAction(action: WorldMapActionRequest) {
+    const response = await fetch("/api/world/map/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action),
     });
-    const power = troops.infantry * 10 + troops.archers * 15 + troops.cavalry * 20;
-    return `Chiếm đóng thành công trong prototype (chiến lực ${power}). Máy chủ chưa ghi nhận đạo quân hoặc quyền sở hữu.`;
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Không thể thực hiện thao tác bản đồ.");
+    if (typeof result.message !== "string") throw new Error("Máy chủ trả về kết quả thao tác không hợp lệ.");
+    await refresh();
+    return result.message;
   }
 
-  function gatherResource(amount: number) {
-    if (!selectedWorldObject || selectedWorldObject.kind !== "RESOURCE") return "Không tìm thấy khu tài nguyên.";
-    const currentRemaining = resourceStates[selectedWorldObject.id]?.remaining ?? selectedWorldObject.amount;
-    const gathered = Math.min(amount, currentRemaining);
-    setResourceStates((current) => ({
-      ...current,
-      [selectedWorldObject.id]: {
-        ownerName: "Bạn",
-        remaining: Math.max(0, currentRemaining - gathered),
-      },
-    }));
-    return gathered > 0
-      ? `Prototype: khai thác ${gathered.toLocaleString("vi-VN")} ${selectedWorldObject.resource.toLowerCase()}. Chưa cộng tài nguyên vào tài khoản.`
-      : "Khu vực đã cạn; hãy chờ tái tạo trong gameplay backend.";
-  }
-
-  function attackRogueCamp(
-    object: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>,
-    troops: { infantry: number; archers: number; cavalry: number },
-  ) {
-    const power = troops.infantry * 10 + troops.archers * 15 + troops.cavalry * 20;
-    return power >= object.combatPower
-      ? `Mock victory · chiến lực ${power} / ${object.combatPower}. Phần thưởng dự kiến: ${object.reward}; chưa được máy chủ cấp.`
-      : `Mock defeat · chiến lực ${power} / ${object.combatPower}. Hãy huấn luyện thêm quân; không có tổn thất thật.`;
-  }
-
+  const selectedWorldObjectState = selectedWorldObject
+    ? snapshot.mapObjects.find((entry) => entry.id === selectedWorldObject.id) ?? null
+    : null;
+  const selectedWorldObjectMission = selectedWorldObject
+    ? snapshot.mapMissions.find((entry) => entry.targetId === selectedWorldObject.id) ?? null
+    : null;
   const castleBuilding = selectedPlotIndex === null
     ? null
     : snapshot.buildings.find((building) => building.plotIndex === selectedPlotIndex) ?? null;
@@ -206,6 +211,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               },
             }}
             selectedWorldObjectId={selectedWorldObject?.id ?? null}
+            mapObjectStates={snapshot.mapObjects}
+            currentUserId={snapshot.userId}
             selectedPlotIndex={selectedPlotIndex}
             placementType={placementType}
             onSelectWorldObject={(object) => {
@@ -238,33 +245,27 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
       {viewMode === "world" && selectedWorldObject && (
         <div className="absolute left-3 top-28 z-20">
-          <WorldObjectPanel
-            key={selectedWorldObject.id}
-            object={selectedWorldObject}
-            army={snapshot.base.army}
-            ownerName={
-              selectedWorldObject.kind === "RESOURCE"
-                ? resourceStates[selectedWorldObject.id]?.ownerName ?? null
-                : null
-            }
-            remaining={
-              selectedWorldObject.kind === "RESOURCE"
-                ? resourceStates[selectedWorldObject.id]?.remaining ?? selectedWorldObject.amount
-                : 0
-            }
-            onOccupy={(troops) =>
-              selectedWorldObject.kind === "RESOURCE"
-                ? occupyResource(selectedWorldObject, troops)
-                : "Đối tượng không thể chiếm đóng."
-            }
-            onGather={gatherResource}
-            onAttack={(troops) =>
-              selectedWorldObject.kind === "ROGUE_CAMP"
-                ? attackRogueCamp(selectedWorldObject, troops)
-                : "Đối tượng không thể tấn công."
-            }
-            onClose={() => setSelectedWorldObject(null)}
-          />
+          {selectedWorldObjectState && (
+            <WorldObjectPanel
+              key={selectedWorldObject.id}
+              object={selectedWorldObject}
+              state={selectedWorldObjectState}
+              army={snapshot.base.army}
+              militaryTier={snapshot.base.militaryTier}
+              isOwner={
+                selectedWorldObjectState.kind === "RESOURCE" &&
+                selectedWorldObjectState.ownerUserId === snapshot.userId
+              }
+              mission={selectedWorldObjectMission}
+              onDispatch={(troops) =>
+                worldMapAction({ type: "DISPATCH", targetId: selectedWorldObject.id, ...troops })
+              }
+              onGather={() =>
+                worldMapAction({ type: "GATHER", targetId: selectedWorldObject.id })
+              }
+              onClose={() => setSelectedWorldObject(null)}
+            />
+          )}
         </div>
       )}
 
@@ -287,6 +288,19 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               <p className="text-xs font-bold leading-none text-white">{snapshot.base.stone.toLocaleString("vi-VN")}</p>
               <p className="mt-0.5 text-[10px] leading-none text-slate-400/60">+{snapshot.base.stonePerHour}/h</p>
             </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-lime-500/25 bg-black/65 px-3 py-1.5 backdrop-blur-md">
+            <span className="text-base">🌾</span>
+            <div>
+              <p className="text-xs font-bold leading-none text-white">
+                {snapshot.base.food.toLocaleString("vi-VN")} / {snapshot.base.capacity.toLocaleString("vi-VN")}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-none text-lime-300/60">+{snapshot.base.foodPerHour}/h · lương thực</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-black/65 px-3 py-1.5 text-[10px] font-bold text-white/75 backdrop-blur-md">
+            <span>⛓️ {snapshot.base.iron.toLocaleString("vi-VN")} sắt</span>
+            <span>💎 {snapshot.base.rare.toLocaleString("vi-VN")} hiếm</span>
           </div>
           {/* Army quick stats */}
           <div className="flex items-center gap-2 rounded-xl border border-teal-500/20 bg-black/65 px-3 py-1.5 backdrop-blur-md">
@@ -359,14 +373,14 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           {/* Offline report */}
           {(snapshot.offline.elapsedSeconds > 60 || snapshot.offline.cappedOfflineTime) && (
             <div className="mb-3 rounded-lg border border-teal-400/20 bg-teal-400/5 p-2.5 text-xs text-teal-200">
-              ⏱ Offline {formatElapsed(snapshot.offline.elapsedSeconds)}: +{snapshot.offline.producedWood} gỗ, +{snapshot.offline.producedStone} đá
+              ⏱ Offline {formatElapsed(snapshot.offline.elapsedSeconds)}: +{snapshot.offline.producedWood} gỗ, +{snapshot.offline.producedStone} đá, +{snapshot.offline.producedFood} lương thực
               {snapshot.offline.cappedOfflineTime && " (giới hạn 48h)"}
             </div>
           )}
 
           {/* Tabs */}
           <div className="mb-3 flex gap-1">
-            {(["base", "army", "events", "alliance", "build"] as const).map((tab) => (
+            {(["base", "army", "research", "events", "alliance", "build"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -377,7 +391,17 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                     : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                {tab === "base" ? "🏰 Căn cứ" : tab === "army" ? "⚔️ Quân" : tab === "events" ? "📅 Sự kiện" : tab === "alliance" ? "🤝 Liên minh" : "🏗️ Xây"}
+                {tab === "base"
+                  ? "🏰 Căn cứ"
+                  : tab === "army"
+                    ? "⚔️ Quân"
+                    : tab === "research"
+                      ? "🔬 Nghiên cứu"
+                      : tab === "events"
+                        ? "📅 Sự kiện"
+                        : tab === "alliance"
+                          ? "🤝 Liên minh"
+                          : "🏗️ Xây"}
               </button>
             ))}
           </div>
@@ -499,6 +523,25 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 </div>
               )}
             </div>
+          )}
+
+          {activeTab === "research" && (
+            <WorldResearchPanel
+              research={snapshot.research}
+              activeResearch={snapshot.base.activeResearch}
+              militaryTier={snapshot.base.militaryTier}
+              researchSpeedLevel={snapshot.base.researchSpeedLevel}
+              castleLevel={snapshot.base.castleLevel}
+              resources={{
+                wood: snapshot.base.wood,
+                stone: snapshot.base.stone,
+                iron: snapshot.base.iron,
+                food: snapshot.base.food,
+                rare: snapshot.base.rare,
+              }}
+              busy={busy === "research"}
+              onStart={(key) => void researchAction(key)}
+            />
           )}
 
           {/* ── Tab: Army ── */}

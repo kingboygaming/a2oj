@@ -74,10 +74,36 @@ async function awardTerritoryResources(
   }
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const progress = calculateWorldProgress(base, now);
+    const buildings = await transaction.worldBuilding.findMany({
+      where: { baseId: base.id },
+      select: {
+        buildingType: true,
+        level: true,
+        pendingLevel: true,
+        completedAt: true,
+        completesAt: true,
+      },
+    });
+    const productionResearch = await transaction.worldResearch.findUnique({
+      where: { baseId_researchKey: { baseId: base.id, researchKey: "PRODUCTION_EFFICIENCY" } },
+      select: { level: true },
+    });
+    const pendingProductionResearch = base.activeResearchKey === "PRODUCTION_EFFICIENCY" &&
+      base.activeResearchLevel !== null &&
+      base.researchCompletesAt
+      ? { level: base.activeResearchLevel, completesAt: base.researchCompletesAt }
+      : null;
+    const progress = calculateWorldProgress(
+      base,
+      now,
+      buildings,
+      productionResearch?.level ?? 0,
+      pendingProductionResearch,
+    );
     const capacity = progress.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
     const wood = Math.min(capacity, progress.wood + woodReward);
     const stone = Math.min(capacity, progress.stone + stoneReward);
+    const food = Math.min(capacity, progress.food);
     const updated = await transaction.worldBase.updateMany({
       where: { id: base.id, version: base.version },
       data: {
@@ -85,6 +111,8 @@ async function awardTerritoryResources(
         woodRemainder: wood >= capacity ? 0 : progress.woodRemainder,
         stone,
         stoneRemainder: stone >= capacity ? 0 : progress.stoneRemainder,
+        food,
+        foodRemainder: food >= capacity ? 0 : progress.foodRemainder,
         factoryLevel: progress.factoryLevel,
         warehouseLevel: progress.warehouseLevel,
         upgradeType: progress.upgradeType,

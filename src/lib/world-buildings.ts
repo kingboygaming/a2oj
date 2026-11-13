@@ -43,9 +43,9 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   SIEGE_WORKSHOP: { name: "Công xưởng công thành", group: "Quân sự", description: "Mở khóa máy công thành.", woodCost: 260, stoneCost: 180, constructionSeconds: 180, requiredCastleLevel: 5 },
   MILITARY_ACADEMY: { name: "Học viện quân sự", group: "Quân sự", description: "Công trình quân sự nâng cao.", woodCost: 500, stoneCost: 400, constructionSeconds: 300, requiredCastleLevel: 10 },
   LUMBER_MILL: { name: "Xưởng gỗ", group: "Kinh tế", description: "Tăng năng lực khai thác gỗ.", woodCost: 100, stoneCost: 45, constructionSeconds: 60, requiredCastleLevel: 1 },
-  IRON_MINE: { name: "Mỏ sắt", group: "Kinh tế", description: "Khai thác quặng sắt; kho sắt chưa được nối vào kinh tế máy chủ.", woodCost: 150, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
+  IRON_MINE: { name: "Mỏ sắt", group: "Kinh tế", description: "Khai thác quặng sắt; sản lượng mỏ chưa được tích hợp.", woodCost: 150, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
   STONE_QUARRY: { name: "Mỏ đá", group: "Kinh tế", description: "Tăng năng lực khai thác đá.", woodCost: 100, stoneCost: 60, constructionSeconds: 60, requiredCastleLevel: 1 },
-  FARM: { name: "Nông trại", group: "Kinh tế", description: "Sản xuất lương thực; kho lương thực chưa được nối vào kinh tế máy chủ.", woodCost: 90, stoneCost: 35, constructionSeconds: 60, requiredCastleLevel: 1 },
+  FARM: { name: "Nông trại", group: "Kinh tế", description: "Sản xuất 20 lương thực/giờ mỗi cấp, kể cả khi offline.", woodCost: 90, stoneCost: 35, constructionSeconds: 60, requiredCastleLevel: 1 },
   WAREHOUSE: { name: "Nhà kho", group: "Kinh tế", description: "Tăng sức chứa tài nguyên sau khi hoàn thành.", woodCost: 150, stoneCost: 100, constructionSeconds: 120, requiredCastleLevel: 2 },
 };
 

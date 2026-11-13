@@ -7,18 +7,33 @@ import { createInfantry } from "../army/UnitModels";
 import { createOakTree, createPineTree, createRock } from "../vegetation/TreeModels";
 import { createHouse } from "../city/BuildingModels";
 import { getHeightAt } from "../terrain/BiomeManager";
-import { ROGUE_CAMPS, RESOURCE_NODES, type WorldMapObject } from "./worldObjects";
+import { ROGUE_CAMPS, RESOURCE_NODES, type WorldMapObject } from "@/lib/world-map-objects";
+import type { WorldMapObjectState } from "@/lib/world";
 
 function ResourceLandmark({
   object,
+  state,
+  currentUserId,
   selected,
   onSelect,
 }: {
   object: Extract<WorldMapObject, { kind: "RESOURCE" }>;
+  state: Extract<WorldMapObjectState, { kind: "RESOURCE" }>;
+  currentUserId: string;
   selected: boolean;
   onSelect: (object: Extract<WorldMapObject, { kind: "RESOURCE" }>) => void;
 }) {
   const y = getHeightAt(object.x, object.z);
+  const owned = state.ownerUserId === currentUserId;
+  const ringColor = state.status === "DEPLETED"
+    ? "#64748b"
+    : selected
+      ? "#facc15"
+      : owned
+        ? "#34d399"
+        : state.ownerUserId
+          ? "#fb923c"
+          : "#7dd3fc";
   const model = useMemo(() => {
     const group = new THREE.Group();
     if (object.resource === "FOREST") {
@@ -95,12 +110,15 @@ function ResourceLandmark({
       <primitive object={model} />
       <mesh position={[0, 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]} onClick={select}>
         <ringGeometry args={[5.2, 5.55, 32]} />
-        <meshBasicMaterial color={selected ? "#facc15" : "#7dd3fc"} transparent opacity={0.9} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={ringColor} transparent opacity={0.9} side={THREE.DoubleSide} />
       </mesh>
       <mesh position={[0, 0.2, 0]} onClick={select}>
         <cylinderGeometry args={[5.1, 5.1, 0.12, 24]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
+      {state.ownerUserId && (
+        <AnimatedFlag position={[0, 5.1, 0]} color={owned ? 0x16a34a : 0xea580c} width={0.9} height={0.55} />
+      )}
       {selected && <pointLight position={[0, 4, 0]} color="#facc15" intensity={2} distance={14} />}
     </group>
   );
@@ -108,10 +126,12 @@ function ResourceLandmark({
 
 function RogueCamp({
   object,
+  state,
   selected,
   onSelect,
 }: {
   object: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>;
+  state: Extract<WorldMapObjectState, { kind: "ROGUE_CAMP" }>;
   selected: boolean;
   onSelect: (object: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>) => void;
 }) {
@@ -146,7 +166,12 @@ function RogueCamp({
       })}
       <mesh position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} onClick={select}>
         <ringGeometry args={[4.5, 4.85, 32]} />
-        <meshBasicMaterial color={selected ? "#facc15" : "#fb7185"} transparent opacity={0.95} side={THREE.DoubleSide} />
+        <meshBasicMaterial
+          color={selected ? "#facc15" : state.status === "COOLDOWN" ? "#64748b" : "#fb7185"}
+          transparent
+          opacity={0.95}
+          side={THREE.DoubleSide}
+        />
       </mesh>
       <mesh position={[0, 0.18, 0]} onClick={select}>
         <cylinderGeometry args={[4.4, 4.4, 0.12, 24]} />
@@ -160,29 +185,56 @@ function RogueCamp({
 
 export function WorldMapSystem({
   selectedId,
+  objectStates,
+  currentUserId,
   onSelect,
 }: {
   selectedId: string | null;
+  objectStates: WorldMapObjectState[];
+  currentUserId: string;
   onSelect: (object: WorldMapObject) => void;
 }) {
+  const stateById = new Map(objectStates.map((state) => [state.id, state]));
   return (
     <group>
-      {RESOURCE_NODES.map((object) => (
-        <ResourceLandmark
-          key={object.id}
-          object={object}
-          selected={selectedId === object.id}
-          onSelect={(selected) => onSelect(selected)}
-        />
-      ))}
-      {ROGUE_CAMPS.map((object) => (
-        <RogueCamp
-          key={object.id}
-          object={object}
-          selected={selectedId === object.id}
-          onSelect={(selected) => onSelect(selected)}
-        />
-      ))}
+      {RESOURCE_NODES.map((object) => {
+        const state = stateById.get(object.id);
+        return (
+          <ResourceLandmark
+            key={object.id}
+            object={object}
+            state={state?.kind === "RESOURCE"
+              ? state
+              : {
+                id: object.id,
+                kind: "RESOURCE",
+                ownerUserId: null,
+                ownerName: null,
+                remaining: object.amount,
+                status: "AVAILABLE",
+                occupiedUntil: null,
+                respawnsAt: null,
+              }}
+            currentUserId={currentUserId}
+            selected={selectedId === object.id}
+            onSelect={(selected) => onSelect(selected)}
+          />
+        );
+      })}
+      {ROGUE_CAMPS.map((object) => {
+        const state = stateById.get(object.id);
+        return (
+          <RogueCamp
+            key={object.id}
+            object={object}
+            state={state?.kind === "ROGUE_CAMP"
+              ? state
+              : { id: object.id, kind: "ROGUE_CAMP", availableAt: null, status: "AVAILABLE" }}
+            selected={selectedId === object.id}
+            onSelect={(selected) => onSelect(selected)}
+          />
+        );
+      })}
     </group>
   );
 }

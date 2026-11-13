@@ -95,6 +95,9 @@ model User {
   worldBaseAttacksReceived WorldBaseAttack[] @relation("WorldBaseAttackDefender")
   worldBaseOccupations WorldBaseOccupation[] @relation("WorldBaseOccupationController")
   lostWorldBaseOccupations WorldBaseOccupation[] @relation("WorldBaseOccupationFormerOwner")
+  worldMapMarches                     WorldMapMarch[]
+  controlledResourceNodes             WorldResourceNode[]       @relation("WorldResourceNodeOwner")
+  worldItemStacks                     WorldItemStack[]
 
 }
 
@@ -527,11 +530,19 @@ model WorldBase {
   woodRemainder         Float    @default(0)
   stone                 Int      @default(250)
   stoneRemainder        Float    @default(0)
+  iron                  Int      @default(0)
+  food                  Int      @default(0)
+  foodRemainder         Float    @default(0)
+  rare                  Int      @default(0)
+  experience            Int      @default(0)
   factoryLevel          Int      @default(0)
   warehouseLevel        Int      @default(1)
   castleLevel           Int      @default(1)
   castlePendingLevel    Int?
   castleUpgradeCompletesAt DateTime?
+  activeResearchKey     String?
+  activeResearchLevel   Int?
+  researchCompletesAt   DateTime?
   upgradeType           String?
   upgradeCompletesAt    DateTime?
   infantry              Int      @default(0)
@@ -552,6 +563,7 @@ model WorldBase {
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   marches               WorldMarch[]
   buildings             WorldBuilding[]
+  researches            WorldResearch[]
 
   @@unique([coordinateX, coordinateZ])
   @@index([lastSimulatedAt])
@@ -574,6 +586,107 @@ model WorldBuilding {
   @@index([baseId, status, completesAt])
 }
 
+model WorldResearch {
+  id            String   @id @default(cuid())
+  baseId        String
+  researchKey   String
+  level         Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  base          WorldBase @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([baseId, researchKey])
+  @@index([baseId, level])
+}
+
+model WorldResourceNode {
+  id                 String   @id
+  resourceType       String
+  level              Int
+  maxAmount          Int
+  remaining          Int
+  yieldPerMinute     Int
+  requiredPower      Int
+  x                  Int
+  z                  Int
+  ownerUserId        String?
+  garrisonInfantry   Int      @default(0)
+  garrisonArchers    Int      @default(0)
+  garrisonCavalry    Int      @default(0)
+  garrisonTier       Int      @default(0)
+  occupiedAt         DateTime?
+  occupiedUntil      DateTime?
+  lastCollectedAt    DateTime?
+  respawnsAt         DateTime?
+  version            Int      @default(0)
+  owner              User?    @relation("WorldResourceNodeOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerUserId, occupiedUntil])
+  @@index([remaining, respawnsAt])
+}
+
+model WorldRogueCamp {
+  id               String   @id
+  monsterType      String
+  tier             String
+  level            Int
+  troopCount       Int
+  combatPower      Int
+  x                Int
+  z                Int
+  availableAt      DateTime?
+  lastDefeatedAt   DateTime?
+  version          Int      @default(0)
+
+  @@index([availableAt])
+}
+
+model WorldMapMarch {
+  id                 String   @id @default(cuid())
+  userId             String
+  targetId           String
+  targetKind         String
+  actionType         String
+  infantry           Int      @default(0)
+  archers            Int      @default(0)
+  cavalry            Int      @default(0)
+  troopTier          Int      @default(0)
+  casualtiesInfantry Int      @default(0)
+  casualtiesArchers  Int      @default(0)
+  casualtiesCavalry  Int      @default(0)
+  dispatchedAt       DateTime @default(now())
+  arrivesAt          DateTime
+  returnsAt          DateTime?
+  completedAt        DateTime?
+  status             String   @default("IN_TRANSIT")
+  report             String?
+  rewardWood         Int      @default(0)
+  rewardStone        Int      @default(0)
+  rewardIron         Int      @default(0)
+  rewardFood         Int      @default(0)
+  rewardRare         Int      @default(0)
+  rewardExperience   Int      @default(0)
+  rewardItemKey      String?
+  rewardItemCount    Int      @default(0)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, arrivesAt])
+  @@index([status, returnsAt])
+  @@index([userId, dispatchedAt])
+  @@index([targetId, dispatchedAt])
+}
+
+model WorldItemStack {
+  id        String   @id @default(cuid())
+  userId    String
+  itemKey   String
+  quantity  Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemKey])
+  @@index([userId, updatedAt])
+}
+
 model WorldMapAllocator {
   id       Int @id @default(1)
   revision Int @default(0)
@@ -588,6 +701,8 @@ model WorldBaseAttack {
   infantry              Int
   archers               Int
   cavalry               Int
+  attackerTroopTier     Int      @default(0)
+  defenderTroopTier     Int      @default(0)
   attackerPower         Int      @default(0)
   defenderPower         Int      @default(0)
   winnerUserId          String?
@@ -698,6 +813,7 @@ model WorldMarch {
   infantry    Int      @default(0)
   archers     Int      @default(0)
   cavalry     Int      @default(0)
+  troopTier   Int      @default(0)
   damage      Int      @default(0)
   casualties  Int      @default(0)
   dispatchedAt DateTime @default(now())
