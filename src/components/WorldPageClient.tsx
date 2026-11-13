@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { WorldAlliancePanel } from "@/components/WorldAlliancePanel";
 import type { WorldSnapshot } from "@/lib/world";
 
 type ActionRequest =
@@ -225,6 +226,8 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
           </p>
         )}
       </section>
+
+      <WorldAlliancePanel />
 
       {snapshot.pendingRewards.length > 0 && (
         <section className="mt-7">

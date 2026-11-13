@@ -88,6 +88,8 @@ model User {
   pointTransactions PointTransaction[]
   worldBase WorldBase?
   worldEventParticipations WorldEventParticipation[]
+  worldAllianceMembership WorldAllianceMember?
+  worldAlliancesLed WorldAlliance[] @relation("WorldAllianceLeader")
 
 }
 
@@ -626,4 +628,31 @@ model WorldMarch {
   @@index([status, returnsAt])
   @@index([userId, status])
   @@index([eventId, dispatchedAt])
+}
+
+model WorldAlliance {
+  id           String               @id @default(cuid())
+  name         String
+  tag          String               @unique
+  description  String               @default("")
+  leaderUserId String
+  memberCount  Int                  @default(1)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  leader       User                 @relation("WorldAllianceLeader", fields: [leaderUserId], references: [id], onDelete: Cascade)
+  members      WorldAllianceMember[]
+
+  @@index([memberCount, createdAt])
+}
+
+model WorldAllianceMember {
+  id        String       @id @default(cuid())
+  allianceId String
+  userId    String       @unique
+  role      String       @default("MEMBER")
+  joinedAt  DateTime     @default(now())
+  alliance  WorldAlliance @relation(fields: [allianceId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([allianceId, joinedAt])
 }

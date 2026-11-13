@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { prepareWorldAllianceForUserDeletion } from "@/lib/world-alliance";
 
 export async function PATCH(
   request: Request,
@@ -57,6 +58,8 @@ export async function DELETE(
     ) {
       return { error: "Không thể xóa tài khoản admin cuối cùng.", status: 400 };
     }
+
+    await prepareWorldAllianceForUserDeletion(transaction, targetUser.id);
 
     const [ownedContests, authoredProblems] = await Promise.all([
       transaction.contest.findMany({
