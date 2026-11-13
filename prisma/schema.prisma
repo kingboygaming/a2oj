@@ -86,6 +86,8 @@ model User {
   marketPurchases CardMarketListing[] @relation("CardBuyer")
   tradeOffers CardTradeOffer[]
   pointTransactions PointTransaction[]
+  worldBase WorldBase?
+  worldEventParticipations WorldEventParticipation[]
 
 }
 
@@ -508,4 +510,75 @@ model PointTransaction {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+model WorldBase {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  wood                  Int      @default(200)
+  woodRemainder         Float    @default(0)
+  stone                 Int      @default(100)
+  stoneRemainder        Float    @default(0)
+  factoryLevel          Int      @default(1)
+  warehouseLevel        Int      @default(1)
+  upgradeType           String?
+  upgradeCompletesAt    DateTime?
+  lastSimulatedAt       DateTime @default(now())
+  version               Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastSimulatedAt])
+}
+
+model WorldEvent {
+  id                String   @id @default(cuid())
+  slug              String   @unique
+  title             String
+  description       String
+  startsAt          DateTime
+  endsAt            DateTime
+  participantLimit  Int      @default(200)
+  participantCount  Int      @default(0)
+  status            String   @default("SCHEDULED")
+  createdAt         DateTime @default(now())
+  participants      WorldEventParticipation[]
+  jobs              WorldJob[]
+
+  @@index([status, startsAt, endsAt])
+}
+
+model WorldEventParticipation {
+  id                  String    @id @default(cuid())
+  eventId             String
+  userId              String
+  score               Int       @default(0)
+  lastContributionAt  DateTime?
+  rewardWood          Int       @default(0)
+  rewardStone         Int       @default(0)
+  rewardClaimedAt     DateTime?
+  joinedAt            DateTime  @default(now())
+  event               WorldEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId, score, joinedAt])
+  @@index([userId, joinedAt])
+}
+
+model WorldJob {
+  id          String    @id @default(cuid())
+  uniqueKey   String    @unique
+  eventId     String
+  runAt       DateTime
+  status      String    @default("PENDING")
+  attempts    Int       @default(0)
+  lockedAt    DateTime?
+  completedAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  event       WorldEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt, lockedAt])
 }

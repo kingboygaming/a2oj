@@ -224,3 +224,11 @@ Thay `AC` bằng `WA`, `CE`, `MLE` hoặc `RE` để mô phỏng trạng thái t
 Trang chi tiết bài nộp hiển thị kết quả từng test đã chạy, số test AC/lỗi/chưa chạy và thời gian mỗi test. Màu AC là xanh; WA/TLE/RE/MLE là đỏ; CE là vàng. Bài nộp cũ không lưu kết quả từng test sẽ hiển thị số test theo cấu hình đề hiện tại và thông báo rằng trạng thái chi tiết không thể khôi phục.
 
 Trang chi tiết mỗi bài tập có danh sách bài nộp gần đây và trang `/problems/{slug}/submissions` để xem toàn bộ, phân trang. Thông tin verdict/điểm là công khai; mã nguồn và kết quả từng test chỉ dành cho chủ bài nộp, giáo viên và quản trị viên.
+
+## Thế giới persistent
+
+Mục **Giải trí → Thế giới** có căn cứ sản xuất gỗ/đá, nâng cấp nhà máy và kho, cùng sự kiện thu thập tài nguyên hằng ngày theo UTC. Sản lượng và công trình được tính lại từ timestamp ở máy chủ khi người chơi truy cập; thời gian offline được giới hạn tối đa 48 giờ và tài nguyên không vượt sức chứa kho. Tham gia sự kiện có giới hạn 200 người; mỗi lượt đóng góp tiêu tốn 10 gỗ, có cooldown 5 giây. Ba người có điểm cao nhất nhận thưởng trong kho thưởng để tự nhận sau khi sự kiện kết thúc.
+
+Sự kiện và tác vụ tổng kết được lưu trong PostgreSQL/SQLite. Tác vụ dùng khóa duy nhất, claim có lease, retry tối đa 5 lần và ghi lỗi vào log máy chủ; trang thế giới cũng xử lý các tác vụ đến hạn để không phụ thuộc vào tiến trình chạy liên tục. Vercel Cron gọi `/api/cron/world` mỗi ngày như cơ chế dự phòng. Đặt biến môi trường `CRON_SECRET` trên Vercel để xác thực request Cron; trên local, có thể gọi API chơi bình thường mà không cần Cron vì tiến trình được cập nhật theo timestamp khi truy cập.
+
+Đây là vòng chơi nền tảng: chưa bao gồm chiến tranh lãnh thổ, boss, liên minh, quân đội hay nhiệm vụ cộng đồng.

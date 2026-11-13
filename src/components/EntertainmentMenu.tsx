@@ -5,6 +5,12 @@ import { useEffect, useRef, useState } from "react";
 
 const entertainmentLinks = [
   {
+    href: "/world",
+    label: "Thế giới",
+    description: "Xây căn cứ, sản xuất tài nguyên và dự sự kiện",
+    icon: "🌍",
+  },
+  {
     href: "/chess",
     label: "Chess Arena",
     description: "Đấu cờ vua trực tiếp trên cùng máy",
