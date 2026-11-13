@@ -48,6 +48,7 @@ export default async function LeaderboardPage({
         include: {
           problem: {
             select: {
+              scoringMode: true,
               testCases: {
                 orderBy: { order: "asc" },
                 select: { points: true },

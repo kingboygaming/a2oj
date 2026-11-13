@@ -68,6 +68,7 @@ const updateContestSchema = z.object({
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
   problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC", "INTERACTIVE"])).optional(),
+  problemScoringModes: z.record(z.string(), z.enum(SCORING_MODES)).optional(),
   problemIoModes: z.record(z.string(), z.enum(["STDIO", "FILE"])).optional(),
   problemInputFiles: z.record(z.string(), z.string()).optional(),
   problemOutputFiles: z.record(z.string(), z.string()).optional(),
@@ -233,7 +234,7 @@ export async function PATCH(
         { id: { in: existingContest.problems.map((p) => p.problemId) } },
       ],
     },
-    select: { id: true, judgeType: true, ioMode: true, interactorSource: true },
+    select: { id: true, judgeType: true, scoringMode: true, ioMode: true, interactorSource: true },
   });
 
   if (validProblems.length !== parsed.data.problemIds.length) {
@@ -241,22 +242,21 @@ export async function PATCH(
   }
   for (const problem of validProblems) {
     const judgeType = problem.judgeType === "INTERACTIVE"
-      ? "INTERACTIVE"
-      : parsed.data.problemJudgeTypes?.[problem.id];
-    if (judgeType === "INTERACTIVE" && (!problem.interactorSource?.trim() || problem.ioMode === "FILE")) {
+      ? parsed.data.problemJudgeTypes?.[problem.id] ?? "INTERACTIVE"
+      : parsed.data.problemJudgeTypes?.[problem.id] ?? problem.judgeType;
+    const ioMode = parsed.data.problemIoModes?.[problem.id] ?? problem.ioMode;
+    if (judgeType === "INTERACTIVE" && (!problem.interactorSource?.trim() || ioMode === "FILE")) {
       return NextResponse.json(
         { error: "Bài Interactive được chọn phải có interactor và dùng stdin/stdout." },
         { status: 400 },
       );
-    }
-    if (judgeType === "INTERACTIVE" && parsed.data.problemIoModes?.[problem.id] === "FILE") {
-      return NextResponse.json({ error: "Bài Interactive chỉ hỗ trợ stdin/stdout." }, { status: 400 });
     }
   }
 
   const updatedContest = await prisma.$transaction(async (tx) => {
     // 1. Create newly added problems
     const createdNewProblemIds: string[] = [];
+    const newProblemModes = new Map<string, { judgeType: string; scoringMode: string }>();
     for (const prob of parsed.data.newProblems) {
       const ioMode = prob.judgeType === "INTERACTIVE" ? "STDIO" : prob.ioMode ?? "STDIO";
       const created = await tx.problem.create({
@@ -279,6 +279,10 @@ export async function PATCH(
         select: { id: true },
       });
       createdNewProblemIds.push(created.id);
+      newProblemModes.set(created.id, {
+        judgeType: prob.judgeType,
+        scoringMode: prob.scoringMode,
+      });
     }
 
     const allFinalProblemIds = [...parsed.data.problemIds, ...createdNewProblemIds];
@@ -294,7 +298,9 @@ export async function PATCH(
     // 3. Upsert / update ContestProblem letters, customTitle and points
     const customTitles = parsed.data.problemCustomTitles ?? {};
     const problemJudgeTypes = parsed.data.problemJudgeTypes ?? {};
+    const problemScoringModes = parsed.data.problemScoringModes ?? {};
     const judgeTypeByProblemId = new Map(validProblems.map((problem) => [problem.id, problem.judgeType]));
+    const scoringModeByProblemId = new Map(validProblems.map((problem) => [problem.id, problem.scoringMode]));
     const problemIoModes = parsed.data.problemIoModes ?? {};
     const problemInputFiles = parsed.data.problemInputFiles ?? {};
     const problemOutputFiles = parsed.data.problemOutputFiles ?? {};
@@ -303,21 +309,27 @@ export async function PATCH(
       const problemId = allFinalProblemIds[i];
       const letter = String.fromCharCode(65 + i);
       const customTitle = customTitles[problemId]?.trim() || null;
-      const judgeType = judgeTypeByProblemId.get(problemId) === "INTERACTIVE"
-        ? "INTERACTIVE"
-        : problemJudgeTypes[problemId] || null;
+      const judgeType = problemJudgeTypes[problemId] ??
+        judgeTypeByProblemId.get(problemId) ??
+        newProblemModes.get(problemId)?.judgeType ??
+        null;
+      const scoringMode = problemScoringModes[problemId] ??
+        scoringModeByProblemId.get(problemId) ??
+        newProblemModes.get(problemId)?.scoringMode ??
+        "ICPC";
       const ioMode = judgeType === "INTERACTIVE" ? "STDIO" : problemIoModes[problemId] || null;
       const inputFile = problemInputFiles[problemId]?.trim() || null;
       const outputFile = problemOutputFiles[problemId]?.trim() || null;
       await tx.contestProblem.upsert({
         where: { contestId_problemId: { contestId: existingContest.id, problemId } },
-        update: { letter, customTitle, judgeType, ioMode, inputFile, outputFile, points: 100 },
+        update: { letter, customTitle, judgeType, scoringMode, ioMode, inputFile, outputFile, points: 100 },
         create: {
           contestId: existingContest.id,
           problemId,
           letter,
           customTitle,
           judgeType,
+          scoringMode,
           ioMode,
           inputFile,
           outputFile,

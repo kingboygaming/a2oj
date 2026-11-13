@@ -36,6 +36,7 @@ const schema = z.object({
   problemIds: z.array(z.string().min(1)),
   problemCustomTitles: z.record(z.string(), z.string()).optional(),
   problemJudgeTypes: z.record(z.string(), z.enum(["STANDARD", "HEURISTIC", "INTERACTIVE"])).optional(),
+  problemScoringModes: z.record(z.string(), z.enum(SCORING_MODES)).optional(),
   problemIoModes: z.record(z.string(), z.enum(["STDIO", "FILE"])).optional(),
   problemInputFiles: z.record(z.string(), z.string()).optional(),
   problemOutputFiles: z.record(z.string(), z.string()).optional(),
@@ -139,7 +140,7 @@ export async function POST(request: Request) {
         published: true,
         contestOnly: false,
       },
-      select: { id: true, judgeType: true, ioMode: true, interactorSource: true },
+      select: { id: true, judgeType: true, scoringMode: true, ioMode: true, interactorSource: true },
     }),
     prisma.problem.findMany({
       where: { slug: { in: newProblemSlugs } },
@@ -154,16 +155,14 @@ export async function POST(request: Request) {
   }
   for (const problem of selectedProblems) {
     const judgeType = problem.judgeType === "INTERACTIVE"
-      ? "INTERACTIVE"
-      : parsed.data.problemJudgeTypes?.[problem.id];
-    if (judgeType === "INTERACTIVE" && (!problem.interactorSource?.trim() || problem.ioMode === "FILE")) {
+      ? parsed.data.problemJudgeTypes?.[problem.id] ?? "INTERACTIVE"
+      : parsed.data.problemJudgeTypes?.[problem.id] ?? problem.judgeType;
+    const ioMode = parsed.data.problemIoModes?.[problem.id] ?? problem.ioMode;
+    if (judgeType === "INTERACTIVE" && (!problem.interactorSource?.trim() || ioMode === "FILE")) {
       return NextResponse.json(
         { error: "Bài Interactive được chọn phải có interactor và dùng stdin/stdout." },
         { status: 400 },
       );
-    }
-    if (judgeType === "INTERACTIVE" && parsed.data.problemIoModes?.[problem.id] === "FILE") {
-      return NextResponse.json({ error: "Bài Interactive chỉ hỗ trợ stdin/stdout." }, { status: 400 });
     }
   }
   if (conflictingProblems.length > 0) {
@@ -200,6 +199,7 @@ export async function POST(request: Request) {
     });
 
     const newProblemIds: string[] = [];
+    const newProblemModes = new Map<string, { judgeType: string; scoringMode: string }>();
     for (const problem of parsed.data.newProblems) {
       const ioMode = problem.judgeType === "INTERACTIVE" ? "STDIO" : problem.ioMode ?? "STDIO";
       const createdProblem = await transaction.problem.create({
@@ -222,12 +222,18 @@ export async function POST(request: Request) {
         select: { id: true },
       });
       newProblemIds.push(createdProblem.id);
+      newProblemModes.set(createdProblem.id, {
+        judgeType: problem.judgeType,
+        scoringMode: problem.scoringMode,
+      });
     }
 
     const problemIds = [...parsed.data.problemIds, ...newProblemIds];
     const customTitles = parsed.data.problemCustomTitles ?? {};
     const problemJudgeTypes = parsed.data.problemJudgeTypes ?? {};
+    const problemScoringModes = parsed.data.problemScoringModes ?? {};
     const judgeTypeByProblemId = new Map(selectedProblems.map((problem) => [problem.id, problem.judgeType]));
+    const scoringModeByProblemId = new Map(selectedProblems.map((problem) => [problem.id, problem.scoringMode]));
     const problemIoModes = parsed.data.problemIoModes ?? {};
     const problemInputFiles = parsed.data.problemInputFiles ?? {};
     const problemOutputFiles = parsed.data.problemOutputFiles ?? {};
@@ -238,9 +244,8 @@ export async function POST(request: Request) {
         problemId,
         letter: String.fromCharCode(65 + index),
         customTitle: customTitles[problemId]?.trim() || null,
-        judgeType: judgeTypeByProblemId.get(problemId) === "INTERACTIVE"
-          ? "INTERACTIVE"
-          : problemJudgeTypes[problemId] || null,
+        judgeType: problemJudgeTypes[problemId] ?? judgeTypeByProblemId.get(problemId) ?? newProblemModes.get(problemId)?.judgeType ?? null,
+        scoringMode: problemScoringModes[problemId] ?? scoringModeByProblemId.get(problemId) ?? newProblemModes.get(problemId)?.scoringMode ?? "ICPC",
         ioMode: problemJudgeTypes[problemId] === "INTERACTIVE" ? "STDIO" : problemIoModes[problemId] || null,
         inputFile: problemInputFiles[problemId]?.trim() || null,
         outputFile: problemOutputFiles[problemId]?.trim() || null,

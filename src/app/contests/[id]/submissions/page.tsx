@@ -26,11 +26,13 @@ export default async function ContestSubmissionsPage({
           customTitle: true,
           judgeType: true,
           points: true,
+          scoringMode: true,
           problem: {
             select: {
               slug: true,
               title: true,
               judgeType: true,
+              scoringMode: true,
               testCases: {
                 orderBy: { order: "asc" },
                 select: { points: true },

@@ -16,6 +16,7 @@ export async function GET(
         include: {
           problem: {
             select: {
+              scoringMode: true,
               testCases: {
                 orderBy: { order: "asc" },
                 select: { points: true },

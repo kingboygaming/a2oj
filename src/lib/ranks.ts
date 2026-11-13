@@ -179,6 +179,7 @@ export async function getRankColorClasses(userIds: string[]) {
           points: true,
           problem: {
             select: {
+              scoringMode: true,
               testCases: {
                 orderBy: { order: "asc" },
                 select: { points: true },
@@ -316,6 +317,7 @@ export async function getUserRankSummary(userId: string) {
           points: true,
           problem: {
             select: {
+              scoringMode: true,
               testCases: {
                 orderBy: { order: "asc" },
                 select: { points: true },

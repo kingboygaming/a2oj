@@ -4,6 +4,7 @@ export type ContestScoringProblem = {
   problemId: string;
   points: number;
   maxTestPoints: number;
+  scoringMode: ScoringMode;
 };
 
 export function getTotalTestPoints(
@@ -37,12 +38,18 @@ export function getContestScoringProblems<
   T extends {
     problemId: string;
     points: number;
-    problem: { testCases: { points: number }[] };
+    scoringMode?: string | null;
+    problem: { scoringMode?: string | null; testCases: { points: number }[] };
   },
 >(problems: T[], testLimit: number): ContestScoringProblem[] {
   return problems.map((contestProblem) => ({
     problemId: contestProblem.problemId,
     points: contestProblem.points,
+    scoringMode:
+      contestProblem.scoringMode === "VNOI" ||
+      (contestProblem.scoringMode == null && contestProblem.problem.scoringMode === "VNOI")
+        ? "VNOI"
+        : "ICPC",
     maxTestPoints: getTotalTestPoints(
       contestProblem.problem.testCases,
       testLimit,

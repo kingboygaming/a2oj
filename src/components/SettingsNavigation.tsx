@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/settings/profile", label: "Thông tin cá nhân" },
   { href: "/settings/security", label: "Mật khẩu" },
   { href: "/settings/email", label: "Email liên kết" },
+  { href: "/settings/graphics", label: "🎮 Đồ họa 3D" },
 ];
 
 export function SettingsNavigation() {

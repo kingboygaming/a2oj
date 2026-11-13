@@ -4,6 +4,7 @@ type ContestProblemScore = {
   problemId: string;
   points: number;
   maxTestPoints: number;
+  scoringMode: ScoringMode;
 };
 
 type ContestSubmission<User> = {
@@ -123,15 +124,16 @@ export function calculateContestStandings<User>(
       }
     }
 
-    if (contest.scoringMode === "VNOI" && problem && !alreadyAccepted) {
-      const score =
-        submission.verdict === "AC"
+    if (problem && !alreadyAccepted) {
+      const score = problem.scoringMode === "VNOI"
+        ? getVnoiProblemScore(
+            submission.score,
+            problem.maxTestPoints,
+            problem.points,
+          )
+        : submission.verdict === "AC"
           ? problem.points
-          : getVnoiProblemScore(
-              submission.score,
-              problem.maxTestPoints,
-              problem.points,
-            );
+          : 0;
       if (score > cell.score) {
         row.totalScore += score - cell.score;
         cell.score = score;
