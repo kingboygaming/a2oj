@@ -29,6 +29,20 @@ type AllianceSnapshot = {
     leaderUserId: string;
   }>;
   memberLimit: number;
+  hasActiveWar: boolean;
+  territories: Array<{
+    id: string;
+    name: string;
+    description: string;
+    dailyWood: number;
+    dailyStone: number;
+    controllerAllianceId: string | null;
+    controller: { id: string; name: string; tag: string } | null;
+    capturedAt: string | null;
+    nextRewardAt: string | null;
+    activeWarId: string | null;
+    activeWarEndsAt: string | null;
+  }>;
   wars: Array<{
     id: string;
     status: string;
@@ -36,6 +50,7 @@ type AllianceSnapshot = {
     defenderAllianceId: string;
     challenger: { id: string; name: string; tag: string };
     defender: { id: string; name: string; tag: string };
+    territory: { id: string; name: string } | null;
     challengerScore: number;
     defenderScore: number;
     createdAt: string;
@@ -60,7 +75,7 @@ type AllianceAction =
   | { action: "leave" }
   | { action: "kick"; targetUserId: string }
   | { action: "transfer"; targetUserId: string }
-  | { action: "challenge"; defenderAllianceId: string }
+  | { action: "challenge"; defenderAllianceId: string; territoryId: string }
   | { action: "attackWar"; warId: string; infantry: number; archers: number; cavalry: number };
 
 async function fetchAllianceSnapshot() {
@@ -77,6 +92,7 @@ export function WorldAlliancePanel() {
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [attackCounts, setAttackCounts] = useState({ infantry: 0, archers: 0, cavalry: 0 });
+  const [territoryTargets, setTerritoryTargets] = useState<Record<string, string>>({});
   const isLeader = snapshot?.alliance?.role === "LEADER";
 
   useEffect(() => {
@@ -153,7 +169,7 @@ export function WorldAlliancePanel() {
   return (
     <section className="mt-7 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
       <div className="mb-4">
-        <p className="text-xs font-bold uppercase tracking-wider text-[var(--teal)]">Nền tảng Alliance War</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-[var(--teal)]">Chiến tranh lãnh thổ</p>
         <h2 className="mt-1 text-xl font-bold text-[var(--navy)]">🤝 Liên minh</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Lập nhóm tối đa {snapshot?.memberLimit ?? 20} người để cùng chuẩn bị cho các hoạt động liên minh.
@@ -322,36 +338,12 @@ export function WorldAlliancePanel() {
           <div className="mb-3">
             <h3 className="font-bold text-[var(--navy)]">⚔️ Alliance War</h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Khi thủ lĩnh gửi thông báo khiêu chiến, trận bắt đầu ngay trong 24 giờ, không cần đối thủ chấp nhận. Mỗi đợt tối đa 500 quân, hồi lượt sau 60 giây và chịu 10% thương vong.
+              Khi thủ lĩnh khiêu chiến một lãnh thổ, trận bắt đầu ngay trong 24 giờ, không cần đối thủ chấp nhận. Mỗi đợt tối đa 500 quân, hồi lượt sau 60 giây và chịu 10% thương vong.
             </p>
           </div>
 
-          {isLeader && snapshot.directory.length > 0 && (
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-[var(--navy)]">Thách chiến:</span>
-              {snapshot.directory.map((alliance) => (
-                <button
-                  key={alliance.id}
-                  type="button"
-                  disabled={busy || snapshot.wars.some((war) =>
-                    war.status === "ACTIVE" &&
-                    (war.challengerAllianceId === snapshot.alliance?.id || war.defenderAllianceId === snapshot.alliance?.id),
-                  )}
-                  onClick={() => {
-                    if (window.confirm(`Gửi thông báo khiêu chiến đến [${alliance.tag}] ${alliance.name}? Trận sẽ bắt đầu ngay trong 24 giờ, không cần đối thủ chấp nhận.`)) {
-                      void runAction({ action: "challenge", defenderAllianceId: alliance.id });
-                    }
-                  }}
-                  className="rounded-md border border-rose-400/40 px-2.5 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-40"
-                >
-                  [{alliance.tag}] {alliance.name}
-                </button>
-              ))}
-            </div>
-          )}
-
           {snapshot.wars.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">Chưa có trận chiến nào gần đây.</p>
+            <p className="text-sm text-[var(--muted)]">Chưa có trận chiến lãnh thổ nào gần đây.</p>
           ) : (
             <div className="space-y-3">
               {snapshot.wars.map((war) => {
@@ -368,6 +360,9 @@ export function WorldAlliancePanel() {
                         <h4 className="mt-1 font-bold text-[var(--navy)]">
                           [{opponent.tag}] {opponent.name}
                         </h4>
+                        {war.territory && (
+                          <p className="mt-1 text-sm font-medium text-[var(--teal)]">Tranh chấp: {war.territory.name}</p>
+                        )}
                         {war.status === "ACTIVE" && (
                           <p className="mt-1 text-sm text-[var(--muted)]">
                             Kết thúc: {utcLabel(war.endsAt)}
@@ -383,10 +378,10 @@ export function WorldAlliancePanel() {
                         {war.status === "COMPLETED" && (
                           <p className="mt-1 text-sm font-semibold text-[var(--navy)]">
                             {war.winnerAllianceId === null
-                              ? "Hòa"
+                              ? "Hòa; lãnh thổ giữ nguyên chủ sở hữu."
                               : war.winnerAllianceId === snapshot.alliance?.id
-                                ? "Liên minh của bạn chiến thắng!"
-                                : "Đối thủ chiến thắng."}
+                                ? `Liên minh của bạn chiến thắng và kiểm soát ${war.territory?.name ?? "lãnh thổ"}!`
+                                : `Đối thủ chiến thắng và kiểm soát ${war.territory?.name ?? "lãnh thổ"}.`}
                           </p>
                         )}
                       </div>
@@ -465,6 +460,90 @@ export function WorldAlliancePanel() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {snapshot && (
+        <div className="mt-6 border-t border-[var(--line)] pt-5">
+          <div className="mb-3">
+            <h3 className="font-bold text-[var(--navy)]">🗺️ Bản đồ lãnh thổ</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Thắng trận sẽ chuyển quyền kiểm soát lãnh thổ; hòa giữ nguyên chủ sở hữu. Mỗi lãnh thổ chỉ có thể là mục tiêu của một trận tại một thời điểm.
+            </p>
+          </div>
+          <ul className="grid gap-3 md:grid-cols-2">
+            {snapshot.territories.map((territory) => {
+              const isOwnedByUs = territory.controllerAllianceId === snapshot.alliance?.id;
+              const possibleOpponents = territory.controllerAllianceId
+                ? territory.controller && !isOwnedByUs
+                  ? [territory.controller]
+                  : []
+                : snapshot.directory;
+              const selectedOpponentId =
+                territoryTargets[territory.id] ?? possibleOpponents[0]?.id ?? "";
+              return (
+                <li key={territory.id} className="rounded-xl border border-[var(--line)] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-bold text-[var(--navy)]">{territory.name}</h4>
+                      <p className="mt-1 text-xs text-[var(--muted)]">{territory.description}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-bold ${territory.controller ? "bg-amber-500/10 text-amber-700" : "bg-emerald-500/10 text-emerald-700"}`}>
+                      {territory.controller ? `[${territory.controller.tag}] ${territory.controller.name}` : "Trung lập"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-[var(--teal)]">
+                    Thưởng mỗi 24 giờ: +{territory.dailyWood.toLocaleString("vi-VN")} gỗ · +{territory.dailyStone.toLocaleString("vi-VN")} đá / thành viên
+                  </p>
+                  {territory.controller && territory.nextRewardAt && (
+                    <p className="mt-1 text-xs text-[var(--muted)]">Lượt thưởng tiếp theo: {utcLabel(territory.nextRewardAt)}</p>
+                  )}
+                  {territory.activeWarId ? (
+                    <p className="mt-3 text-xs font-semibold text-rose-700">
+                      Đang có tranh chấp · kết thúc {utcLabel(territory.activeWarEndsAt)}
+                    </p>
+                  ) : isOwnedByUs ? (
+                    <p className="mt-3 text-xs font-semibold text-[var(--teal)]">Liên minh của bạn đang kiểm soát lãnh thổ này.</p>
+                  ) : isLeader && possibleOpponents.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <select
+                        value={selectedOpponentId}
+                        onChange={(event) => setTerritoryTargets((targets) => ({
+                          ...targets,
+                          [territory.id]: event.target.value,
+                        }))}
+                        disabled={busy || snapshot.hasActiveWar}
+                        className="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--ink)]"
+                      >
+                        {possibleOpponents.map((alliance) => (
+                          <option key={alliance.id} value={alliance.id}>[{alliance.tag}] {alliance.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={busy || snapshot.hasActiveWar || !selectedOpponentId}
+                        onClick={() => {
+                          const opponent = possibleOpponents.find((alliance) => alliance.id === selectedOpponentId);
+                          if (opponent && window.confirm(`Khiêu chiến [${opponent.tag}] ${opponent.name} để tranh ${territory.name}? Trận bắt đầu ngay trong 24 giờ.`)) {
+                            void runAction({
+                              action: "challenge",
+                              defenderAllianceId: opponent.id,
+                              territoryId: territory.id,
+                            });
+                          }
+                        }}
+                        className="rounded-lg border border-rose-400/40 px-3 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-40"
+                      >
+                        Khiêu chiến
+                      </button>
+                    </div>
+                  ) : isLeader && possibleOpponents.length === 0 ? (
+                    <p className="mt-3 text-xs text-[var(--muted)]">Cần có liên minh đối thủ để tranh lãnh thổ.</p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </section>

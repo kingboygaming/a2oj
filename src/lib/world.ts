@@ -1,9 +1,13 @@
 import { Prisma } from "@prisma/client";
+import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
 export const WORLD_OFFLINE_CAP_MS = 48 * 60 * 60 * 1000;
-const RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
+export const WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
+export const WORLD_MIN_TERRITORY_DISTANCE_METERS = 10_000;
 const MAX_BUILDING_LEVEL = 20;
+const INITIAL_COORDINATE_EXTENT_METERS = 100_000;
+const MAX_COORDINATE_EXTENT_METERS = 1_000_000_000;
 const JOB_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_JOB_ATTEMPTS = 5;
 const MAX_TROOPS_PER_TYPE = 5_000;
@@ -32,6 +36,8 @@ type WorldBaseState = {
   trainingCount: number;
   trainingCompletesAt: Date | null;
   marchActive: boolean;
+  coordinateX: number | null;
+  coordinateZ: number | null;
   lastSimulatedAt: Date;
   version: number;
 };
@@ -55,6 +61,8 @@ type WorldProgress = {
 export type WorldSnapshot = {
   now: string;
   base: {
+    coordinateX: number;
+    coordinateZ: number;
     wood: number;
     stone: number;
     factoryLevel: number;
@@ -187,28 +195,28 @@ export function calculateWorldProgress(base: WorldBaseState, now: Date): WorldPr
     const beforeHours = (upgradeAt - accrualStart.getTime()) / 3_600_000;
     const afterHours = (now.getTime() - upgradeAt) / 3_600_000;
     wood = Math.min(
-      base.warehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+      base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
       wood + woodRemainder + beforeHours * productionFor(base.factoryLevel, "wood"),
     );
     stone = Math.min(
-      base.warehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+      base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
       stone + stoneRemainder + beforeHours * productionFor(base.factoryLevel, "stone"),
     );
     wood = Math.min(
-      nextWarehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+      nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
       wood + afterHours * productionFor(base.factoryLevel, "wood"),
     );
     stone = Math.min(
-      nextWarehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+      nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
       stone + afterHours * productionFor(base.factoryLevel, "stone"),
     );
   } else {
-    const capacity = nextWarehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+    const capacity = nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
     wood = Math.min(capacity, wood + woodRemainder + earned("wood"));
     stone = Math.min(capacity, stone + stoneRemainder + earned("stone"));
   }
 
-  const capacity = nextWarehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+  const capacity = nextWarehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
   const finalWood = Math.floor(Math.min(capacity, wood));
   const finalStone = Math.floor(Math.min(capacity, stone));
   woodRemainder = finalWood >= capacity ? 0 : Math.min(0.999_999_999, wood - finalWood);
@@ -232,11 +240,69 @@ export function calculateWorldProgress(base: WorldBaseState, now: Date): WorldPr
 }
 
 async function ensureBase(userId: string, now: Date) {
-  return prisma.worldBase.upsert({
-    where: { userId },
-    create: { userId, lastSimulatedAt: now },
-    update: {},
-  });
+  const current = await prisma.worldBase.findUnique({ where: { userId } });
+  if (current && current.coordinateX !== null && current.coordinateZ !== null) return current;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const base = await tx.worldBase.findUnique({ where: { userId } });
+        if (base && base.coordinateX !== null && base.coordinateZ !== null) return base;
+
+        await tx.worldMapAllocator.upsert({
+          where: { id: 1 },
+          create: { id: 1 },
+          update: { revision: { increment: 1 } },
+        });
+        const occupied = await tx.worldBase.findMany({
+          where: { coordinateX: { not: null }, coordinateZ: { not: null } },
+          select: { coordinateX: true, coordinateZ: true },
+        });
+        const [coordinateX, coordinateZ] = findRandomAvailableCoordinates(occupied);
+
+        if (!base) {
+          return tx.worldBase.create({
+            data: { userId, lastSimulatedAt: now, coordinateX, coordinateZ },
+          });
+        }
+
+        const assigned = await tx.worldBase.updateMany({
+          where: { id: base.id, OR: [{ coordinateX: null }, { coordinateZ: null }] },
+          data: { coordinateX, coordinateZ },
+        });
+        if (!assigned.count) return tx.worldBase.findUniqueOrThrow({ where: { userId } });
+        return tx.worldBase.findUniqueOrThrow({ where: { userId } });
+      });
+    } catch (error) {
+      const retryable =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === "P2002" || error.code === "P2034");
+      if (!retryable || attempt === 4) throw error;
+    }
+  }
+  throw new Error(`Could not assign world coordinates to user ${userId}.`);
+}
+
+function findRandomAvailableCoordinates(
+  occupied: Array<{ coordinateX: number | null; coordinateZ: number | null }>,
+) {
+  let extent = INITIAL_COORDINATE_EXTENT_METERS;
+  for (let expansion = 0; expansion < 25; expansion += 1) {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const coordinateX = randomInt(-extent, extent + 1);
+      const coordinateZ = randomInt(-extent, extent + 1);
+      const spacedFromEveryBase = occupied.every((base) => {
+        if (base.coordinateX === null || base.coordinateZ === null) return true;
+        const dx = coordinateX - base.coordinateX;
+        const dz = coordinateZ - base.coordinateZ;
+        return Math.hypot(dx, dz) >= WORLD_MIN_TERRITORY_DISTANCE_METERS;
+      });
+      if (spacedFromEveryBase) return [coordinateX, coordinateZ] as const;
+    }
+    if (extent >= MAX_COORDINATE_EXTENT_METERS) break;
+    extent = Math.min(MAX_COORDINATE_EXTENT_METERS, extent * 2);
+  }
+  throw new Error("Unable to find an unoccupied world coordinate at least 10 km from every other base.");
 }
 
 async function advanceWorld(userId: string, now: Date) {
@@ -631,6 +697,9 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   await processScheduledWorldJobs(now);
   const world = await advanceWorld(userId, now);
   const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
+  if (base.coordinateX === null || base.coordinateZ === null) {
+    throw new Error(`World base for user ${userId} is missing coordinates after initialization.`);
+  }
   const [events, pending, activeMarch] = await Promise.all([
     prisma.worldEvent.findMany({
       where: { endsAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
@@ -668,6 +737,8 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   return {
     now: now.toISOString(),
     base: {
+      coordinateX: base.coordinateX,
+      coordinateZ: base.coordinateZ,
       wood: base.wood,
       stone: base.stone,
       factoryLevel: base.factoryLevel,
@@ -675,7 +746,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       upgradeType: base.upgradeType,
       upgradeCompletesAt: base.upgradeCompletesAt?.toISOString() ?? null,
       lastSimulatedAt: base.lastSimulatedAt.toISOString(),
-      capacity: base.warehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+      capacity: base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
       woodPerHour: productionFor(base.factoryLevel, "wood"),
       stonePerHour: productionFor(base.factoryLevel, "stone"),
       army: {
@@ -1051,7 +1122,7 @@ export async function performWorldAction(
       throw new WorldActionError("Sự kiện lần này không có phần thưởng dành cho bạn.", 409);
     }
     const base = await tx.worldBase.findUniqueOrThrow({ where: { userId } });
-    const capacity = base.warehouseLevel * RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+    const capacity = base.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
     if (
       base.wood + participation.rewardWood > capacity ||
       base.stone + participation.rewardStone > capacity

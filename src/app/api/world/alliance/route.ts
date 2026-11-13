@@ -22,7 +22,11 @@ const requestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("leave") }),
   z.object({ action: z.literal("kick"), targetUserId: z.string().min(1) }),
   z.object({ action: z.literal("transfer"), targetUserId: z.string().min(1) }),
-  z.object({ action: z.literal("challenge"), defenderAllianceId: z.string().min(1) }),
+  z.object({
+    action: z.literal("challenge"),
+    defenderAllianceId: z.string().min(1),
+    territoryId: z.string().min(1),
+  }),
   z.object({
     action: z.literal("attackWar"),
     warId: z.string().min(1),
@@ -61,7 +65,11 @@ export async function POST(request: Request) {
     }
     if (isWorldAllianceUniqueConstraintError(error)) {
       return NextResponse.json(
-        { error: "Tag đã được dùng hoặc tài khoản vừa gia nhập liên minh khác." },
+        {
+          error: parsed.data.action === "challenge"
+            ? "Lãnh thổ hoặc liên minh vừa bị khóa trong trận khác. Hãy tải lại và thử lại."
+            : "Tag đã được dùng hoặc tài khoản vừa gia nhập liên minh khác.",
+        },
         { status: 409 },
       );
     }

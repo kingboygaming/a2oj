@@ -534,6 +534,8 @@ model WorldBase {
   trainingCount         Int      @default(0)
   trainingCompletesAt   DateTime?
   marchActive           Boolean  @default(false)
+  coordinateX           Int?
+  coordinateZ           Int?
   lastSimulatedAt       DateTime @default(now())
   version               Int      @default(0)
   createdAt             DateTime @default(now())
@@ -541,7 +543,13 @@ model WorldBase {
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   marches               WorldMarch[]
 
+  @@unique([coordinateX, coordinateZ])
   @@index([lastSimulatedAt])
+}
+
+model WorldMapAllocator {
+  id       Int @id @default(1)
+  revision Int @default(0)
 }
 
 model WorldEvent {
@@ -644,6 +652,7 @@ model WorldAlliance {
   members      WorldAllianceMember[]
   challengerWars WorldAllianceWar[] @relation("WorldAllianceWarChallenger")
   defenderWars WorldAllianceWar[] @relation("WorldAllianceWarDefender")
+  controlledTerritories WorldTerritory[] @relation("WorldTerritoryController")
   warLocks     WorldAllianceWarLock[]
   warScores    WorldAllianceWarScore[]
 
@@ -666,6 +675,7 @@ model WorldAllianceWar {
   id                    String               @id @default(cuid())
   challengerAllianceId  String
   defenderAllianceId    String
+  territoryId           String?
   status                String               @default("ACTIVE")
   challengerScore       Int                  @default(0)
   defenderScore         Int                  @default(0)
@@ -676,12 +686,38 @@ model WorldAllianceWar {
   winnerAllianceId      String?
   challenger            WorldAlliance        @relation("WorldAllianceWarChallenger", fields: [challengerAllianceId], references: [id], onDelete: Cascade)
   defender              WorldAlliance        @relation("WorldAllianceWarDefender", fields: [defenderAllianceId], references: [id], onDelete: Cascade)
+  territory             WorldTerritory?      @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  territoryWarLock      WorldTerritoryWarLock?
   locks                 WorldAllianceWarLock[]
   scores                WorldAllianceWarScore[]
 
   @@index([challengerAllianceId, createdAt])
   @@index([defenderAllianceId, createdAt])
+  @@index([territoryId, createdAt])
   @@index([status, endsAt])
+}
+
+model WorldTerritory {
+  id                   String                    @id
+  name                 String
+  description          String
+  dailyWood            Int                       @default(0)
+  dailyStone           Int                       @default(0)
+  controllerAllianceId String?
+  capturedAt           DateTime?
+  nextRewardAt         DateTime?
+  controller           WorldAlliance?            @relation("WorldTerritoryController", fields: [controllerAllianceId], references: [id], onDelete: SetNull)
+  wars                 WorldAllianceWar[]
+  warLock              WorldTerritoryWarLock?
+
+  @@index([controllerAllianceId])
+}
+
+model WorldTerritoryWarLock {
+  territoryId String         @id
+  warId       String         @unique
+  territory   WorldTerritory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  war         WorldAllianceWar @relation(fields: [warId], references: [id], onDelete: Cascade)
 }
 
 model WorldAllianceWarLock {

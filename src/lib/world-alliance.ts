@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  calculateWorldProgress,
+  WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+} from "@/lib/world";
 
 export const WORLD_ALLIANCE_MEMBER_LIMIT = 20;
 
@@ -9,13 +13,21 @@ type AllianceAction =
   | { action: "leave" }
   | { action: "kick"; targetUserId: string }
   | { action: "transfer"; targetUserId: string }
-  | { action: "challenge"; defenderAllianceId: string }
+  | { action: "challenge"; defenderAllianceId: string; territoryId: string }
   | { action: "attackWar"; warId: string; infantry: number; archers: number; cavalry: number };
 
 const ALLIANCE_WAR_DURATION_MS = 24 * 60 * 60 * 1000;
 const ALLIANCE_WAR_ATTACK_COOLDOWN_MS = 60 * 1000;
 const MAX_TROOPS_PER_WAR_ATTACK = 500;
 const WAR_TROOP_DAMAGE = { INFANTRY: 10, ARCHERS: 15, CAVALRY: 20 } as const;
+const TERRITORY_REWARD_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const WORLD_TERRITORIES = [
+  { id: "ironwood", name: "Rừng Thiết Mộc", description: "Vùng rừng chiến lược ở phía bắc.", dailyWood: 180, dailyStone: 20 },
+  { id: "granite-pass", name: "Ải Đá Xám", description: "Cửa ải hiểm yếu nối liền các vùng đất.", dailyWood: 80, dailyStone: 120 },
+  { id: "emerald-valley", name: "Thung lũng Lục Bảo", description: "Thung lũng màu mỡ giữa bản đồ.", dailyWood: 120, dailyStone: 80 },
+  { id: "sun-coast", name: "Bờ biển Ánh Dương", description: "Dải bờ biển có vị trí giao thương quan trọng.", dailyWood: 100, dailyStone: 100 },
+  { id: "frost-peak", name: "Đỉnh Băng Giá", description: "Cao địa khó tiếp cận nhưng giàu giá trị chiến lược.", dailyWood: 60, dailyStone: 140 },
+] as const;
 
 export class WorldAllianceActionError extends Error {
   constructor(
@@ -33,6 +45,112 @@ export function isWorldAllianceActionError(error: unknown): error is WorldAllian
 
 export function isWorldAllianceUniqueConstraintError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+async function ensureWorldTerritories() {
+  for (const territory of WORLD_TERRITORIES) {
+    await prisma.worldTerritory.upsert({
+      where: { id: territory.id },
+      create: territory,
+      update: {},
+    });
+  }
+}
+
+async function awardTerritoryResources(
+  transaction: Prisma.TransactionClient,
+  userId: string,
+  woodReward: number,
+  stoneReward: number,
+  now: Date,
+) {
+  let base = await transaction.worldBase.findUnique({ where: { userId } });
+  if (!base) {
+    base = await transaction.worldBase.upsert({
+      where: { userId },
+      create: { userId, lastSimulatedAt: now },
+      update: {},
+    });
+  }
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const progress = calculateWorldProgress(base, now);
+    const capacity = progress.warehouseLevel * WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL;
+    const wood = Math.min(capacity, progress.wood + woodReward);
+    const stone = Math.min(capacity, progress.stone + stoneReward);
+    const updated = await transaction.worldBase.updateMany({
+      where: { id: base.id, version: base.version },
+      data: {
+        wood,
+        woodRemainder: wood >= capacity ? 0 : progress.woodRemainder,
+        stone,
+        stoneRemainder: stone >= capacity ? 0 : progress.stoneRemainder,
+        factoryLevel: progress.factoryLevel,
+        warehouseLevel: progress.warehouseLevel,
+        upgradeType: progress.upgradeType,
+        upgradeCompletesAt: progress.upgradeCompletesAt,
+        lastSimulatedAt: now,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count) return;
+    base = await transaction.worldBase.findUniqueOrThrow({ where: { userId } });
+  }
+  throw new Error(`Could not award territory resources to user ${userId} after concurrent updates.`);
+}
+
+async function processWorldTerritoryRewards(now: Date) {
+  const dueTerritories = await prisma.worldTerritory.findMany({
+    where: { controllerAllianceId: { not: null }, nextRewardAt: { lte: now } },
+    orderBy: { nextRewardAt: "asc" },
+    take: 100,
+    select: {
+      id: true,
+      controllerAllianceId: true,
+      nextRewardAt: true,
+      dailyWood: true,
+      dailyStone: true,
+    },
+  });
+  let rewarded = 0;
+  for (const territory of dueTerritories) {
+    if (!territory.controllerAllianceId || !territory.nextRewardAt) continue;
+    const rewardPeriods =
+      Math.floor((now.getTime() - territory.nextRewardAt.getTime()) / TERRITORY_REWARD_INTERVAL_MS) + 1;
+    const nextRewardAt = new Date(
+      territory.nextRewardAt.getTime() + rewardPeriods * TERRITORY_REWARD_INTERVAL_MS,
+    );
+    const paid = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.worldTerritory.updateMany({
+        where: {
+          id: territory.id,
+          controllerAllianceId: territory.controllerAllianceId,
+          nextRewardAt: territory.nextRewardAt,
+        },
+        data: {
+          nextRewardAt,
+        },
+      });
+      if (!claimed.count) return false;
+
+      const members = await tx.worldAllianceMember.findMany({
+        where: { allianceId: territory.controllerAllianceId! },
+        select: { userId: true },
+      });
+      for (const member of members) {
+        await awardTerritoryResources(
+          tx,
+          member.userId,
+          territory.dailyWood * rewardPeriods,
+          territory.dailyStone * rewardPeriods,
+          now,
+        );
+      }
+      return true;
+    });
+    if (paid) rewarded += 1;
+  }
+  return rewarded;
 }
 
 export async function settleWorldAllianceWars(now = new Date()) {
@@ -57,17 +175,35 @@ export async function settleWorldAllianceWars(now = new Date()) {
           : war.challengerScore > war.defenderScore
             ? war.challengerAllianceId
             : war.defenderAllianceId;
+      if (winnerAllianceId && war.territoryId) {
+        const territory = await tx.worldTerritory.findUniqueOrThrow({
+          where: { id: war.territoryId },
+          select: { controllerAllianceId: true },
+        });
+        if (territory.controllerAllianceId !== winnerAllianceId) {
+          await tx.worldTerritory.update({
+            where: { id: war.territoryId },
+            data: {
+              controllerAllianceId: winnerAllianceId,
+              capturedAt: now,
+              nextRewardAt: new Date(now.getTime() + TERRITORY_REWARD_INTERVAL_MS),
+            },
+          });
+        }
+      }
       const completed = await tx.worldAllianceWar.updateMany({
         where: { id, status: "SETTLING" },
         data: { status: "COMPLETED", completedAt: now, winnerAllianceId },
       });
       if (!completed.count) return false;
       await tx.worldAllianceWarLock.deleteMany({ where: { warId: id } });
+      await tx.worldTerritoryWarLock.deleteMany({ where: { warId: id } });
       return true;
     });
     if (didSettle) settled += 1;
   }
-  return { settled };
+  const territoryRewards = await processWorldTerritoryRewards(now);
+  return { settled, territoryRewards };
 }
 
 async function assertAllianceWarUnlocked(
@@ -135,6 +271,7 @@ export async function prepareWorldAllianceForUserDeletion(
 }
 
 export async function loadWorldAllianceSnapshot(userId: string) {
+  await ensureWorldTerritories();
   await settleWorldAllianceWars();
   const membership = await prisma.worldAllianceMember.findUnique({
     where: { userId },
@@ -170,7 +307,7 @@ export async function loadWorldAllianceSnapshot(userId: string) {
       leader: { select: { displayName: true, username: true } },
     },
   });
-  const [wars, base] = await Promise.all([
+  const [wars, territories, base, activeWarLock] = await Promise.all([
     membership
       ? prisma.worldAllianceWar.findMany({
           where: {
@@ -184,6 +321,7 @@ export async function loadWorldAllianceSnapshot(userId: string) {
           include: {
             challenger: { select: { id: true, name: true, tag: true } },
             defender: { select: { id: true, name: true, tag: true } },
+            territory: { select: { id: true, name: true } },
             scores: {
               orderBy: [{ score: "desc" }, { id: "asc" }],
               take: 20,
@@ -196,6 +334,13 @@ export async function loadWorldAllianceSnapshot(userId: string) {
           },
         })
       : Promise.resolve([]),
+    prisma.worldTerritory.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        controller: { select: { id: true, name: true, tag: true } },
+        warLock: { select: { warId: true, war: { select: { endsAt: true } } } },
+      },
+    }),
     prisma.worldBase.findUnique({
       where: { userId },
       select: {
@@ -206,6 +351,12 @@ export async function loadWorldAllianceSnapshot(userId: string) {
         marchActive: true,
       },
     }),
+    membership
+      ? prisma.worldAllianceWarLock.findUnique({
+          where: { allianceId: membership.allianceId },
+          select: { warId: true },
+        })
+      : Promise.resolve(null),
   ]);
 
   return {
@@ -237,6 +388,20 @@ export async function loadWorldAllianceSnapshot(userId: string) {
       leaderName: alliance.leader.displayName || alliance.leader.username,
     })),
     memberLimit: WORLD_ALLIANCE_MEMBER_LIMIT,
+    hasActiveWar: activeWarLock !== null,
+    territories: territories.map((territory) => ({
+      id: territory.id,
+      name: territory.name,
+      description: territory.description,
+      controllerAllianceId: territory.controllerAllianceId,
+      controller: territory.controller,
+      dailyWood: territory.dailyWood,
+      dailyStone: territory.dailyStone,
+      capturedAt: territory.capturedAt?.toISOString() ?? null,
+      nextRewardAt: territory.nextRewardAt?.toISOString() ?? null,
+      activeWarId: territory.warLock?.warId ?? null,
+      activeWarEndsAt: territory.warLock?.war.endsAt?.toISOString() ?? null,
+    })),
     wars: wars.map((war) => ({
       id: war.id,
       status: war.status,
@@ -244,6 +409,7 @@ export async function loadWorldAllianceSnapshot(userId: string) {
       defenderAllianceId: war.defenderAllianceId,
       challenger: war.challenger,
       defender: war.defender,
+      territory: war.territory,
       challengerScore: war.challengerScore,
       defenderScore: war.defenderScore,
       createdAt: war.createdAt.toISOString(),
@@ -277,6 +443,7 @@ export async function performWorldAllianceAction(
   await settleWorldAllianceWars(now);
 
   if (action.action === "challenge") {
+    await ensureWorldTerritories();
     await prisma.$transaction(async (tx) => {
       const challenger = await tx.worldAlliance.findFirst({
         where: { leaderUserId: userId },
@@ -293,6 +460,22 @@ export async function performWorldAllianceAction(
       if (!defender || defender.memberCount < 1) {
         throw new WorldAllianceActionError("Không tìm thấy liên minh đối thủ.", 404);
       }
+      const territory = await tx.worldTerritory.findUnique({
+        where: { id: action.territoryId },
+        select: { id: true, name: true, controllerAllianceId: true },
+      });
+      if (!territory) throw new WorldAllianceActionError("Không tìm thấy lãnh thổ.", 404);
+      if (territory.controllerAllianceId === challenger.id) {
+        throw new WorldAllianceActionError("Không thể khiêu chiến lãnh thổ do liên minh của bạn kiểm soát.", 409);
+      }
+      if (territory.controllerAllianceId && territory.controllerAllianceId !== defender.id) {
+        throw new WorldAllianceActionError("Chỉ có thể khiêu chiến liên minh đang kiểm soát lãnh thổ này.", 409);
+      }
+      const territoryLock = await tx.worldTerritoryWarLock.findUnique({
+        where: { territoryId: territory.id },
+        select: { warId: true },
+      });
+      if (territoryLock) throw new WorldAllianceActionError("Lãnh thổ này đang có chiến tranh.", 409);
       for (const allianceId of [challenger.id, defender.id].sort()) {
         await serializeAllianceMembershipChanges(tx, allianceId);
         await assertAllianceWarUnlocked(tx, allianceId);
@@ -302,6 +485,7 @@ export async function performWorldAllianceAction(
         data: {
           challengerAllianceId: challenger.id,
           defenderAllianceId: defender.id,
+          territoryId: territory.id,
           status: "ACTIVE",
           startedAt: now,
           endsAt: new Date(now.getTime() + ALLIANCE_WAR_DURATION_MS),
@@ -314,8 +498,11 @@ export async function performWorldAllianceAction(
           { allianceId: defender.id, warId: war.id },
         ],
       });
+      await tx.worldTerritoryWarLock.create({
+        data: { territoryId: territory.id, warId: war.id },
+      });
     });
-    return { message: "Đã gửi thông báo khiêu chiến. Trận Alliance War bắt đầu ngay và kéo dài 24 giờ." };
+    return { message: "Đã gửi thông báo khiêu chiến lãnh thổ. Trận bắt đầu ngay và kéo dài 24 giờ; liên minh thắng sẽ kiểm soát lãnh thổ." };
   }
 
   if (action.action === "attackWar") {

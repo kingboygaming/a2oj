@@ -121,6 +121,14 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
         </article>
       </section>
 
+      <section className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+        <p className="text-xs font-bold uppercase tracking-wider text-[var(--teal)]">Tọa độ căn cứ · X/Z</p>
+        <p className="mt-1 font-mono text-sm font-semibold text-[var(--navy)]">
+          X: {(snapshot.base.coordinateX / 1_000).toFixed(3)} km · Z: {(snapshot.base.coordinateZ / 1_000).toFixed(3)} km
+        </p>
+        <p className="mt-1 text-xs text-[var(--muted)]">Vị trí được cấp ngẫu nhiên; tâm mỗi căn cứ cách căn cứ khác tối thiểu 10 km.</p>
+      </section>
+
       <section className="mt-5 grid gap-3 sm:grid-cols-2">
         <article className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
           <div className="flex items-start justify-between gap-3">
