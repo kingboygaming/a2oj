@@ -26,8 +26,32 @@ type AllianceSnapshot = {
     description: string;
     memberCount: number;
     leaderName: string;
+    leaderUserId: string;
   }>;
   memberLimit: number;
+  wars: Array<{
+    id: string;
+    status: string;
+    challengerAllianceId: string;
+    defenderAllianceId: string;
+    challenger: { id: string; name: string; tag: string };
+    defender: { id: string; name: string; tag: string };
+    challengerScore: number;
+    defenderScore: number;
+    createdAt: string;
+    startedAt: string;
+    endsAt: string | null;
+    completedAt: string | null;
+    winnerAllianceId: string | null;
+    leaderboard: Array<{ allianceId: string; name: string; score: number }>;
+  }>;
+  army: null | {
+    infantry: number;
+    archers: number;
+    cavalry: number;
+    training: boolean;
+    marching: boolean;
+  };
 };
 
 type AllianceAction =
@@ -35,7 +59,9 @@ type AllianceAction =
   | { action: "join"; allianceId: string }
   | { action: "leave" }
   | { action: "kick"; targetUserId: string }
-  | { action: "transfer"; targetUserId: string };
+  | { action: "transfer"; targetUserId: string }
+  | { action: "challenge"; defenderAllianceId: string }
+  | { action: "attackWar"; warId: string; infantry: number; archers: number; cavalry: number };
 
 async function fetchAllianceSnapshot() {
   const response = await fetch("/api/world/alliance", { cache: "no-store" });
@@ -50,6 +76,7 @@ export function WorldAlliancePanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
+  const [attackCounts, setAttackCounts] = useState({ infantry: 0, archers: 0, cavalry: 0 });
   const isLeader = snapshot?.alliance?.role === "LEADER";
 
   useEffect(() => {
@@ -111,6 +138,16 @@ export function WorldAlliancePanel() {
       description: String(formData.get("description") ?? ""),
     });
     if (succeeded) form.reset();
+  }
+
+  function warStatusLabel(status: string) {
+    if (status === "ACTIVE") return "Đang chiến đấu";
+    if (status === "COMPLETED") return "Đã kết thúc";
+    return status;
+  }
+
+  function utcLabel(value: string | null) {
+    return value ? `${value.slice(0, 16).replace("T", " ")} UTC` : "—";
   }
 
   return (
@@ -248,7 +285,7 @@ export function WorldAlliancePanel() {
           </form>
 
           <div>
-            <h3 className="mb-2 font-bold text-[var(--navy)]">Liên minh đang tuyển thành viên</h3>
+            <h3 className="mb-2 font-bold text-[var(--navy)]">Liên minh công khai</h3>
             {snapshot?.directory.length ? (
               <ul className="space-y-2">
                 {snapshot.directory.map((alliance) => (
@@ -266,7 +303,7 @@ export function WorldAlliancePanel() {
                       onClick={() => void runAction({ action: "join", allianceId: alliance.id })}
                       className="shrink-0 rounded-lg border border-[var(--teal)] px-3 py-2 text-xs font-bold text-[var(--teal)] disabled:opacity-50"
                     >
-                      Gia nhập
+                      {alliance.memberCount >= snapshot.memberLimit ? "Đã đủ người" : "Gia nhập"}
                     </button>
                   </li>
                 ))}
@@ -277,6 +314,157 @@ export function WorldAlliancePanel() {
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {snapshot?.alliance && (
+        <div className="mt-6 border-t border-[var(--line)] pt-5">
+          <div className="mb-3">
+            <h3 className="font-bold text-[var(--navy)]">⚔️ Alliance War</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Khi thủ lĩnh gửi thông báo khiêu chiến, trận bắt đầu ngay trong 24 giờ, không cần đối thủ chấp nhận. Mỗi đợt tối đa 500 quân, hồi lượt sau 60 giây và chịu 10% thương vong.
+            </p>
+          </div>
+
+          {isLeader && snapshot.directory.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-[var(--navy)]">Thách chiến:</span>
+              {snapshot.directory.map((alliance) => (
+                <button
+                  key={alliance.id}
+                  type="button"
+                  disabled={busy || snapshot.wars.some((war) =>
+                    war.status === "ACTIVE" &&
+                    (war.challengerAllianceId === snapshot.alliance?.id || war.defenderAllianceId === snapshot.alliance?.id),
+                  )}
+                  onClick={() => {
+                    if (window.confirm(`Gửi thông báo khiêu chiến đến [${alliance.tag}] ${alliance.name}? Trận sẽ bắt đầu ngay trong 24 giờ, không cần đối thủ chấp nhận.`)) {
+                      void runAction({ action: "challenge", defenderAllianceId: alliance.id });
+                    }
+                  }}
+                  className="rounded-md border border-rose-400/40 px-2.5 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-40"
+                >
+                  [{alliance.tag}] {alliance.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {snapshot.wars.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Chưa có trận chiến nào gần đây.</p>
+          ) : (
+            <div className="space-y-3">
+              {snapshot.wars.map((war) => {
+                const isChallenger = war.challengerAllianceId === snapshot.alliance?.id;
+                const opponent = isChallenger ? war.defender : war.challenger;
+                const myAllianceScore = isChallenger ? war.challengerScore : war.defenderScore;
+                const opponentScore = isChallenger ? war.defenderScore : war.challengerScore;
+                const isActive = war.status === "ACTIVE" && Boolean(war.endsAt) && new Date(war.endsAt!) > new Date();
+                return (
+                  <article key={war.id} className="rounded-xl border border-[var(--line)] p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-[var(--teal)]">{warStatusLabel(war.status)}</p>
+                        <h4 className="mt-1 font-bold text-[var(--navy)]">
+                          [{opponent.tag}] {opponent.name}
+                        </h4>
+                        {war.status === "ACTIVE" && (
+                          <p className="mt-1 text-sm text-[var(--muted)]">
+                            Kết thúc: {utcLabel(war.endsAt)}
+                          </p>
+                        )}
+                        {war.status === "ACTIVE" && (
+                          <p className="mt-1 text-sm text-[var(--muted)]">
+                            {isChallenger
+                              ? `Đã gửi thông báo khiêu chiến; trận bắt đầu ngay lúc ${utcLabel(war.startedAt)}.`
+                              : `Liên minh của bạn đã nhận thông báo khiêu chiến; trận bắt đầu ngay lúc ${utcLabel(war.startedAt)}.`}
+                          </p>
+                        )}
+                        {war.status === "COMPLETED" && (
+                          <p className="mt-1 text-sm font-semibold text-[var(--navy)]">
+                            {war.winnerAllianceId === null
+                              ? "Hòa"
+                              : war.winnerAllianceId === snapshot.alliance?.id
+                                ? "Liên minh của bạn chiến thắng!"
+                                : "Đối thủ chiến thắng."}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {(war.status === "ACTIVE" || war.status === "COMPLETED") && (
+                      <>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-lg bg-[var(--teal)]/5 p-3">
+                            <p className="text-xs text-[var(--muted)]">Liên minh của bạn</p>
+                            <p className="font-black text-[var(--navy)]">{myAllianceScore.toLocaleString("vi-VN")}</p>
+                          </div>
+                          <div className="rounded-lg bg-rose-400/5 p-3">
+                            <p className="text-xs text-[var(--muted)]">[{opponent.tag}] {opponent.name}</p>
+                            <p className="font-black text-[var(--navy)]">{opponentScore.toLocaleString("vi-VN")}</p>
+                          </div>
+                        </div>
+                        {war.leaderboard.length > 0 && (
+                          <ol className="mt-3 grid gap-1 sm:grid-cols-2">
+                            {war.leaderboard.slice(0, 6).map((player, index) => (
+                              <li key={`${war.id}-${player.allianceId}-${player.name}`} className="flex justify-between gap-2 text-xs text-[var(--muted)]">
+                                <span>{index + 1}. {player.name} · [{player.allianceId === war.challengerAllianceId ? war.challenger.tag : war.defender.tag}]</span>
+                                <span className="font-bold text-[var(--navy)]">{player.score.toLocaleString("vi-VN")}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </>
+                    )}
+
+                    {isActive && (
+                      <div className="mt-4 rounded-lg border border-[var(--line)] p-3">
+                        <p className="text-sm font-bold text-[var(--navy)]">Gửi một đợt tấn công</p>
+                        {snapshot.army?.training || snapshot.army?.marching ? (
+                          <p className="mt-1 text-xs text-[var(--muted)]">Cần hoàn tất huấn luyện và chờ quân đang hành quân trở về.</p>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap items-end gap-2">
+                            {([
+                              ["infantry", "Bộ binh", snapshot.army?.infantry ?? 0],
+                              ["archers", "Cung thủ", snapshot.army?.archers ?? 0],
+                              ["cavalry", "Kỵ binh", snapshot.army?.cavalry ?? 0],
+                            ] as const).map(([key, label, available]) => (
+                              <label key={key} className="text-xs text-[var(--muted)]">
+                                {label} (có {available})
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={Math.min(500, available)}
+                                  value={attackCounts[key]}
+                                  onChange={(event) => setAttackCounts((counts) => ({
+                                    ...counts,
+                                    [key]: Math.max(0, Number(event.target.value) || 0),
+                                  }))}
+                                  className="mt-1 block w-24 rounded-md border border-[var(--line)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--ink)]"
+                                />
+                              </label>
+                            ))}
+                            <button
+                              type="button"
+                              disabled={busy || attackCounts.infantry + attackCounts.archers + attackCounts.cavalry < 1}
+                              onClick={() => void runAction({
+                                action: "attackWar",
+                                warId: war.id,
+                                ...attackCounts,
+                              })}
+                              className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                            >
+                              {busy ? "Đang xử lý…" : "Tấn công"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </section>

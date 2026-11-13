@@ -90,6 +90,7 @@ model User {
   worldEventParticipations WorldEventParticipation[]
   worldAllianceMembership WorldAllianceMember?
   worldAlliancesLed WorldAlliance[] @relation("WorldAllianceLeader")
+  worldAllianceWarScores WorldAllianceWarScore[]
 
 }
 
@@ -641,6 +642,10 @@ model WorldAlliance {
   updatedAt    DateTime             @updatedAt
   leader       User                 @relation("WorldAllianceLeader", fields: [leaderUserId], references: [id], onDelete: Cascade)
   members      WorldAllianceMember[]
+  challengerWars WorldAllianceWar[] @relation("WorldAllianceWarChallenger")
+  defenderWars WorldAllianceWar[] @relation("WorldAllianceWarDefender")
+  warLocks     WorldAllianceWarLock[]
+  warScores    WorldAllianceWarScore[]
 
   @@index([memberCount, createdAt])
 }
@@ -655,4 +660,50 @@ model WorldAllianceMember {
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([allianceId, joinedAt])
+}
+
+model WorldAllianceWar {
+  id                    String               @id @default(cuid())
+  challengerAllianceId  String
+  defenderAllianceId    String
+  status                String               @default("ACTIVE")
+  challengerScore       Int                  @default(0)
+  defenderScore         Int                  @default(0)
+  createdAt             DateTime             @default(now())
+  startedAt             DateTime             @default(now())
+  endsAt                DateTime?
+  completedAt           DateTime?
+  winnerAllianceId      String?
+  challenger            WorldAlliance        @relation("WorldAllianceWarChallenger", fields: [challengerAllianceId], references: [id], onDelete: Cascade)
+  defender              WorldAlliance        @relation("WorldAllianceWarDefender", fields: [defenderAllianceId], references: [id], onDelete: Cascade)
+  locks                 WorldAllianceWarLock[]
+  scores                WorldAllianceWarScore[]
+
+  @@index([challengerAllianceId, createdAt])
+  @@index([defenderAllianceId, createdAt])
+  @@index([status, endsAt])
+}
+
+model WorldAllianceWarLock {
+  allianceId String        @id
+  warId      String
+  alliance   WorldAlliance @relation(fields: [allianceId], references: [id], onDelete: Cascade)
+  war        WorldAllianceWar @relation(fields: [warId], references: [id], onDelete: Cascade)
+
+  @@unique([warId, allianceId])
+}
+
+model WorldAllianceWarScore {
+  id        String        @id @default(cuid())
+  warId     String
+  allianceId String
+  userId    String
+  score     Int           @default(0)
+  lastAttackAt DateTime?
+  war       WorldAllianceWar @relation(fields: [warId], references: [id], onDelete: Cascade)
+  alliance  WorldAlliance @relation(fields: [allianceId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([warId, userId])
+  @@index([warId, allianceId, score])
 }

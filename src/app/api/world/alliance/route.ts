@@ -22,6 +22,14 @@ const requestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("leave") }),
   z.object({ action: z.literal("kick"), targetUserId: z.string().min(1) }),
   z.object({ action: z.literal("transfer"), targetUserId: z.string().min(1) }),
+  z.object({ action: z.literal("challenge"), defenderAllianceId: z.string().min(1) }),
+  z.object({
+    action: z.literal("attackWar"),
+    warId: z.string().min(1),
+    infantry: z.number().int().min(0).max(500),
+    archers: z.number().int().min(0).max(500),
+    cavalry: z.number().int().min(0).max(500),
+  }),
 ]);
 
 export async function GET() {

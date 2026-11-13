@@ -8,7 +8,14 @@ type AllianceAction =
   | { action: "join"; allianceId: string }
   | { action: "leave" }
   | { action: "kick"; targetUserId: string }
-  | { action: "transfer"; targetUserId: string };
+  | { action: "transfer"; targetUserId: string }
+  | { action: "challenge"; defenderAllianceId: string }
+  | { action: "attackWar"; warId: string; infantry: number; archers: number; cavalry: number };
+
+const ALLIANCE_WAR_DURATION_MS = 24 * 60 * 60 * 1000;
+const ALLIANCE_WAR_ATTACK_COOLDOWN_MS = 60 * 1000;
+const MAX_TROOPS_PER_WAR_ATTACK = 500;
+const WAR_TROOP_DAMAGE = { INFANTRY: 10, ARCHERS: 15, CAVALRY: 20 } as const;
 
 export class WorldAllianceActionError extends Error {
   constructor(
@@ -26,6 +33,65 @@ export function isWorldAllianceActionError(error: unknown): error is WorldAllian
 
 export function isWorldAllianceUniqueConstraintError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+export async function settleWorldAllianceWars(now = new Date()) {
+  const dueWars = await prisma.worldAllianceWar.findMany({
+    where: { status: "ACTIVE", endsAt: { lte: now } },
+    orderBy: { endsAt: "asc" },
+    take: 100,
+    select: { id: true },
+  });
+  let settled = 0;
+  for (const { id } of dueWars) {
+    const didSettle = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.worldAllianceWar.updateMany({
+        where: { id, status: "ACTIVE", endsAt: { lte: now } },
+        data: { status: "SETTLING" },
+      });
+      if (!claimed.count) return false;
+      const war = await tx.worldAllianceWar.findUniqueOrThrow({ where: { id } });
+      const winnerAllianceId =
+        war.challengerScore === war.defenderScore
+          ? null
+          : war.challengerScore > war.defenderScore
+            ? war.challengerAllianceId
+            : war.defenderAllianceId;
+      const completed = await tx.worldAllianceWar.updateMany({
+        where: { id, status: "SETTLING" },
+        data: { status: "COMPLETED", completedAt: now, winnerAllianceId },
+      });
+      if (!completed.count) return false;
+      await tx.worldAllianceWarLock.deleteMany({ where: { warId: id } });
+      return true;
+    });
+    if (didSettle) settled += 1;
+  }
+  return { settled };
+}
+
+async function assertAllianceWarUnlocked(
+  transaction: Prisma.TransactionClient,
+  allianceId: string,
+) {
+  const lock = await transaction.worldAllianceWarLock.findUnique({
+    where: { allianceId },
+    select: { warId: true },
+  });
+  if (lock) {
+    throw new WorldAllianceActionError("Không thể thay đổi thành viên khi liên minh đang tham gia chiến tranh.", 409);
+  }
+}
+
+async function serializeAllianceMembershipChanges(
+  transaction: Prisma.TransactionClient,
+  allianceId: string,
+) {
+  const touched = await transaction.worldAlliance.updateMany({
+    where: { id: allianceId },
+    data: { memberCount: { increment: 0 } },
+  });
+  if (!touched.count) throw new WorldAllianceActionError("Không tìm thấy liên minh.", 404);
 }
 
 export async function prepareWorldAllianceForUserDeletion(
@@ -69,6 +135,7 @@ export async function prepareWorldAllianceForUserDeletion(
 }
 
 export async function loadWorldAllianceSnapshot(userId: string) {
+  await settleWorldAllianceWars();
   const membership = await prisma.worldAllianceMember.findUnique({
     where: { userId },
     include: {
@@ -89,7 +156,6 @@ export async function loadWorldAllianceSnapshot(userId: string) {
   });
   const alliances = await prisma.worldAlliance.findMany({
     where: {
-      memberCount: { lt: WORLD_ALLIANCE_MEMBER_LIMIT },
       ...(membership ? { id: { not: membership.allianceId } } : {}),
     },
     orderBy: [{ memberCount: "desc" }, { createdAt: "asc" }],
@@ -100,9 +166,47 @@ export async function loadWorldAllianceSnapshot(userId: string) {
       tag: true,
       description: true,
       memberCount: true,
+      leaderUserId: true,
       leader: { select: { displayName: true, username: true } },
     },
   });
+  const [wars, base] = await Promise.all([
+    membership
+      ? prisma.worldAllianceWar.findMany({
+          where: {
+            OR: [
+              { challengerAllianceId: membership.allianceId },
+              { defenderAllianceId: membership.allianceId },
+            ],
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          include: {
+            challenger: { select: { id: true, name: true, tag: true } },
+            defender: { select: { id: true, name: true, tag: true } },
+            scores: {
+              orderBy: [{ score: "desc" }, { id: "asc" }],
+              take: 20,
+              select: {
+                allianceId: true,
+                score: true,
+                user: { select: { displayName: true, username: true } },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    prisma.worldBase.findUnique({
+      where: { userId },
+      select: {
+        infantry: true,
+        archers: true,
+        cavalry: true,
+        trainingType: true,
+        marchActive: true,
+      },
+    }),
+  ]);
 
   return {
     alliance: membership
@@ -129,13 +233,202 @@ export async function loadWorldAllianceSnapshot(userId: string) {
       tag: alliance.tag,
       description: alliance.description,
       memberCount: alliance.memberCount,
+      leaderUserId: alliance.leaderUserId,
       leaderName: alliance.leader.displayName || alliance.leader.username,
     })),
     memberLimit: WORLD_ALLIANCE_MEMBER_LIMIT,
+    wars: wars.map((war) => ({
+      id: war.id,
+      status: war.status,
+      challengerAllianceId: war.challengerAllianceId,
+      defenderAllianceId: war.defenderAllianceId,
+      challenger: war.challenger,
+      defender: war.defender,
+      challengerScore: war.challengerScore,
+      defenderScore: war.defenderScore,
+      createdAt: war.createdAt.toISOString(),
+      startedAt: war.startedAt.toISOString(),
+      endsAt: war.endsAt?.toISOString() ?? null,
+      completedAt: war.completedAt?.toISOString() ?? null,
+      winnerAllianceId: war.winnerAllianceId,
+      leaderboard: war.scores.map((entry) => ({
+        allianceId: entry.allianceId,
+        name: entry.user.displayName || entry.user.username,
+        score: entry.score,
+      })),
+    })),
+    army: base
+      ? {
+          infantry: base.infantry,
+          archers: base.archers,
+          cavalry: base.cavalry,
+          training: base.trainingType !== null,
+          marching: base.marchActive,
+        }
+      : null,
   };
 }
 
-export async function performWorldAllianceAction(userId: string, action: AllianceAction) {
+export async function performWorldAllianceAction(
+  userId: string,
+  action: AllianceAction,
+  now = new Date(),
+) {
+  await settleWorldAllianceWars(now);
+
+  if (action.action === "challenge") {
+    await prisma.$transaction(async (tx) => {
+      const challenger = await tx.worldAlliance.findFirst({
+        where: { leaderUserId: userId },
+        select: { id: true },
+      });
+      if (!challenger) throw new WorldAllianceActionError("Chỉ thủ lĩnh mới có thể tuyên chiến.", 403);
+      if (challenger.id === action.defenderAllianceId) {
+        throw new WorldAllianceActionError("Không thể tuyên chiến với chính liên minh của mình.", 400);
+      }
+      const defender = await tx.worldAlliance.findUnique({
+        where: { id: action.defenderAllianceId },
+        select: { id: true, memberCount: true },
+      });
+      if (!defender || defender.memberCount < 1) {
+        throw new WorldAllianceActionError("Không tìm thấy liên minh đối thủ.", 404);
+      }
+      for (const allianceId of [challenger.id, defender.id].sort()) {
+        await serializeAllianceMembershipChanges(tx, allianceId);
+        await assertAllianceWarUnlocked(tx, allianceId);
+      }
+
+      const war = await tx.worldAllianceWar.create({
+        data: {
+          challengerAllianceId: challenger.id,
+          defenderAllianceId: defender.id,
+          status: "ACTIVE",
+          startedAt: now,
+          endsAt: new Date(now.getTime() + ALLIANCE_WAR_DURATION_MS),
+        },
+        select: { id: true },
+      });
+      await tx.worldAllianceWarLock.createMany({
+        data: [
+          { allianceId: challenger.id, warId: war.id },
+          { allianceId: defender.id, warId: war.id },
+        ],
+      });
+    });
+    return { message: "Đã gửi thông báo khiêu chiến. Trận Alliance War bắt đầu ngay và kéo dài 24 giờ." };
+  }
+
+  if (action.action === "attackWar") {
+    const troopCount = action.infantry + action.archers + action.cavalry;
+    if (troopCount < 1 || troopCount > MAX_TROOPS_PER_WAR_ATTACK) {
+      throw new WorldAllianceActionError(`Mỗi đợt tấn công cần 1–${MAX_TROOPS_PER_WAR_ATTACK} quân.`, 400);
+    }
+
+    const potentialDamage =
+      action.infantry * WAR_TROOP_DAMAGE.INFANTRY +
+      action.archers * WAR_TROOP_DAMAGE.ARCHERS +
+      action.cavalry * WAR_TROOP_DAMAGE.CAVALRY;
+    const casualtiesTotal = Math.ceil(troopCount / 10);
+    const casualtyTypes = [
+      { key: "infantry" as const, count: action.infantry },
+      { key: "archers" as const, count: action.archers },
+      { key: "cavalry" as const, count: action.cavalry },
+    ];
+    const casualties = { infantry: 0, archers: 0, cavalry: 0 };
+    const remainders = casualtyTypes.map(({ key, count }) => {
+      casualties[key] = Math.floor(count / 10);
+      return { key, count, fraction: (count / 10) % 1 };
+    });
+    let remainingCasualties = casualtiesTotal - casualties.infantry - casualties.archers - casualties.cavalry;
+    remainders.sort((left, right) => right.fraction - left.fraction || right.count - left.count);
+    for (const { key, count } of remainders) {
+      if (remainingCasualties <= 0) break;
+      if (casualties[key] < count) {
+        casualties[key] += 1;
+        remainingCasualties -= 1;
+      }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const [war, membership, base] = await Promise.all([
+        tx.worldAllianceWar.findUnique({ where: { id: action.warId } }),
+        tx.worldAllianceMember.findUnique({ where: { userId }, select: { allianceId: true } }),
+        tx.worldBase.findUnique({ where: { userId } }),
+      ]);
+      if (!war || war.status !== "ACTIVE" || !war.endsAt || war.endsAt <= now) {
+        throw new WorldAllianceActionError("Chiến tranh này không còn nhận đợt tấn công.", 409);
+      }
+      if (
+        !membership ||
+        (membership.allianceId !== war.challengerAllianceId && membership.allianceId !== war.defenderAllianceId)
+      ) {
+        throw new WorldAllianceActionError("Bạn không thuộc liên minh đang tham chiến.", 403);
+      }
+      if (!base) throw new WorldAllianceActionError("Căn cứ chưa được khởi tạo.", 409);
+      if (base.trainingType || base.marchActive) {
+        throw new WorldAllianceActionError("Hoàn tất huấn luyện và chờ đạo quân hiện tại trở về trước.", 409);
+      }
+
+      const priorScore = await tx.worldAllianceWarScore.findUnique({
+        where: { warId_userId: { warId: war.id, userId } },
+      });
+      const cooldownCutoff = new Date(now.getTime() - ALLIANCE_WAR_ATTACK_COOLDOWN_MS);
+      if (priorScore?.lastAttackAt && priorScore.lastAttackAt > cooldownCutoff) {
+        const seconds = Math.ceil(
+          (ALLIANCE_WAR_ATTACK_COOLDOWN_MS - (now.getTime() - priorScore.lastAttackAt.getTime())) / 1000,
+        );
+        throw new WorldAllianceActionError(`Đợi thêm ${seconds} giây trước đợt tấn công tiếp theo.`, 429);
+      }
+      if (!priorScore) {
+        await tx.worldAllianceWarScore.create({
+          data: { warId: war.id, allianceId: membership.allianceId, userId },
+        });
+      }
+
+      const reserved = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          trainingType: null,
+          marchActive: false,
+          infantry: { gte: casualties.infantry },
+          archers: { gte: casualties.archers },
+          cavalry: { gte: casualties.cavalry },
+        },
+        data: {
+          infantry: { decrement: casualties.infantry },
+          archers: { decrement: casualties.archers },
+          cavalry: { decrement: casualties.cavalry },
+          version: { increment: 1 },
+        },
+      });
+      if (!reserved.count) {
+        throw new WorldAllianceActionError("Không đủ quân hoặc căn cứ vừa thay đổi.", 409);
+      }
+
+      const scored = await tx.worldAllianceWarScore.updateMany({
+        where: {
+          warId: war.id,
+          userId,
+          lastAttackAt: priorScore?.lastAttackAt ?? null,
+        },
+        data: { score: { increment: potentialDamage }, lastAttackAt: now },
+      });
+      if (!scored.count) throw new WorldAllianceActionError("Đợt tấn công vừa được ghi nhận. Hãy tải lại.", 409);
+
+      const scoreField =
+        membership.allianceId === war.challengerAllianceId ? "challengerScore" : "defenderScore";
+      const scoredWar = await tx.worldAllianceWar.updateMany({
+        where: { id: war.id, status: "ACTIVE", endsAt: { gt: now } },
+        data: { [scoreField]: { increment: potentialDamage } },
+      });
+      if (!scoredWar.count) throw new WorldAllianceActionError("Chiến tranh vừa kết thúc.", 409);
+      return { damage: potentialDamage, casualties: casualtiesTotal };
+    });
+    return {
+      message: `Đợt tấn công gây ${result.damage.toLocaleString("vi-VN")} điểm sức mạnh; tổn thất ${result.casualties} quân.`,
+    };
+  }
+
   if (action.action === "create") {
     const tag = action.tag.trim().toUpperCase();
     const name = action.name.trim();
@@ -172,6 +465,8 @@ export async function performWorldAllianceAction(userId: string, action: Allianc
 
       const alliance = await tx.worldAlliance.findUnique({ where: { id: action.allianceId }, select: { id: true } });
       if (!alliance) throw new WorldAllianceActionError("Không tìm thấy liên minh.", 404);
+      await serializeAllianceMembershipChanges(tx, alliance.id);
+      await assertAllianceWarUnlocked(tx, alliance.id);
       const reserved = await tx.worldAlliance.updateMany({
         where: { id: alliance.id, memberCount: { lt: WORLD_ALLIANCE_MEMBER_LIMIT } },
         data: { memberCount: { increment: 1 } },
@@ -191,6 +486,8 @@ export async function performWorldAllianceAction(userId: string, action: Allianc
         include: { alliance: { select: { id: true, leaderUserId: true, memberCount: true } } },
       });
       if (!membership) throw new WorldAllianceActionError("Bạn chưa thuộc liên minh nào.", 409);
+      await serializeAllianceMembershipChanges(tx, membership.allianceId);
+      await assertAllianceWarUnlocked(tx, membership.allianceId);
 
       if (membership.alliance.leaderUserId === userId) {
         if (membership.alliance.memberCount > 1) {
@@ -223,6 +520,8 @@ export async function performWorldAllianceAction(userId: string, action: Allianc
         select: { id: true },
       });
       if (!alliance) throw new WorldAllianceActionError("Chỉ thủ lĩnh mới có thể quản lý thành viên.", 403);
+      await serializeAllianceMembershipChanges(tx, alliance.id);
+      await assertAllianceWarUnlocked(tx, alliance.id);
       if (action.targetUserId === userId) {
         throw new WorldAllianceActionError("Không thể tự loại mình khỏi liên minh.", 400);
       }
@@ -249,6 +548,8 @@ export async function performWorldAllianceAction(userId: string, action: Allianc
       select: { id: true },
     });
     if (!alliance) throw new WorldAllianceActionError("Chỉ thủ lĩnh mới có thể chuyển quyền lãnh đạo.", 403);
+    await serializeAllianceMembershipChanges(tx, alliance.id);
+    await assertAllianceWarUnlocked(tx, alliance.id);
     const target = await tx.worldAllianceMember.findFirst({
       where: { allianceId: alliance.id, userId: action.targetUserId, role: "MEMBER" },
       select: { id: true },

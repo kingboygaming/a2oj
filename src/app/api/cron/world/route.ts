@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { processScheduledWorldJobs } from "@/lib/world";
+import { settleWorldAllianceWars } from "@/lib/world-alliance";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -14,5 +15,6 @@ export async function GET(request: Request) {
   }
 
   const result = await processScheduledWorldJobs();
-  return NextResponse.json({ ok: result.failed === 0, ...result });
+  const allianceWars = await settleWorldAllianceWars();
+  return NextResponse.json({ ok: result.failed === 0, allianceWars, ...result });
 }
