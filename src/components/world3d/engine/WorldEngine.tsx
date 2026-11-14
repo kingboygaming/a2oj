@@ -53,6 +53,10 @@ function CanvasSizeSync() {
       }
       applied.current = { width: rect.width, height: rect.height };
       setSize(rect.width, rect.height);
+      // `setSize` only resizes the renderer when the store size changes; when
+      // react-use-measure already reported the right bounds the canvas can stay
+      // at its 300x150 default, so size the renderer explicitly as well.
+      gl.setSize(rect.width, rect.height, true);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(sync);
