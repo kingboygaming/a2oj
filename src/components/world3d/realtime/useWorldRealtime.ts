@@ -67,22 +67,34 @@ export function useWorldRealtime({
   coordinateX,
   coordinateZ,
   onEntities,
+  onBaseHint,
 }: {
   enabled?: boolean;
   userId: string;
   coordinateX: number;
   coordinateZ: number;
   onEntities: (payload: WorldEntityPayload) => void;
+  /**
+   * BASE hints cannot be resolved by the entity endpoint: a player's own base
+   * (the one under attack) is not part of the map payload. They request a full
+   * snapshot instead, which already carries `baseAttacks`/`nearbyBases`.
+   */
+  onBaseHint?: (ids: string[]) => void;
 }) {
   const [status, setStatus] = useState<WorldRealtimeStatus>(
     HAS_REALTIME ? "connecting" : "polling",
   );
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const onEntitiesRef = useRef(onEntities);
+  const onBaseHintRef = useRef(onBaseHint);
 
   useEffect(() => {
     onEntitiesRef.current = onEntities;
   }, [onEntities]);
+
+  useEffect(() => {
+    onBaseHintRef.current = onBaseHint;
+  }, [onBaseHint]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -99,9 +111,11 @@ export function useWorldRealtime({
     const channels: RealtimeChannel[] = [];
     const subscribedChannels = new Set<number>();
     const pending = new Map<string, WorldRealtimeChange>();
+    const basePending = new Map<string, WorldRealtimeChange>();
     const dedupe = createWorldRealtimeDedupe(MAX_SEEN_EVENTS);
 
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    let baseFlushTimer: ReturnType<typeof setTimeout> | null = null;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let resyncTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -112,6 +126,11 @@ export function useWorldRealtime({
     function clearFlush() {
       if (flushTimer) clearTimeout(flushTimer);
       flushTimer = null;
+    }
+
+    function clearBaseFlush() {
+      if (baseFlushTimer) clearTimeout(baseFlushTimer);
+      baseFlushTimer = null;
     }
 
     function clearPoll() {
@@ -263,13 +282,40 @@ export function useWorldRealtime({
       }
     }
 
+    function scheduleBaseFlush(delay = WORLD_REALTIME_BATCH_MS) {
+      if (baseFlushTimer) return;
+      baseFlushTimer = setTimeout(runBaseFlush, delay);
+    }
+
+    function runBaseFlush() {
+      baseFlushTimer = null;
+      if (disposed || basePending.size === 0) return;
+      if (!online || document.visibilityState !== "visible") {
+        // The catch-up sync on reconnect/visibility covers these hints.
+        basePending.clear();
+        return;
+      }
+      const ids = [...basePending.keys()];
+      basePending.clear();
+      onBaseHintRef.current?.(ids);
+    }
+
     function onBroadcast(raw: unknown) {
       const message = parseWorldRealtimeMessage(raw);
       if (!message) return;
       if (dedupe.isDuplicate(message.eventId)) return;
 
       let queued = false;
+      let baseQueued = false;
       for (const change of message.changes) {
+        if (change.kind === "BASE") {
+          const existing = basePending.get(change.id);
+          if (!existing || (change.version ?? 0) >= (existing.version ?? 0)) {
+            basePending.set(change.id, change);
+            baseQueued = true;
+          }
+          continue;
+        }
         const key = `${change.kind}:${change.id}`;
         const existing = pending.get(key);
         if (!existing || (change.version ?? 0) >= (existing.version ?? 0)) {
@@ -278,6 +324,7 @@ export function useWorldRealtime({
         }
       }
       if (queued) scheduleFlush();
+      if (baseQueued) scheduleBaseFlush();
     }
 
     function goLive(sync = true) {
@@ -378,6 +425,7 @@ export function useWorldRealtime({
     return () => {
       disposed = true;
       clearFlush();
+      clearBaseFlush();
       clearPoll();
       clearResync();
       document.removeEventListener("visibilitychange", onVisibilityChange);

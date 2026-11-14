@@ -109,6 +109,14 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     setSnapshot((current) => mergeWorldEntities(current, payload));
   }, []);
 
+  // A BASE hint means a base changed (attack, shield, resources). The entity
+  // endpoint never returns the viewer's own base, so reload the full snapshot.
+  const refreshFromBaseHint = useCallback(() => {
+    void refresh().catch(() => {
+      // The next hint or the 5 minute resync retries this.
+    });
+  }, [refresh]);
+
   // Hybrid realtime: broadcast hints + authoritative entity fetches, with a
   // 12s polling fallback that pauses while the tab is hidden.
   const realtime = useWorldRealtime({
@@ -116,6 +124,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     coordinateX: snapshot.base.coordinateX,
     coordinateZ: snapshot.base.coordinateZ,
     onEntities: applyRealtimeEntities,
+    onBaseHint: refreshFromBaseHint,
   });
 
   // Keyboard shortcuts
