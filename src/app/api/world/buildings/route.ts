@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -6,6 +7,7 @@ import {
   isWorldUniqueConstraintError,
   performWorldBuildingAction,
 } from "@/lib/world";
+import { broadcastBaseChanges } from "@/lib/world-realtime-server";
 import { WORLD_BUILDING_PLOT_COUNT, WORLD_BUILDING_TYPES } from "@/lib/world-buildings";
 
 export const runtime = "nodejs";
@@ -34,7 +36,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json(await performWorldBuildingAction(user.id, parsed.data));
+    const result = await performWorldBuildingAction(user.id, parsed.data);
+    if (parsed.data.type === "UPGRADE_CASTLE") {
+      // Castle level is part of the public base projection other players render.
+      after(() => broadcastBaseChanges([user.id]));
+    }
+    return NextResponse.json(result);
   } catch (error) {
     if (isWorldActionError(error)) {
       return NextResponse.json({ error: error.message }, { status: error.status });

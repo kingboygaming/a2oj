@@ -23,6 +23,8 @@ export interface RemoteBaseInfo {
   castleLevel: number;
   pvpShieldUntil: string | null;
   activeAttack: boolean;
+  /** Mirrors `WorldBase.version`; lets callers reject stale selections. */
+  version: number;
 }
 
 interface RemoteCastlesSystemProps {

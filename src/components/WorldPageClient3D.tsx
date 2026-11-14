@@ -5,8 +5,12 @@ import dynamic from "next/dynamic";
 import { WorldAlliancePanel } from "@/components/WorldAlliancePanel";
 import { useGraphicsStore } from "@/components/world3d/engine/useGraphicsStore";
 import { useCameraStore } from "@/components/world3d/engine/useCameraStore";
+import { useHeaderHeight } from "@/components/world3d/engine/useHeaderHeight";
+import { useWorldRealtime } from "@/components/world3d/realtime/useWorldRealtime";
 import type { GraphicsQuality } from "@/components/world3d/engine/GraphicsSettings";
 import type { WorldSnapshot } from "@/lib/world";
+import type { WorldEntityPayload } from "@/lib/world-realtime";
+import { mergeWorldEntities, mergeWorldSnapshot } from "@/lib/world-merge";
 import { Minimap } from "@/components/Minimap";
 import { FPSCounter } from "@/components/FPSCounter";
 import { WorldObjectPanel } from "@/components/world3d/interaction/WorldObjectPanel";
@@ -70,6 +74,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const quality = useGraphicsStore((s) => s.quality);
   const setQuality = useGraphicsStore((s) => s.setQuality);
   const { viewMode, setViewMode } = useCameraStore();
+  // Keep the game flush with the real header height (not a hardcoded 64px).
+  useHeaderHeight();
 
   // De-duplicate concurrent snapshot fetches: polling, actions and the manual
   // refresh button all share the same in-flight request.
@@ -81,7 +87,9 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       const response = await fetch("/api/world", { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
-      setSnapshot(result as WorldSnapshot);
+      // A realtime merge may have applied a newer row while this request was in
+      // flight; keep the newer entity versions instead of overwriting them.
+      setSnapshot((current) => mergeWorldSnapshot(current, result as WorldSnapshot));
     })();
     refreshInFlight.current = task;
     try {
@@ -91,22 +99,18 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     }
   }, []);
 
-  // Periodic polling for multiplayer realtime sync. Pauses while the tab is
-  // hidden (the browser may throttle timers anyway) and refreshes on return.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void refresh().catch(() => {});
-    }, 15000);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void refresh().catch(() => {});
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [refresh]);
+  const applyRealtimeEntities = useCallback((payload: WorldEntityPayload) => {
+    setSnapshot((current) => mergeWorldEntities(current, payload));
+  }, []);
+
+  // Hybrid realtime: broadcast hints + authoritative entity fetches, with a
+  // 12s polling fallback that pauses while the tab is hidden.
+  const realtime = useWorldRealtime({
+    userId: snapshot.userId,
+    coordinateX: snapshot.base.coordinateX,
+    coordinateZ: snapshot.base.coordinateZ,
+    onEntities: applyRealtimeEntities,
+  });
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -227,7 +231,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const activeMarch = snapshot.events.find((event) => event.activeMarch)?.activeMarch ?? null;
 
   return (
-    <div className="relative h-[calc(100vh-64px)] w-full overflow-hidden">
+    <div className="world-fullscreen world-viewport relative w-full overflow-hidden">
       {/* ── 3D Viewport ── */}
       <div className="absolute inset-0">
         <WorldEngine className="h-full w-full">
@@ -880,6 +884,26 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           <div className="pointer-events-auto flex flex-col gap-1">
             <div className="rounded-lg bg-black/50 px-3 py-1 text-xs text-white/50 backdrop-blur-sm">
               <FPSCounter /> · {quality} · {viewMode === "city" ? "City View" : "World Map"}
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg bg-black/50 px-3 py-1 text-[10px] text-white/40 backdrop-blur-sm">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  realtime.status === "live"
+                    ? "bg-emerald-400"
+                    : realtime.status === "connecting"
+                      ? "animate-pulse bg-amber-300"
+                      : realtime.status === "polling"
+                        ? "bg-amber-400"
+                        : "bg-red-400"
+                }`}
+              />
+              {realtime.status === "live"
+                ? "Realtime"
+                : realtime.status === "connecting"
+                  ? "Đang kết nối"
+                  : realtime.status === "polling"
+                    ? "Đồng bộ 12s"
+                    : "Ngoại tuyến"}
             </div>
             <div className="rounded-lg bg-black/50 px-3 py-1 text-[10px] text-white/30 backdrop-blur-sm">
               LMB: Xoay · RMB: Di chuyển · Scroll: Zoom · V: Đổi góc · M: Menu · 1/2/3: Quality

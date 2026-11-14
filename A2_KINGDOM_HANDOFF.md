@@ -228,3 +228,283 @@ hard-coded to 2, and the 15 s poll could overlap with itself and kept running in
 - The bbox query is index-friendly only on `coordinateX` (leading column of the composite unique
   index); a dedicated `(coordinateX, coordinateZ)` btree index would make large worlds faster but
   requires a migration, which is intentionally out of scope.
+
+## Phase 4 - Fullscreen Game View (implemented)
+
+### What changed
+
+The world page used to render inside the shared `<main class="mx-auto max-w-7xl px-4 py-8">` and a
+hard-coded `h-[calc(100vh-64px)]`, so the game was capped at 1280 px, sat under 2 rem of padding, and
+the footer pushed a page-level scrollbar. The real header is 62.4 px at 100 % zoom and grows when the
+nav wraps, so `64px` was wrong on mobile and at other zoom levels.
+
+- **Real header measurement.** New `useHeaderHeight()` measures `.site-header` with a
+  `ResizeObserver` (+ `resize`/`orientationchange`) and publishes the result as
+  `--site-header-height` on `<html>`; it is removed on unmount.
+- **Exact viewport height.** `.world-viewport` uses
+  `height: calc(100dvh - var(--site-header-height, 64px))`. `100dvh` follows mobile toolbars; the
+  fallback only covers the first paint before the measurement.
+- **Game-route chrome opt-out.** `body:has(.world-fullscreen)` hides the footer, removes `<main>`'s
+  max-width and padding, and sets `overflow: hidden` + `overscroll-behavior: none`. The marker class
+  lives on the game root only, so every other OJ page keeps the normal layout (verified: `/` still
+  reports `max-width: 1280px`, `padding: 32px 16px`, visible footer, normal scroll).
+- **No engine changes.** R3F's `Canvas` already resizes through its own `ResizeObserver`, and the
+  camera lives in the R3F root + `OrbitControls` + `useCameraStore`, so resizing never recreates it.
+  City View shares the same `<Canvas>` and container, so it is covered by the same fix.
+
+### Files changed (Phase 4)
+
+- `src/components/world3d/engine/useHeaderHeight.ts` (new): header measurement hook.
+- `src/components/WorldPageClient3D.tsx`: calls `useHeaderHeight()`, root class becomes
+  `world-fullscreen world-viewport relative w-full overflow-hidden` (hard-coded height removed).
+- `src/app/globals.css`: `--site-header-height` fallback, `.world-viewport`, and the
+  `body:has(.world-fullscreen)` rules for `main`, `footer` and page scroll.
+- `A2_KINGDOM_HANDOFF.md`: this section.
+
+### Verification
+
+- `npx tsc --noEmit` -> **0 errors**; `npx eslint` on touched files -> **0 errors**.
+- `npm run build` -> **compiled successfully** (all 51 routes generated).
+- Local browser run (logged-in account, SQLite dev DB, 558x666 CSS px @ DPR 1.25):
+  - header 62.4 px, game root `top = 62.4`, `height = 603.2` (exact remainder), width 100 %;
+  - `document.scrollingElement` has `scrollHeight == clientHeight` and `scrollWidth == clientWidth`
+    (no page scrollbars); footer `display: none`; `<main>` `padding: 0`, `max-width: none`;
+  - canvas drawing buffer 697x753 for a 557.6x603.2 CSS box (DPR-scaled) and it re-sizes when the
+    header height changes;
+  - **camera persistence:** after rotating with pointer drag, the header was padded to 122.4 px, the
+    CSS variable and game height updated to 543.2 px, the canvas resized, and the view kept the same
+    orientation (no reset to the default `[0, 80, 80]` pose);
+  - City View toggled with `V` keeps the same fullscreen box and the same camera target.
+- Regression: `/` (outside the game route) still renders the standard OJ layout.
+
+### Regression / data safety
+
+- No schema change, no migration, no API change, no auth change, no A2Coin change.
+- `layout.tsx` and `Header.tsx` are untouched; only the game route opts out of the shared chrome.
+- The hook only writes a CSS custom property on `<html>` and removes it on unmount.
+
+### Known issues / follow-ups
+
+- `.site-header` is declared `position: relative` in `globals.css` (unlayered CSS beats Tailwind v4's
+  `.sticky` utility), so the header is not actually sticky today. Not changed here: the game route
+  locks page scroll, so the header stays visible. Worth a separate OJ-wide decision.
+- Browsers without `:has()` support would keep the footer/max-width; all current evergreen browsers
+  support it.
+- The local SQLite dev DB needs `DATABASE_URL="file:./dev.db?connection_limit=1"` to avoid a
+  pre-existing interactive-transaction deadlock between the header's achievement update and the
+  world snapshot writes. Production uses Neon and is unaffected.
+
+## Phase 5 - Hybrid Realtime Infrastructure (implemented)
+
+### Architecture
+
+The server stays the only source of truth. Supabase Broadcast carries **hints only**; every hint is
+followed by an authoritative read:
+
+```
+mutation (route handler)
+  -> DB commit
+  -> after(): POST /realtime/v1/api/broadcast
+       payload { v, eventId, at, changes: [{ kind, id, version }] }
+  -> client channel (world:region:<rx>:<rz>)
+  -> debounce 400 ms, dedupe eventId, collect ids
+  -> GET /api/world/entities?ids=...        (hints)
+     GET /api/world/entities?all=1          (poll / resync)
+  -> merge with version guard into the existing snapshot
+```
+
+- **Regions** are 5 chunks (100 km). A 44 km view radius touches at most 4 regions per axis, so a
+  client subscribes to at most 4 channels. Any object inside the view radius is guaranteed to be in
+  a subscribed region (property-tested).
+- **Only public data** is returned: nearby bases (`WorldBase` public projection) and resource/camp
+  state. Army, resources, research, items and events stay in `/api/world`.
+- **Version guard.** `WorldBase.version`, `WorldResourceNode.version` and `WorldRogueCamp.version`
+  are included in the payload. A payload older than the local row is discarded; out-of-order and
+  duplicate deliveries therefore converge to the newest row. When nothing changed, the merge
+  returns the *same* snapshot object, so React and the 3D scene do not re-render.
+- **No persistent process.** No WebSocket server, no `setInterval` on the server, no full-table
+  query per update. Broadcasts are one REST call per mutation; the entity endpoint is bounded to
+  40 ids and 20 bases inside the viewer radius.
+
+### Client fallback
+
+| Situation | Behaviour |
+| --- | --- |
+| Channels subscribed | 5-minute safety resync, no polling |
+| No Supabase env / subscribe error | 12 s polling |
+| Fetch error | exponential backoff 12/24/48/60 s |
+| Tab hidden | timers keep re-checking but issue **no** request |
+| Tab visible again | immediate catch-up request |
+| `offline` event | status "Ngoại tuyến", no requests |
+| `online` event | immediate fetch, then live/polling |
+| Duplicate hint | dropped by bounded 200-entry `eventId` LRU |
+| Burst of hints | coalesced for 400 ms, max 40 ids per request, in-flight guard |
+
+The HUD shows a small dot + `Realtime` / `Đang kết nối` / `Đồng bộ 12s` / `Ngoại tuyến`.
+
+### Files changed (Phase 5)
+
+- `src/lib/world-realtime.ts` (new): shared contract (region math, topic, constants, strict payload
+  validation, dedupe LRU, backoff).
+- `src/lib/world-realtime-server.ts` (new): Supabase REST broadcast bridge, no-op without env,
+  region grouping for base hints, never throws into the action.
+- `src/lib/world-merge.ts` (new): pure entity/snapshot merge with version guard and reference
+  preservation.
+- `src/lib/world.ts`: `version` on `WorldMapObjectState`/`nearbyBases`; extracted
+  `buildWorldMapObjectState` + `buildNearbyBaseState`; new read-only `loadWorldEntities`.
+- `src/app/api/world/entities/route.ts` (new): auth, `ids`/`all` params, view-radius filtering.
+- `src/components/world3d/realtime/useWorldRealtime.ts` (new): channels, batching, polling,
+  backoff, visibility/online handling, resync.
+- `src/components/WorldPageClient3D.tsx`: removed the 15 s full-snapshot interval; merges realtime
+  payloads; full refresh now goes through `mergeWorldSnapshot`; realtime status badge.
+- `src/app/api/world/map/actions/route.ts`: `after()` map-object hint.
+- `src/app/api/world/actions/route.ts`: `after()` base hints for attacker + defender on `attackBase`.
+- `src/app/api/world/buildings/route.ts`: `after()` base hint on `UPGRADE_CASTLE`.
+- `src/components/world3d/interaction/WorldMapSystem.tsx`,
+  `src/components/world3d/interaction/RemoteCastlesSystem.tsx`: carry `version`.
+- `scripts/test-world-realtime.mjs` (new): 23 contract/merge checks.
+- `.env.example`: documents the three Supabase variables.
+
+### Verification
+
+- `npx tsx scripts/test-world-realtime.mjs` -> **23/23 passed** (region coverage over 3,000 samples,
+  payload validation, dedupe LRU, backoff caps, version guard, out-of-order merge, full-refresh
+  merge).
+- `npx tsc --noEmit` -> **0 errors**; eslint on all touched files -> **0 errors**.
+- `npm run build` -> **compiled successfully**, `/api/world/entities` present.
+- Local dev server (SQLite copy `dev-test.db`, two accounts `hs`/`gv`):
+  - anonymous `GET /api/world/entities` -> 401;
+  - `?all=1` -> 38 in-view objects, `forest-01` included, `food-01` (61 km) excluded;
+  - `?ids=forest-01` -> exactly 1 object; out-of-view id -> 0; unsafe ids ignored; 60 ids capped;
+  - `gv` loaded `/api/world` and its own entity scope (bases 111 km apart);
+  - three entity requests changed no row (`version`/`remaining`/`owner`/`occupiedUntil` fingerprint
+    identical before/after);
+  - browser (logged-in `hs`): HUD showed `Đồng bộ 12s`; requests at 15.5 s, 27.8 s, 39.9 s, 52.1 s
+    (≈12.2 s apart, no duplicates); hiding the tab (simulated `visibilityState`) produced **no**
+    request for 15 s, and restoring visibility produced an immediate catch-up;
+  - authoritative write simulation (`forest-01` version +1, occupied by `gv`): the next poll
+    response body carried `version: 2`, `status: "OCCUPIED"`, `ownerName: "Cô Minh"`,
+    `remaining` decremented — proving the client loop consumes authoritative changes.
+- Poll payload measured at **~14.8 KB** per `all=1` request (fallback only), versus the previous
+  ~50–60 KB full snapshot every 15 s; hints are ~100 bytes.
+
+### Cost / load notes
+
+- Realtime free tier: 200 concurrent connections / 2 M messages per month is far above the expected
+  concurrent player count; one hint per mutation, not per tick.
+- Supabase Broadcast messages are at-most-once, which is why the 5-minute resync and the polling
+  fallback exist. A lost hint can delay a remote change by at most one resync interval.
+- `/api/world/entities` is read-only, so polling no longer triggers `advanceWorld` /
+  `processScheduledWorldJobs` write transactions.
+
+### Known issues / follow-ups
+
+- **Not yet validated on a real Vercel deployment with Supabase keys.** Local `.env` has no
+  Supabase variables, so the broadcast path could only be exercised as a no-op; local tests cover
+  the polling path. The two-account + network-loss + Vercel acceptance matrix still has to run.
+- Scheduled-job changes (resource respawn, rogue-camp cooldown expiry, march resolution, castle
+  completion) do not emit hints; live clients pick them up on the 5-minute resync, polling clients
+  on the next 12 s poll. Emitting hints from `processScheduledWorldJobs` is a follow-up.
+- A new player's base is discovered by the base list in every entity response (bbox query, ≤20
+  rows), not by a hint, because base creation happens during snapshot load.
+- Channels are public (`private: false`) because the payload contains no private data; access
+  control lives in `/api/world/entities` (session auth + radius filter). There is no per-IP rate
+  limit on the entity endpoint yet.
+- The version guard is monotonic (`incoming.version >= current.version` + field comparison), not a
+  strict `>`; this tolerates mutations that forgot to bump a version while still rejecting stale
+  payloads.
+- Rollback: delete the new files and revert the route/handler edits. No schema or migration change.
+
+## Phase 6 - Scheduled-job hints, rate limiting, acceptance hardening (implemented)
+
+### What changed
+
+**Scheduled jobs now publish hints.** `processScheduledWorldJobs` collects the public rows its
+sub-jobs actually touched and publishes them after the response:
+
+| Sub-job | Hint |
+| --- | --- |
+| Resource occupation expiry | `MAP_OBJECT` for the released node |
+| Resource respawn | `MAP_OBJECT` for the respawned node |
+| Map march arrival (resource / rogue camp) | `MAP_OBJECT` for the target |
+| Base attack resolution | `BASE` for attacker **and** defender |
+
+- Collecting happens inside the existing candidate loops (`changedNodeIds` / `changedUserIds`), so
+  it adds no queries: the rows were already selected for processing.
+- Publishing goes through `queueWorldRealtimeChanges`, which registers `after()` from `next/server`
+  **lazily** so the hint runs after the response without blocking it. Outside a Next request
+  (scripts, tests) it falls back to awaiting the publish.
+- `next/server` must stay a dynamic import: a static import of `after` fails the App Router build
+  because `@/lib/world` is also reachable from a client component.
+- Training, research and troop-return completions are intentionally **not** hinted: they only touch
+  private base fields. Castle/building completion is simulated lazily per user (`advanceWorld`), so
+  it does not "complete" for offline players; other viewers pick the new castle level up from the
+  base list on the next poll/resync.
+
+**Rate limit on `/api/world/entities`.** `src/lib/rate-limit.ts` adds a token bucket (60 burst,
+3 tokens/second ≈ 180 requests/minute per user) keyed by user id. A rejected request returns
+`429` with `Retry-After`; the client treats it as a normal failure and backs off. The bucket is
+in-memory, so it is a per-instance guard against runaway loops, not a distributed quota (a
+distributed limit would need an external store).
+
+**Fullscreen hardening.** The page-enter animation (`.route-transition`, `translateY(8px)`) could
+stay at its start frame when the animation never advanced (background tab, reload), pushing the
+game 8 px below the header and adding a page scrollbar. The game route now disables that animation
+and `html:has(.world-fullscreen)` also gets `overflow: hidden`.
+
+**Client bundle fix.** `useWorldRealtime` imported `WORLD_ENTITY_MAX_OBJECTS` from `@/lib/world`,
+which pulled `prisma` and the server broadcast bridge into the browser bundle. The constant moved to
+the isomorphic `@/lib/world-realtime`; `/world` client chunks no longer contain `PrismaClient` or
+`world-realtime-server`.
+
+### Files changed (Phase 6)
+
+- `src/lib/world.ts`: `changedNodeIds` / `changedUserIds` from the scheduled sub-jobs; hint
+  collection + `queueWorldRealtimeChanges` at the end of `processScheduledWorldJobs`; constant moved
+  out.
+- `src/lib/world-realtime-server.ts`: `broadcastWorldChanges` (mixed hints, region grouping,
+  dedupe), `broadcastMapObjectChange` / `broadcastBaseChanges` now thin wrappers,
+  `queueWorldRealtimeChanges` with lazy `after()`.
+- `src/lib/world-realtime.ts`: owns `WORLD_ENTITY_MAX_OBJECTS`.
+- `src/lib/rate-limit.ts` (new): token bucket limiter.
+- `src/app/api/world/entities/route.ts`: 429 + `Retry-After` guard.
+- `src/components/world3d/realtime/useWorldRealtime.ts`: imports the constant from the isomorphic
+  module.
+- `src/app/globals.css`: `html:has(.world-fullscreen)` overflow; route-transition opt-out.
+- `scripts/test-world-realtime.mjs`: 5 rate-limit checks (28 total).
+- `scripts/test-world-realtime-broadcast.mjs` (new): 12 checks against a local mock of Supabase's
+  broadcast REST endpoint.
+
+### Verification
+
+- `npx tsx scripts/test-world-realtime.mjs` -> **28/28**; `scripts/test-world-realtime-broadcast.mjs`
+  -> **12/12**; `scripts/test-world-systems.mjs` -> **16/16**.
+- `npx tsc --noEmit` -> 0 errors; eslint on all touched files -> 0 errors; `npm run build` ->
+  compiled successfully.
+- Local dev server + mock broadcast endpoint (`SUPABASE_URL=http://127.0.0.1:3099`), SQLite copy,
+  accounts `hs`/`gv`:
+  - occupation expiry -> 1 `MAP_OBJECT` hint for `forest-01`, node released;
+  - respawn -> 1 hint, `remaining` back to `maxAmount`;
+  - base attack resolution -> 1 hint for the attacker and 1 for the defender;
+  - an idle `/api/world` load -> 0 broadcast messages;
+  - 90 rapid `?all=1` requests -> 69 × 200 then 21 × 429 with `Retry-After: 1`;
+  - the hint payload topics match `world:region:<rx>:<rz>` for the object's own region.
+- Browser (`hs`, polling fallback): requests at 13.3/25.3/37.4/49.5/… s (≈12.2 s apart, no
+  duplicates); hidden tab for 15 s -> 0 requests, visible again -> immediate catch-up; reload keeps
+  the badge and the 12 s cadence; canvas element is not remounted across polls; header 62.4 px,
+  viewport 603.2 px, `scrollHeight == clientHeight` (no page scrollbar); city view unaffected; `/`
+  unaffected (footer visible, page still scrolls).
+
+### Known issues / follow-ups
+
+- **Still not validated against real Supabase Broadcast or a real Vercel deployment.** The local
+  mock proves the publish path and payload shape; it cannot prove Supabase delivery, channel
+  authorization, or Vercel function lifetime. The two-account + network-loss + Vercel matrix is the
+  remaining acceptance gate.
+- The rate limiter is per instance; a player spread across several Vercel instances gets several
+  budgets. Acceptable as a runaway-loop guard, not as an abuse control.
+- Hints carry no `version` from scheduled jobs (only base hints do), so they are coalesced by id
+  rather than version. Clients always re-read the row, so correctness is unaffected.
+- Scheduled-job sweeps are bounded (`take: 100` per sub-job) but the tables have no index on
+  `occupiedUntil` / `respawnsAt` beyond the ones already present; at large scale the sweep queries
+  are the next thing to index.

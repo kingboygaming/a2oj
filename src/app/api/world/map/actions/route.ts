@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -6,6 +7,7 @@ import {
   isWorldUniqueConstraintError,
   performWorldMapAction,
 } from "@/lib/world";
+import { broadcastMapObjectChange } from "@/lib/world-realtime-server";
 
 export const runtime = "nodejs";
 
@@ -30,7 +32,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json(await performWorldMapAction(user.id, parsed.data));
+    const result = await performWorldMapAction(user.id, parsed.data);
+    after(() => broadcastMapObjectChange(parsed.data.targetId));
+    return NextResponse.json(result);
   } catch (error) {
     if (isWorldActionError(error)) {
       return NextResponse.json({ error: error.message }, { status: error.status });

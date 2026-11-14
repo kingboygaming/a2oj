@@ -256,6 +256,7 @@ export function WorldMapSystem({
               : {
                 id: object.id,
                 kind: "RESOURCE",
+                version: 0,
                 ownerUserId: null,
                 ownerName: null,
                 remaining: object.amount,
@@ -287,7 +288,7 @@ export function WorldMapSystem({
             object={object}
             state={state?.kind === "ROGUE_CAMP"
               ? state
-              : { id: object.id, kind: "ROGUE_CAMP", availableAt: null, status: "AVAILABLE" }}
+              : { id: object.id, kind: "ROGUE_CAMP", version: 0, availableAt: null, status: "AVAILABLE" }}
             selected={selectedId === object.id}
             playerCoordinateX={playerCoordinateX}
             playerCoordinateZ={playerCoordinateZ}

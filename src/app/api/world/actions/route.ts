@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -6,6 +7,7 @@ import {
   isWorldUniqueConstraintError,
   performWorldAction,
 } from "@/lib/world";
+import { broadcastBaseChanges } from "@/lib/world-realtime-server";
 
 export const runtime = "nodejs";
 
@@ -48,7 +50,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json(await performWorldAction(user.id, parsed.data));
+    const result = await performWorldAction(user.id, parsed.data);
+    if (parsed.data.type === "attackBase") {
+      // Attackers and defenders are usually in the same region, but group by
+      // region inside the helper so both sides get the hint.
+      const targetUserId = parsed.data.targetUserId;
+      after(() => broadcastBaseChanges([user.id, targetUserId]));
+    }
+    return NextResponse.json(result);
   } catch (error) {
     if (isWorldActionError(error)) {
       return NextResponse.json({ error: error.message }, { status: error.status });

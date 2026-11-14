@@ -1668,3 +1668,44 @@ main button:active {
   background: #0b1220;
   color: #e2e8f0;
 }
+
+/* ── A2 Kingdom fullscreen game view ──────────────────────────────
+   The game fills the viewport below the real OJ header. The header
+   height is measured at runtime by useHeaderHeight() and published as
+   --site-header-height; 64px is only the pre-measurement fallback. */
+:root {
+  --site-header-height: 64px;
+}
+
+.world-viewport {
+  height: calc(100dvh - var(--site-header-height, 64px));
+}
+
+/* Only the game route opts out of the shared page chrome (the marker class
+   lives on the game root). Every other OJ page keeps max-w-7xl and footer. */
+html:has(.world-fullscreen) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body:has(.world-fullscreen) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* The page-enter animation shifts the whole tree by 8px. On the game route that
+   would push the viewport below the header and add a page scrollbar whenever the
+   animation does not advance (background tab, reduced motion, reload). */
+body:has(.world-fullscreen) .route-transition {
+  animation: none;
+  transform: none;
+}
+
+body:has(.world-fullscreen) main {
+  max-width: none;
+  padding: 0;
+}
+
+body:has(.world-fullscreen) footer {
+  display: none;
+}

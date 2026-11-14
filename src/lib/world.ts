@@ -33,10 +33,14 @@ import {
   generateChunkObjects,
   resolveWorldMapObject,
 } from "@/lib/world-generation";
+import { queueWorldRealtimeChanges } from "@/lib/world-realtime-server";
+import { WORLD_ENTITY_MAX_OBJECTS, type WorldRealtimeChange } from "@/lib/world-realtime";
 
 export const WORLD_OFFLINE_CAP_MS = 48 * 60 * 60 * 1000;
 export const WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
 export const WORLD_MIN_TERRITORY_DISTANCE_METERS = 10_000;
+/** Max other-player bases returned in one snapshot/entity response. */
+export const WORLD_NEARBY_BASE_LIMIT = 20;
 const MAX_BUILDING_LEVEL = 20;
 const INITIAL_COORDINATE_EXTENT_METERS = 100_000;
 const MAX_COORDINATE_EXTENT_METERS = 1_000_000_000;
@@ -118,6 +122,8 @@ export type WorldMapObjectState =
   | {
       id: string;
       kind: "RESOURCE";
+      /** Monotonic row version; 0 when no DB row exists yet. */
+      version: number;
       ownerUserId: string | null;
       ownerName: string | null;
       remaining: number;
@@ -128,6 +134,8 @@ export type WorldMapObjectState =
   | {
       id: string;
       kind: "ROGUE_CAMP";
+      /** Monotonic row version; 0 when no DB row exists yet. */
+      version: number;
       availableAt: string | null;
       status: "AVAILABLE" | "COOLDOWN";
     };
@@ -260,6 +268,8 @@ export type WorldSnapshot = {
     castleLevel: number;
     pvpShieldUntil: string | null;
     activeAttack: boolean;
+    /** Monotonic `WorldBase.version`, used to reject stale merges. */
+    version: number;
   }>;
   baseAttacks: Array<{
     id: string;
@@ -307,6 +317,90 @@ export class WorldActionError extends Error {
     super(message);
     this.name = "WorldActionError";
   }
+}
+
+type WorldResourceNodeRow = {
+  version: number;
+  ownerUserId: string | null;
+  remaining: number;
+  occupiedUntil: Date | null;
+  respawnsAt: Date | null;
+  owner?: { username: string; displayName: string | null } | null;
+};
+
+type WorldRogueCampRow = {
+  version: number;
+  availableAt: Date | null;
+};
+
+/**
+ * Build the public state of one map object. Shared by the full snapshot and the
+ * incremental `/api/world/entities` endpoint so both always agree.
+ */
+export function buildWorldMapObjectState(
+  definition: WorldMapObject,
+  node: WorldResourceNodeRow | null | undefined,
+  camp: WorldRogueCampRow | null | undefined,
+  now: Date,
+): WorldMapObjectState {
+  if (definition.kind === "RESOURCE") {
+    return {
+      id: definition.id,
+      kind: "RESOURCE" as const,
+      version: node?.version ?? 0,
+      ownerUserId: node?.ownerUserId ?? null,
+      ownerName: node?.owner ? node.owner.displayName || node.owner.username : null,
+      remaining: node?.remaining ?? definition.amount,
+      status:
+        !node || node.remaining > 0
+          ? node?.ownerUserId && node.occupiedUntil && node.occupiedUntil > now
+            ? ("OCCUPIED" as const)
+            : ("AVAILABLE" as const)
+          : ("DEPLETED" as const),
+      occupiedUntil: node?.occupiedUntil?.toISOString() ?? null,
+      respawnsAt: node?.respawnsAt?.toISOString() ?? null,
+    };
+  }
+  const availableAt = camp?.availableAt ?? null;
+  return {
+    id: definition.id,
+    kind: "ROGUE_CAMP" as const,
+    version: camp?.version ?? 0,
+    availableAt: availableAt?.toISOString() ?? null,
+    status: availableAt && availableAt > now ? ("COOLDOWN" as const) : ("AVAILABLE" as const),
+  };
+}
+
+type WorldNearbyBaseRow = {
+  userId: string;
+  coordinateX: number | null;
+  coordinateZ: number | null;
+  castleLevel: number;
+  pvpShieldUntil: Date | null;
+  activePvpAttackId: string | null;
+  version: number;
+  user: { username: string; displayName: string | null };
+};
+
+/** Public projection of another player's base, relative to the viewer. */
+export function buildNearbyBaseState(
+  row: WorldNearbyBaseRow,
+  originX: number,
+  originZ: number,
+): WorldSnapshot["nearbyBases"][number] | null {
+  if (row.coordinateX === null || row.coordinateZ === null) return null;
+  return {
+    userId: row.userId,
+    username: row.user.username,
+    displayName: row.user.displayName || row.user.username,
+    coordinateX: row.coordinateX,
+    coordinateZ: row.coordinateZ,
+    distanceMeters: Math.round(Math.hypot(row.coordinateX - originX, row.coordinateZ - originZ)),
+    castleLevel: row.castleLevel,
+    pvpShieldUntil: row.pvpShieldUntil?.toISOString() ?? null,
+    activeAttack: row.activePvpAttackId !== null,
+    version: row.version,
+  };
 }
 
 function requireWorldCoordinates(
@@ -841,12 +935,13 @@ async function processWorldBaseAttacks(now: Date) {
     where: { status: "IN_TRANSIT", arrivesAt: { lte: now } },
     orderBy: { arrivesAt: "asc" },
     take: 100,
-    select: { id: true },
+    select: { id: true, attackerUserId: true, defenderUserId: true },
   });
   let resolved = 0;
   let failed = 0;
+  const changedUserIds = new Set<string>();
 
-  for (const { id } of dueAttacks) {
+  for (const { id, attackerUserId, defenderUserId } of dueAttacks) {
     try {
       const didResolve = await prisma.$transaction(async (tx) => {
         const claimed = await tx.worldBaseAttack.updateMany({
@@ -1113,7 +1208,12 @@ async function processWorldBaseAttacks(now: Date) {
         if (!completed.count) throw new Error(`Could not complete base attack ${id}.`);
         return true;
       });
-      if (didResolve) resolved += 1;
+      if (didResolve) {
+        resolved += 1;
+        // Both sides change publicly (activeAttack, shield, castle level).
+        changedUserIds.add(attackerUserId);
+        changedUserIds.add(defenderUserId);
+      }
     } catch (error) {
       failed += 1;
       console.error("World base attack resolution failed.", {
@@ -1122,7 +1222,7 @@ async function processWorldBaseAttacks(now: Date) {
       });
     }
   }
-  return { resolved, failed };
+  return { resolved, failed, changedUserIds: [...changedUserIds] };
 }
 
 async function processWorldMarches(now: Date) {
@@ -1497,6 +1597,7 @@ async function processWorldResourceNodeTimers(now: Date) {
   });
   let expired = 0;
   let failed = 0;
+  const changedNodeIds = new Set<string>();
   for (const candidate of expiredNodes) {
     try {
       if (candidate.ownerUserId) await advanceWorld(candidate.ownerUserId, now);
@@ -1507,7 +1608,10 @@ async function processWorldResourceNodeTimers(now: Date) {
         await collectResourceNode(tx, node, base, now, node.occupiedUntil, true);
         return true;
       });
-      if (didExpire) expired += 1;
+      if (didExpire) {
+        expired += 1;
+        changedNodeIds.add(candidate.id);
+      }
     } catch (error) {
       failed += 1;
       console.error("World resource node expiry failed.", { nodeId: candidate.id, error: errorText(error) });
@@ -1525,13 +1629,16 @@ async function processWorldResourceNodeTimers(now: Date) {
         where: { id: node.id, ownerUserId: null, remaining: 0, version: node.version, respawnsAt: { lte: now } },
         data: { remaining: node.maxAmount, respawnsAt: null, lastCollectedAt: null, version: { increment: 1 } },
       });
-      if (result.count) respawned += 1;
+      if (result.count) {
+        respawned += 1;
+        changedNodeIds.add(node.id);
+      }
     } catch (error) {
       failed += 1;
       console.error("World resource node respawn failed.", { nodeId: node.id, error: errorText(error) });
     }
   }
-  return { expired, respawned, failed };
+  return { expired, respawned, failed, changedNodeIds: [...changedNodeIds] };
 }
 
 function campReward(camp: Extract<WorldMapObject, { kind: "ROGUE_CAMP" }>) {
@@ -1596,6 +1703,7 @@ async function processWorldMapMarches(now: Date) {
   });
   let resolved = 0;
   let failed = 0;
+  const changedNodeIds = new Set<string>();
 
   for (const candidate of arriving) {
     try {
@@ -1881,7 +1989,11 @@ async function processWorldMapMarches(now: Date) {
         });
         return true;
       });
-      if (didResolve) resolved += 1;
+      if (didResolve) {
+        resolved += 1;
+        // Both RESOURCE and ROGUE_CAMP targets are public map objects.
+        changedNodeIds.add(candidate.targetId);
+      }
     } catch (error) {
       failed += 1;
       console.error("World map march resolution failed.", {
@@ -1891,7 +2003,7 @@ async function processWorldMapMarches(now: Date) {
       });
     }
   }
-  return { resolved, failed };
+  return { resolved, failed, changedNodeIds: [...changedNodeIds] };
 }
 
 async function processWorldMapReturns(now: Date) {
@@ -1937,6 +2049,7 @@ async function processWorldMapOperations(now: Date) {
     ...marches,
     ...returns,
     failed: timers.failed + marches.failed + returns.failed,
+    changedNodeIds: [...new Set([...timers.changedNodeIds, ...marches.changedNodeIds])],
   };
 }
 
@@ -2149,9 +2262,17 @@ export async function processScheduledWorldJobs(now = new Date()) {
     }
   }
 
-  return { processed, retried, failed, trained, marches, baseAttacks, mapOperations, research };
-}
+  // Scheduled work runs for every player, so remote clients need hints for the
+  // public rows it touched. Private-only completions (training, research, troop
+  // returns) are picked up by the owner's own snapshot.
+  const changes: WorldRealtimeChange[] = [
+    ...[...new Set(mapOperations.changedNodeIds)].map((id) => ({ kind: "MAP_OBJECT" as const, id })),
+    ...[...new Set(baseAttacks.changedUserIds)].map((id) => ({ kind: "BASE" as const, id })),
+  ];
+  await queueWorldRealtimeChanges(changes);
 
+  return { processed, retried, failed, trained, marches, baseAttacks, mapOperations, research, changes };
+}
 export async function loadWorldSnapshot(userId: string, now = new Date()): Promise<WorldSnapshot> {
   await ensureDailyWorldEvents(now);
   await processScheduledWorldJobs(now);
@@ -2225,6 +2346,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
         castleLevel: true,
         activePvpAttackId: true,
         pvpShieldUntil: true,
+        version: true,
         user: { select: { username: true, displayName: true } },
       },
     }),
@@ -2295,25 +2417,13 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   const productionMultiplier = 1 + effectiveProductionLevel * 0.1;
 
   const nearbyBases = otherBases
-    .filter((otherBase) => otherBase.coordinateX !== null && otherBase.coordinateZ !== null)
-    .map((otherBase) => ({
-      userId: otherBase.userId,
-      username: otherBase.user.username,
-      displayName: otherBase.user.displayName || otherBase.user.username,
-      coordinateX: otherBase.coordinateX!,
-      coordinateZ: otherBase.coordinateZ!,
-      distanceMeters: Math.round(
-        Math.hypot(otherBase.coordinateX! - base.coordinateX!, otherBase.coordinateZ! - base.coordinateZ!),
-      ),
-      castleLevel: otherBase.castleLevel,
-      pvpShieldUntil: otherBase.pvpShieldUntil?.toISOString() ?? null,
-      activeAttack: otherBase.activePvpAttackId !== null,
-    }))
+    .map((otherBase) => buildNearbyBaseState(otherBase, base.coordinateX!, base.coordinateZ!))
+    .filter((otherBase): otherBase is NonNullable<typeof otherBase> => otherBase !== null)
     // The bounding box includes the square's corners; drop bases outside the
     // circular render/view radius before ranking them.
     .filter((otherBase) => otherBase.distanceMeters <= VIEW_RADIUS_METERS)
     .sort((left, right) => left.distanceMeters - right.distanceMeters)
-    .slice(0, 20);
+    .slice(0, WORLD_NEARBY_BASE_LIMIT);
 
   // Generate procedural map objects for every chunk the client can render.
   const visibleChunks = getVisibleChunksAroundPosition(
@@ -2332,36 +2442,14 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   for (const def of proceduralObjects) allDefinitionsMap.set(def.id, def);
   const allMapObjectDefinitions = Array.from(allDefinitionsMap.values());
 
-  const mapObjectStates: WorldMapObjectState[] = allMapObjectDefinitions.map((definition) => {
-    if (definition.kind === "RESOURCE") {
-      const node = mapNodeById.get(definition.id);
-      return {
-        id: definition.id,
-        kind: "RESOURCE" as const,
-        ownerUserId: node?.ownerUserId ?? null,
-        ownerName: node?.owner
-          ? node.owner.displayName || node.owner.username
-          : null,
-        remaining: node?.remaining ?? definition.amount,
-        status: !node || node.remaining > 0
-          ? node?.ownerUserId && node.occupiedUntil && node.occupiedUntil > now
-            ? "OCCUPIED" as const
-            : "AVAILABLE" as const
-          : "DEPLETED" as const,
-        occupiedUntil: node?.occupiedUntil?.toISOString() ?? null,
-        respawnsAt: node?.respawnsAt?.toISOString() ?? null,
-      };
-    } else {
-      const camp = mapCampById.get(definition.id);
-      const availableAt = camp?.availableAt ?? null;
-      return {
-        id: definition.id,
-        kind: "ROGUE_CAMP" as const,
-        availableAt: availableAt?.toISOString() ?? null,
-        status: availableAt && availableAt > now ? "COOLDOWN" as const : "AVAILABLE" as const,
-      };
-    }
-  });
+  const mapObjectStates: WorldMapObjectState[] = allMapObjectDefinitions.map((definition) =>
+    buildWorldMapObjectState(
+      definition,
+      mapNodeById.get(definition.id),
+      mapCampById.get(definition.id),
+      now,
+    ),
+  );
 
   return {
     userId,
@@ -2573,6 +2661,119 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       title: reward.event.title,
       wood: reward.rewardWood,
       stone: reward.rewardStone,
+    })),
+  };
+}
+
+export type WorldEntitiesPayload = {
+  now: string;
+  bases: WorldSnapshot["nearbyBases"];
+  mapObjects: Array<{ definition: WorldMapObject; state: WorldMapObjectState }>;
+};
+
+/**
+ * Incremental, read-only counterpart to `loadWorldSnapshot`.
+ *
+ * Realtime hints tell the client *which* objects changed; this endpoint returns
+ * only those authoritative rows. `all: true` is used by the fallback poller and
+ * the periodic resync to refresh everything currently in view without loading
+ * the private snapshot (buildings, army, resources, events).
+ */
+export async function loadWorldEntities(
+  userId: string,
+  ids: string[],
+  options: { all?: boolean } = {},
+  now = new Date(),
+): Promise<WorldEntitiesPayload> {
+  const viewer = await prisma.worldBase.findUnique({
+    where: { userId },
+    select: { coordinateX: true, coordinateZ: true },
+  });
+  if (!viewer || viewer.coordinateX === null || viewer.coordinateZ === null) {
+    throw new WorldActionError("Chưa khởi tạo căn cứ.", 404);
+  }
+  const originX = viewer.coordinateX;
+  const originZ = viewer.coordinateZ;
+  const inView = (definition: WorldMapObject) =>
+    Math.hypot(definition.x - originX, definition.z - originZ) <= VIEW_RADIUS_METERS;
+
+  let definitions: WorldMapObject[];
+  if (options.all) {
+    const byId = new Map<string, WorldMapObject>();
+    for (const definition of RESOURCE_NODES) byId.set(definition.id, definition);
+    for (const definition of ROGUE_CAMPS) byId.set(definition.id, definition);
+    for (const chunk of getVisibleChunksAroundPosition(originX, originZ, VIEW_RADIUS_METERS)) {
+      for (const definition of generateChunkObjects(chunk.chunkX, chunk.chunkZ, DEFAULT_WORLD_SEED)) {
+        byId.set(definition.id, definition);
+      }
+    }
+    definitions = [...byId.values()].filter(inView);
+  } else {
+    const uniqueIds = [...new Set(ids)].slice(0, WORLD_ENTITY_MAX_OBJECTS);
+    definitions = uniqueIds
+      .map((id) => resolveWorldMapObject(id))
+      .filter((definition): definition is WorldMapObject => definition !== null)
+      // Never leak objects outside the viewer's radius, even if a client asks.
+      .filter(inView);
+  }
+
+  const objectIds = definitions.map((definition) => definition.id);
+  const [nodes, camps, otherBases] = await Promise.all([
+    objectIds.length > 0
+      ? prisma.worldResourceNode.findMany({
+          where: { id: { in: objectIds } },
+          include: { owner: { select: { username: true, displayName: true } } },
+        })
+      : Promise.resolve([]),
+    objectIds.length > 0
+      ? prisma.worldRogueCamp.findMany({ where: { id: { in: objectIds } } })
+      : Promise.resolve([]),
+    prisma.worldBase.findMany({
+      where: {
+        userId: { not: userId },
+        coordinateX: {
+          not: null,
+          gte: originX - VIEW_RADIUS_METERS,
+          lte: originX + VIEW_RADIUS_METERS,
+        },
+        coordinateZ: {
+          not: null,
+          gte: originZ - VIEW_RADIUS_METERS,
+          lte: originZ + VIEW_RADIUS_METERS,
+        },
+      },
+      select: {
+        userId: true,
+        coordinateX: true,
+        coordinateZ: true,
+        castleLevel: true,
+        activePvpAttackId: true,
+        pvpShieldUntil: true,
+        version: true,
+        user: { select: { username: true, displayName: true } },
+      },
+    }),
+  ]);
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const campById = new Map(camps.map((camp) => [camp.id, camp]));
+
+  return {
+    now: now.toISOString(),
+    bases: otherBases
+      .map((otherBase) => buildNearbyBaseState(otherBase, originX, originZ))
+      .filter((otherBase): otherBase is NonNullable<typeof otherBase> => otherBase !== null)
+      .filter((otherBase) => otherBase.distanceMeters <= VIEW_RADIUS_METERS)
+      .sort((left, right) => left.distanceMeters - right.distanceMeters)
+      .slice(0, WORLD_NEARBY_BASE_LIMIT),
+    mapObjects: definitions.map((definition) => ({
+      definition,
+      state: buildWorldMapObjectState(
+        definition,
+        nodeById.get(definition.id),
+        campById.get(definition.id),
+        now,
+      ),
     })),
   };
 }
