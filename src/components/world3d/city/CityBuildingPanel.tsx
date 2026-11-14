@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   WORLD_BUILDING_DEFINITIONS,
   WORLD_BUILDING_TYPES,
+  worldBuildingMaxLevel,
   type WorldBuildingType,
   type WorldBuildingView,
 } from "@/lib/world-buildings";
@@ -40,7 +41,9 @@ export function CityBuildingPanel({
 
   if (building) {
     const definition = WORLD_BUILDING_DEFINITIONS[building.type];
+    const maxLevel = worldBuildingMaxLevel(building.type);
     const effectiveLevel = building.pendingLevel ?? building.level;
+    const isMax = effectiveLevel >= maxLevel;
     const nextLevel = effectiveLevel + 1;
     const woodCost = definition.woodCost * nextLevel;
     const stoneCost = definition.stoneCost * nextLevel;
@@ -52,18 +55,24 @@ export function CityBuildingPanel({
         <p className="mt-1 text-xs text-white/55">
           {inProgress
             ? `Đang ${building.status === "UPGRADING" ? "nâng cấp" : "xây dựng"} · hoàn tất ${new Date(building.completesAt).toLocaleString("vi-VN")}`
-            : `Cấp ${effectiveLevel} · ${definition.description}`}
+            : `Cấp ${effectiveLevel}/${maxLevel} · ${definition.description}`}
         </p>
         {!inProgress && (
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy || nextLevel > 20 || wood < woodCost || stone < stoneCost}
-              onClick={() => onAction("UPGRADE", plotIndex)}
-              className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
-            >
-              Nâng cấp · {woodCost} gỗ / {stoneCost} đá
-            </button>
+            {isMax ? (
+              <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300">
+                ⭐ Đã đạt cấp tối đa
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={busy || nextLevel > maxLevel || wood < woodCost || stone < stoneCost}
+                onClick={() => onAction("UPGRADE", plotIndex)}
+                className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+              >
+                Nâng cấp · {woodCost} gỗ / {stoneCost} đá
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}

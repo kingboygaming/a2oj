@@ -17,6 +17,8 @@ import type { WorldMapObject } from "@/lib/world-map-objects";
 import type { WorldBuildingType, WorldBuildingView } from "@/lib/world-buildings";
 import type { WorldMapObjectState } from "@/lib/world";
 import { useCameraStore } from "./engine/useCameraStore";
+import { useViewStore } from "./engine/useViewStore";
+import { METERS_PER_RENDER_UNIT } from "@/lib/world-coordinates";
 
 interface WorldSceneProps {
   baseData: {
@@ -75,6 +77,8 @@ export function WorldScene({
   onSelectBuilding,
 }: WorldSceneProps) {
   const viewMode = useCameraStore((state) => state.viewMode);
+  const viewRadiusMeters = useViewStore((state) => state.viewRadiusMeters);
+  const viewRadiusUnits = viewRadiusMeters / METERS_PER_RENDER_UNIT;
 
   // In render space, player's own city is anchored at (0, 0).
   // Terrain height is anchored to the base's stored world coordinates (metres).
@@ -148,6 +152,7 @@ export function WorldScene({
               nearbyBases={nearbyBases}
               selectedBaseUserId={selectedBaseUserId}
               onSelectBase={onSelectBase}
+              maxRenderDistance={viewRadiusUnits}
             />
             {/* Resource nodes and rogue camps */}
             <WorldMapSystem
@@ -156,6 +161,7 @@ export function WorldScene({
               mapObjects={mapObjects}
               playerCoordinateX={baseData.coordinateX}
               playerCoordinateZ={baseData.coordinateZ}
+              maxRenderDistance={viewRadiusUnits}
               currentUserId={currentUserId}
               onSelect={onSelectWorldObject}
             />

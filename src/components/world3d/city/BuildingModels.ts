@@ -498,6 +498,166 @@ export function createWallSegment(length: number): THREE.Group {
   return group;
 }
 
+/* ── Scout Camp (Trại trinh sát) ── */
+export function createScoutCamp(level = 1): THREE.Group {
+  const group = new THREE.Group();
+  const cappedLevel = Math.max(1, Math.min(3, Math.round(level)));
+  const towerH = 4.2 + cappedLevel * 1.0;
+  const towerX = 1.3;
+  const towerZ = 0.2;
+
+  // 1. Observation Tower Stilts (4 wooden posts)
+  const legOffset = 0.9;
+  const legRadius = 0.12;
+  const corners = [
+    [-legOffset, -legOffset],
+    [legOffset, -legOffset],
+    [-legOffset, legOffset],
+    [legOffset, legOffset],
+  ] as const;
+
+  for (const [dx, dz] of corners) {
+    const stilt = new THREE.Mesh(cyl(legRadius * 0.8, legRadius, towerH, towerX + dx, 0, towerZ + dz, 6), WOOD);
+    stilt.castShadow = true;
+    group.add(stilt);
+  }
+
+  // Cross braces for tower
+  for (let h = 1.2; h < towerH; h += 1.6) {
+    const beam1 = new THREE.Mesh(box(legOffset * 2, 0.1, 0.1, towerX, h, towerZ - legOffset), WOOD);
+    const beam2 = new THREE.Mesh(box(legOffset * 2, 0.1, 0.1, towerX, h, towerZ + legOffset), WOOD);
+    const beam3 = new THREE.Mesh(box(0.1, 0.1, legOffset * 2, towerX - legOffset, h, towerZ), WOOD);
+    const beam4 = new THREE.Mesh(box(0.1, 0.1, legOffset * 2, towerX + legOffset, h, towerZ), WOOD);
+    group.add(beam1, beam2, beam3, beam4);
+  }
+
+  // Ladder
+  const ladderZ = towerZ - legOffset - 0.05;
+  for (let y = 0.3; y < towerH; y += 0.45) {
+    const rung = new THREE.Mesh(box(0.5, 0.05, 0.05, towerX, y, ladderZ), WOOD);
+    group.add(rung);
+  }
+
+  // Observation Platform
+  const platform = new THREE.Mesh(box(2.2, 0.2, 2.2, towerX, towerH, towerZ), WOOD);
+  platform.castShadow = true;
+  group.add(platform);
+
+  // Platform Railing
+  const railH = 0.8;
+  const railPosts = [
+    [-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0],
+    [0, 1.0], [-1.0, 0], [1.0, 0],
+  ] as const;
+  for (const [px, pz] of railPosts) {
+    const post = new THREE.Mesh(box(0.08, railH, 0.08, towerX + px, towerH + 0.2, towerZ + pz), WOOD);
+    group.add(post);
+  }
+  const topRail1 = new THREE.Mesh(box(2.1, 0.06, 0.06, towerX, towerH + 0.2 + railH, towerZ + 1.0), WOOD);
+  const topRail2 = new THREE.Mesh(box(0.06, 0.06, 2.1, towerX - 1.0, towerH + 0.2 + railH, towerZ), WOOD);
+  const topRail3 = new THREE.Mesh(box(0.06, 0.06, 2.1, towerX + 1.0, towerH + 0.2 + railH, towerZ), WOOD);
+  group.add(topRail1, topRail2, topRail3);
+
+  // Tower Roof (Canopy)
+  const roofPillars = [
+    [-0.95, -0.95], [0.95, -0.95], [-0.95, 0.95], [0.95, 0.95],
+  ] as const;
+  for (const [rx, rz] of roofPillars) {
+    const rPost = new THREE.Mesh(cyl(0.06, 0.06, 1.6, towerX + rx, towerH + 0.2, towerZ + rz, 4), WOOD);
+    group.add(rPost);
+  }
+  const towerRoof = new THREE.Mesh(cone(1.7, 1.2, towerX, towerH + 1.8, towerZ, 6), ROOF_BLUE);
+  towerRoof.castShadow = true;
+  group.add(towerRoof);
+
+  // Lookout Pennant / Flag
+  const flagpole = new THREE.Mesh(cyl(0.04, 0.04, 1.3, towerX, towerH + 2.8, towerZ, 4), METAL);
+  const flag = new THREE.Mesh(box(0.6, 0.35, 0.02, towerX + 0.3, towerH + 3.2, towerZ), FLAG_RED);
+  group.add(flagpole, flag);
+
+  // 2. Scout Canvas Tent(s)
+  const tentMat = WHITE_STONE;
+  const mainTent = new THREE.Mesh(cone(1.5, 2.2, -1.4, 0, 0.6, 5), tentMat);
+  mainTent.castShadow = true;
+  group.add(mainTent);
+
+  // Tent entrance flaps
+  const flapMesh = new THREE.Mesh(box(0.4, 1.0, 0.05, -1.4, 0, 1.6), DOOR);
+  group.add(flapMesh);
+
+  if (cappedLevel >= 2) {
+    // Auxiliary scout tent
+    const auxTent = new THREE.Mesh(cone(1.1, 1.6, -1.7, 0, -1.3, 5), tentMat);
+    auxTent.castShadow = true;
+    group.add(auxTent);
+  }
+
+  // 3. Reconnaissance Map Desk
+  const deskMat = WOOD;
+  const deskX = -0.1;
+  const deskZ = -1.2;
+  const deskTop = new THREE.Mesh(box(1.1, 0.08, 0.7, deskX, 0.75, deskZ), deskMat);
+  deskTop.castShadow = true;
+  group.add(deskTop);
+  for (const [dx, dz] of [[-0.45, -0.25], [0.45, -0.25], [-0.45, 0.25], [0.45, 0.25]]) {
+    const leg = new THREE.Mesh(cyl(0.04, 0.04, 0.75, deskX + dx, 0, deskZ + dz, 4), deskMat);
+    group.add(leg);
+  }
+  // Parchment map on desk
+  const mapPaper = new THREE.Mesh(box(0.7, 0.03, 0.45, deskX, 0.81, deskZ), WINDOW_MAT);
+  group.add(mapPaper);
+  // Spyglass / Compass
+  const spyglass = new THREE.Mesh(cyl(0.04, 0.06, 0.35, deskX + 0.2, 0.85, deskZ - 0.1, 6), METAL);
+  spyglass.rotation.z = Math.PI / 3;
+  group.add(spyglass);
+
+  // 4. Campfire & Lantern
+  const firePitMat = DARK_STONE;
+  const fireX = -0.3;
+  const fireZ = 1.3;
+  for (let i = 0; i < 6; i++) {
+    const angle = (i / 6) * Math.PI * 2;
+    const stone = new THREE.Mesh(
+      box(0.2, 0.15, 0.2, fireX + Math.cos(angle) * 0.45, 0, fireZ + Math.sin(angle) * 0.45),
+      firePitMat,
+    );
+    group.add(stone);
+  }
+  const emberMat = new THREE.MeshStandardMaterial({
+    color: 0xff5500,
+    emissive: 0xff3300,
+    emissiveIntensity: 0.9,
+    roughness: 0.4,
+  });
+  const fireFlame = new THREE.Mesh(cone(0.25, 0.5, fireX, 0.1, fireZ, 5), emberMat);
+  group.add(fireFlame);
+
+  // 5. Level 3 Extras: Fortified timber perimeter & Archery target dummy
+  if (cappedLevel >= 3) {
+    // Training Target Dummy
+    const targetPole = new THREE.Mesh(cyl(0.06, 0.06, 1.4, -2.2, 0, 0.8, 6), WOOD);
+    const targetStraw = new THREE.Mesh(cyl(0.35, 0.35, 0.15, -2.2, 1.0, 0.8, 8), WINDOW_MAT);
+    targetStraw.rotation.x = Math.PI / 2;
+    const targetBullseye = new THREE.Mesh(cyl(0.12, 0.12, 0.16, -2.2, 1.0, 0.8, 8), FLAG_RED);
+    targetBullseye.rotation.x = Math.PI / 2;
+    group.add(targetPole, targetStraw, targetBullseye);
+
+    // Perimeter wooden stakes
+    const stakeMat = WOOD;
+    const stakes = [
+      [-2.4, -0.6], [-2.4, -1.2], [-2.4, -1.8],
+      [0.6, -2.2], [1.3, -2.2], [2.0, -2.2],
+    ] as const;
+    for (const [sx, sz] of stakes) {
+      const stake = new THREE.Mesh(cone(0.12, 1.2, sx, 0, sz, 4), stakeMat);
+      stake.castShadow = true;
+      group.add(stake);
+    }
+  }
+
+  return group;
+}
+
 export {
   STONE, ROOF_RED, ROOF_BLUE, WOOD, METAL, DOOR,
   WINDOW_MAT, WHITE_STONE, DARK_STONE, GLOW_BLUE, FLAG_RED,

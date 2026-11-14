@@ -17,6 +17,7 @@ import {
   createIronMine,
   createSiegeWorkshop,
   createStable,
+  createScoutCamp,
 } from "./BuildingModels";
 import type { WorldBuildingType } from "@/lib/world-buildings";
 
@@ -83,6 +84,11 @@ export function WallSegment({ position, rotation, length = 6 }: BuildingProps & 
   return <BuildingWrapper generator={gen} position={position} rotation={rotation} />;
 }
 
+export function ScoutCamp({ position, rotation, level = 1 }: BuildingProps & { level?: number }) {
+  const gen = useMemo(() => () => createScoutCamp(level), [level]);
+  return <BuildingWrapper generator={gen} position={position} rotation={rotation} />;
+}
+
 export function WorldBuildingModel({
   type,
   level,
@@ -101,6 +107,7 @@ export function WorldBuildingModel({
           : type === "STABLE" ? createStable()
             : type === "SIEGE_WORKSHOP" ? createSiegeWorkshop()
               : type === "MILITARY_ACADEMY" ? createResearchLab()
+                : type === "SCOUT_CAMP" ? createScoutCamp(level)
                 : type === "LUMBER_MILL" ? createFactory(level)
                   : type === "IRON_MINE" ? createIronMine()
                     : type === "STONE_QUARRY" ? createRockQuarry()

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorldAlliancePanel } from "@/components/WorldAlliancePanel";
-import type { WorldSnapshot } from "@/lib/world";
+import { worldScoutCampLevel } from "@/lib/world-buildings";
+import type { WorldScoutReport, WorldSnapshot } from "@/lib/world";
 
 type ActionRequest =
   | { type: "join"; eventId: string }
@@ -11,7 +12,8 @@ type ActionRequest =
   | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
   | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number }
-  | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number };
+  | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number }
+  | { type: "scoutBase"; targetUserId: string };
 
 function utcLabel(value: string) {
   return `${value.slice(0, 16).replace("T", " ")} UTC`;
@@ -29,6 +31,15 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
   const [marchArmy, setMarchArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
   const [attackArmy, setAttackArmy] = useState({ infantry: 0, archers: 0, cavalry: 0 });
   const [attackTargetId, setAttackTargetId] = useState("");
+  const [scoutReports, setScoutReports] = useState<Record<string, WorldScoutReport>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem(`world_scout_reports_${initialSnapshot.userId}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
@@ -58,6 +69,11 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
   );
 
   const refreshInFlight = useRef<Promise<void> | null>(null);
+
+  const scoutCampLevel = useMemo(
+    () => worldScoutCampLevel(snapshot.buildings),
+    [snapshot.buildings],
+  );
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) return refreshInFlight.current;
@@ -147,6 +163,18 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Không thể thực hiện thao tác.");
       setMessage(result.message);
+      if (result.scoutReport) {
+        setScoutReports((prev) => {
+          const next = {
+            ...prev,
+            [result.scoutReport.targetUserId]: result.scoutReport,
+          };
+          try {
+            localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+      }
       await refresh();
     } catch (error) {
       setIsError(true);
@@ -295,26 +323,58 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
             ))}
           </div>
         </div>
-        <button
-          type="button"
-          disabled={
-            Boolean(busy) ||
-            !attackTargetId ||
-            Boolean(snapshot.base.activePvpAttackId) ||
-            Boolean(snapshot.base.army.trainingType) ||
-            snapshot.base.army.marchActive ||
-            Object.values(attackArmy).reduce((sum, count) => sum + count, 0) < 1 ||
-            Object.values(attackArmy).reduce((sum, count) => sum + count, 0) > 500
-          }
-          onClick={() => void act("attack-base", {
-            type: "attackBase",
-            targetUserId: attackTargetId,
-            ...attackArmy,
-          })}
-          className="mt-3 rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {busy === "attack-base" ? "Đang điều quân…" : "Tấn công căn cứ"}
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={
+              Boolean(busy) ||
+              !attackTargetId ||
+              Boolean(snapshot.base.activePvpAttackId) ||
+              Boolean(snapshot.base.army.trainingType) ||
+              snapshot.base.army.marchActive ||
+              Object.values(attackArmy).reduce((sum, count) => sum + count, 0) < 1 ||
+              Object.values(attackArmy).reduce((sum, count) => sum + count, 0) > 500
+            }
+            onClick={() => void act("attack-base", {
+              type: "attackBase",
+              targetUserId: attackTargetId,
+              ...attackArmy,
+            })}
+            className="flex-1 rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "attack-base" ? "Đang điều quân…" : "Tấn công căn cứ"}
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(busy) || !attackTargetId || scoutCampLevel === 0 || displayWood < 30 || displayFood < 20}
+            onClick={() => void act("scout-base", { type: "scoutBase", targetUserId: attackTargetId })}
+            className="rounded-lg border border-[var(--teal)] bg-[var(--teal)]/10 px-4 py-2 text-sm font-bold text-[var(--teal)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "scout-base" ? "Đang do thám…" : "🔭 Do thám (30🪵 20🌾)"}
+          </button>
+        </div>
+        {scoutCampLevel === 0 && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+            ⚠️ Bạn cần xây dựng <strong>Trại trinh sát</strong> trước khi có thể cử trinh sát do thám căn cứ đối phương.
+          </p>
+        )}
+        {attackTargetId && scoutReports[attackTargetId] && (() => {
+          const rep = scoutReports[attackTargetId];
+          return (
+            <div className="mt-3 rounded-lg border border-sky-400/40 bg-sky-50 dark:bg-sky-950/30 p-3 text-xs text-sky-900 dark:text-sky-100 space-y-1.5">
+              <div className="flex items-center justify-between font-bold border-b border-sky-200 dark:border-sky-800 pb-1">
+                <span>📜 Báo cáo trinh sát (Cấp {rep.scoutLevel}/3)</span>
+                <span>{new Date(rep.scoutedAt).toLocaleTimeString("vi-VN")}</span>
+              </div>
+              <p>Thành trì: Cấp {rep.castleLevel} · Khoảng cách: {(rep.distanceMeters / 1000).toFixed(1)} km</p>
+              <p>Tài nguyên ước tính: ~{rep.approximateWood} gỗ, ~{rep.approximateStone} đá{rep.food !== undefined ? `, ${rep.food} lương thực` : ""}</p>
+              <p>Quân lực phòng thủ: {rep.scoutLevel === 1 ? rep.estimatedTotalTroops : `🛡️ ${rep.exactInfantry} bộ, 🏹 ${rep.exactArchers} cung, 🐎 ${rep.exactCavalry} kỵ`}</p>
+              {rep.scoutLevel >= 3 && (
+                <p>Quân sự: {rep.militaryTierName} · {rep.marchActive ? "Quân đang hành quân ngoài" : "Quân phòng thủ tại thành"}</p>
+              )}
+            </div>
+          );
+        })()}
         {snapshot.baseAttacks.length > 0 && (
           <div className="mt-4 border-t border-[var(--line)] pt-3">
             <h3 className="text-sm font-bold text-[var(--navy)]">Trận đánh gần đây</h3>

@@ -9,13 +9,14 @@ import { useViewStore } from "@/components/world3d/engine/useViewStore";
 import { useHeaderHeight } from "@/components/world3d/engine/useHeaderHeight";
 import { useWorldRealtime } from "@/components/world3d/realtime/useWorldRealtime";
 import type { GraphicsQuality } from "@/components/world3d/engine/GraphicsSettings";
-import type { WorldSnapshot } from "@/lib/world";
+import type { WorldScoutReport, WorldSnapshot } from "@/lib/world";
 import type { WorldEntityPayload } from "@/lib/world-realtime";
 import { mergeWorldEntities, mergeWorldSnapshot } from "@/lib/world-merge";
 import { Minimap } from "@/components/Minimap";
 import { FPSCounter } from "@/components/FPSCounter";
 import { WorldObjectPanel } from "@/components/world3d/interaction/WorldObjectPanel";
 import type { WorldMapObject } from "@/lib/world-map-objects";
+import { worldToRender } from "@/lib/world-coordinates";
 import { CityBuildingPanel } from "@/components/world3d/city/CityBuildingPanel";
 import { WorldResearchPanel } from "@/components/world3d/city/WorldResearchPanel";
 import {
@@ -43,7 +44,8 @@ type ActionRequest =
   | { type: "claim"; eventId: string }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
   | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number }
-  | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number };
+  | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number }
+  | { type: "scoutBase"; targetUserId: string };
 
 type WorldMapActionRequest =
   | { type: "GATHER"; targetId: string }
@@ -68,16 +70,26 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
-  const [activeTab, setActiveTab] = useState<"base" | "army" | "research" | "events" | "alliance" | "build">("base");
+  const [activeTab, setActiveTab] = useState<"base" | "army" | "research" | "events" | "alliance" | "build" | "intel">("base");
   const [selectedWorldObject, setSelectedWorldObject] = useState<WorldMapObject | null>(null);
   const [selectedRemoteBase, setSelectedRemoteBase] = useState<WorldSnapshot["nearbyBases"][number] | null>(null);
   const [selectedPlotIndex, setSelectedPlotIndex] = useState<number | null>(null);
   const [placementType, setPlacementType] = useState<WorldBuildingType | null>(null);
+  const [scoutReports, setScoutReports] = useState<Record<string, WorldScoutReport>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem(`world_scout_reports_${initialSnapshot.userId}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const quality = useGraphicsStore((s) => s.quality);
   const setQuality = useGraphicsStore((s) => s.setQuality);
   const hydrateQuality = useGraphicsStore((s) => s.hydrateQuality);
-  const { viewMode, setViewMode } = useCameraStore();
+  const { viewMode, setViewMode, focusOn } = useCameraStore();
+  const setViewRadiusMeters = useViewStore((s) => s.setViewRadiusMeters);
   // Keep the game flush with the real header height (not a hardcoded 64px).
   useHeaderHeight();
 
@@ -112,6 +124,19 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     snapshot.base.capacity,
     Math.floor(snapshot.base.food + elapsedHours * snapshot.base.foodPerHour),
   );
+
+  const scoutCampLevel = useMemo(
+    () => worldScoutCampLevel(snapshot.buildings),
+    [snapshot.buildings],
+  );
+  const viewRadiusMeters = useMemo(
+    () => worldViewRadiusMeters(scoutCampLevel),
+    [scoutCampLevel],
+  );
+
+  useEffect(() => {
+    setViewRadiusMeters(viewRadiusMeters);
+  }, [viewRadiusMeters, setViewRadiusMeters]);
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) return refreshInFlight.current;
@@ -150,6 +175,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     userId: snapshot.userId,
     coordinateX: snapshot.base.coordinateX,
     coordinateZ: snapshot.base.coordinateZ,
+    viewRadiusMeters,
     onEntities: applyRealtimeEntities,
     onBaseHint: refreshFromBaseHint,
     onSyncBase: refresh,
@@ -250,6 +276,18 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Không thể thực hiện thao tác.");
       setMessage(result.message);
+      if (result.scoutReport) {
+        setScoutReports((prev) => {
+          const next = {
+            ...prev,
+            [result.scoutReport.targetUserId]: result.scoutReport,
+          };
+          try {
+            localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+      }
       await refresh();
     } catch (error) {
       setIsError(true);
@@ -502,6 +540,82 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               </div>
             </div>
           )}
+
+          {/* Scouting / Intelligence Section */}
+          <div className="mt-3 border-t border-white/10 pt-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-sky-300">🔭 Do thám căn cứ</span>
+              <span className="text-[10px] text-white/50">Trại trinh sát: Cấp {scoutCampLevel}/3</span>
+            </div>
+
+            {scoutCampLevel === 0 ? (
+              <p className="mt-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-[11px] text-amber-200/90">
+                ⚠️ Cần xây dựng <strong>Trại trinh sát</strong> trong thành phố để do thám căn cứ đối phương.
+              </p>
+            ) : (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  disabled={Boolean(busy) || displayWood < 30 || displayFood < 20}
+                  onClick={() =>
+                    act("scout-base", {
+                      type: "scoutBase",
+                      targetUserId: selectedRemoteBase.userId,
+                    })
+                  }
+                  className="w-full rounded-xl border border-sky-400/40 bg-sky-500/20 py-1.5 text-center text-xs font-bold text-sky-200 transition hover:bg-sky-500/30 disabled:opacity-40"
+                >
+                  {busy === "scout-base" ? "Đang cử trinh sát..." : "🔭 Phái trinh sát do thám (30 🪵, 20 🌾)"}
+                </button>
+              </div>
+            )}
+
+            {/* Latest Scout Report */}
+            {scoutReports[selectedRemoteBase.userId] && (() => {
+              const rep = scoutReports[selectedRemoteBase.userId];
+              return (
+                <div className="mt-2.5 rounded-xl border border-sky-400/30 bg-sky-950/50 p-2.5 text-xs text-sky-100 space-y-2">
+                  <div className="flex items-center justify-between border-b border-sky-400/20 pb-1 text-[10px] text-sky-300/80">
+                    <span className="font-bold">📜 Tình báo (Cấp {rep.scoutLevel}/3)</span>
+                    <span>{new Date(rep.scoutedAt).toLocaleTimeString("vi-VN")}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-[11px]">
+                    <div>🪵 Gỗ: <span className="font-mono font-bold text-white">~{rep.approximateWood}</span></div>
+                    <div>🪨 Đá: <span className="font-mono font-bold text-white">~{rep.approximateStone}</span></div>
+                    {rep.food !== undefined && (
+                      <div>🌾 Lương thực: <span className="font-mono font-bold text-white">{rep.food}</span></div>
+                    )}
+                    {rep.warehouseLevel !== undefined && (
+                      <div>📦 Kho cấp: <span className="font-mono font-bold text-white">{rep.warehouseLevel}</span></div>
+                    )}
+                  </div>
+                  <div className="rounded border border-white/5 bg-black/40 p-1.5 text-[11px]">
+                    <p className="text-[10px] font-bold uppercase text-sky-300/70">Lực lượng phòng thủ:</p>
+                    {rep.scoutLevel === 1 ? (
+                      <p className="mt-0.5 font-bold text-amber-300">{rep.estimatedTotalTroops}</p>
+                    ) : (
+                      <div className="mt-0.5 flex justify-between text-white font-mono text-[11px]">
+                        <span>🛡️ {rep.exactInfantry} bộ</span>
+                        <span>🏹 {rep.exactArchers} cung</span>
+                        <span>🐎 {rep.exactCavalry} kỵ</span>
+                      </div>
+                    )}
+                  </div>
+                  {rep.scoutLevel >= 3 && (
+                    <div className="space-y-1 rounded border border-white/5 bg-black/40 p-1.5 text-[10px] text-sky-200/90">
+                      <p className="font-bold text-amber-300">🎖️ Công nghệ: {rep.militaryTierName} (Bậc {rep.militaryTier})</p>
+                      <p>Quân đội: {rep.marchActive ? "⚔️ Đang đem quân xuất trận" : "🛡️ Toàn quân đồn trú tại thành"}</p>
+                      {rep.buildings && rep.buildings.length > 0 && (
+                        <p className="text-white/60">
+                          Công trình ({rep.buildings.length}): {rep.buildings.map((b: { name: string; level: number }) => `${b.name} (${b.level})`).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -615,8 +729,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           )}
 
           {/* Tabs */}
-          <div className="mb-3 flex gap-1">
-            {(["base", "army", "research", "events", "alliance", "build"] as const).map((tab) => (
+          <div className="mb-3 flex flex-wrap gap-1">
+            {(["base", "army", "research", "events", "alliance", "build", "intel"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -637,7 +751,9 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                         ? "📅 Sự kiện"
                         : tab === "alliance"
                           ? "🤝 Liên minh"
-                          : "🏗️ Xây"}
+                          : tab === "build"
+                            ? "🏗️ Xây"
+                            : `🔭 Tình báo (${Object.keys(scoutReports).length})`}
               </button>
             ))}
           </div>
@@ -983,6 +1099,138 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           {activeTab === "alliance" && (
             <WorldAlliancePanel />
           )}
+
+          {/* ── Tab: Intel (Tình báo & Trinh sát) ── */}
+          {activeTab === "intel" && (
+            <div className="space-y-3">
+              {/* Scout Camp overview */}
+              <div className="rounded-xl border border-sky-400/30 bg-gradient-to-br from-sky-950/60 to-black/60 p-3 text-xs text-sky-100">
+                <div className="flex items-center justify-between font-bold text-sky-300">
+                  <span className="flex items-center gap-1.5 text-sm">🔭 Trại trinh sát</span>
+                  <span className="rounded bg-sky-400/20 px-2 py-0.5 text-[11px] text-sky-200">
+                    Cấp {scoutCampLevel}/3
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-sky-200/70">
+                  Bán kính quan sát hiện tại:{" "}
+                  <strong className="text-white">{(viewRadiusMeters / 1_000).toFixed(0)} km</strong>
+                </p>
+                <div className="mt-2 space-y-1 rounded-lg border border-white/5 bg-black/40 p-2 text-[10px]">
+                  <p className={scoutCampLevel >= 1 ? "text-emerald-300 font-bold" : "text-white/40"}>
+                    {scoutCampLevel >= 1 ? "✓" : "○"} Cấp 1 (3km): Ước lượng quân số và tài nguyên cơ bản.
+                  </p>
+                  <p className={scoutCampLevel >= 2 ? "text-emerald-300 font-bold" : "text-white/40"}>
+                    {scoutCampLevel >= 2 ? "✓" : "○"} Cấp 2 (6km): Thống kê chính xác từng binh chủng, kho, lương thực.
+                  </p>
+                  <p className={scoutCampLevel >= 3 ? "text-emerald-300 font-bold" : "text-white/40"}>
+                    {scoutCampLevel >= 3 ? "✓" : "○"} Cấp 3 (10km): Báo cáo công nghệ quân sự, trạng thái xuất quân và công trình chi tiết.
+                  </p>
+                </div>
+              </div>
+
+              {/* Saved Scout Reports List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-white/80">
+                  <span>📜 Bản tin tình báo đã lưu ({Object.keys(scoutReports).length})</span>
+                  {Object.keys(scoutReports).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScoutReports({});
+                        localStorage.removeItem(`world_scout_reports_${snapshot.userId}`);
+                      }}
+                      className="text-[10px] text-rose-400 hover:underline"
+                    >
+                      Xóa tất cả
+                    </button>
+                  )}
+                </div>
+
+                {Object.keys(scoutReports).length === 0 ? (
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-center text-xs text-white/40">
+                    Chưa có bản tin tình báo nào. Hãy chọn một căn cứ trên bản đồ thế giới và bấm <strong>Do thám</strong>!
+                  </div>
+                ) : (
+                  Object.values(scoutReports)
+                    .sort((a, b) => new Date(b.scoutedAt).getTime() - new Date(a.scoutedAt).getTime())
+                    .map((rep) => (
+                      <div
+                        key={rep.targetUserId}
+                        className="rounded-xl border border-sky-400/25 bg-black/50 p-3 text-xs text-sky-100 shadow-md transition hover:border-sky-400/50 space-y-2"
+                      >
+                        <div className="flex items-start justify-between border-b border-white/10 pb-1.5">
+                          <div>
+                            <p className="font-bold text-white text-sm">{rep.targetName}</p>
+                            <p className="text-[10px] text-sky-300/80">
+                              Thành cấp {rep.castleLevel} · Cách {(rep.distanceMeters / 1000).toFixed(1)} km · Toạ độ ({Math.round((rep.targetX ?? 0) / 1000)}k, {Math.round((rep.targetZ ?? 0) / 1000)}k)
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-white/40">
+                            {new Date(rep.scoutedAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1 text-[11px] text-white/90">
+                          <div>🪵 ~{rep.approximateWood} gỗ</div>
+                          <div>🪨 ~{rep.approximateStone} đá</div>
+                          {rep.food !== undefined && <div>🌾 {rep.food} lương thực</div>}
+                          {rep.warehouseLevel !== undefined && <div>📦 Kho cấp {rep.warehouseLevel}</div>}
+                        </div>
+
+                        <div className="rounded bg-white/5 p-1.5 text-[11px]">
+                          <span className="text-[10px] uppercase font-bold text-sky-300/80">Binh lực: </span>
+                          {rep.scoutLevel === 1 ? (
+                            <span className="font-bold text-amber-300">{rep.estimatedTotalTroops}</span>
+                          ) : (
+                            <span className="font-mono text-white">
+                              🛡️ {rep.exactInfantry} bộ · 🏹 {rep.exactArchers} cung · 🐎 {rep.exactCavalry} kỵ
+                            </span>
+                          )}
+                        </div>
+
+                        {rep.scoutLevel >= 3 && (
+                          <div className="text-[10px] text-sky-200/80 space-y-0.5">
+                            <p>🎖️ Công nghệ: <span className="font-bold text-amber-300">{rep.militaryTierName}</span></p>
+                            <p>{rep.marchActive ? "⚔️ Quân đang hành quân ngoài" : "🛡️ Đang đồn trú toàn bộ tại thành"}</p>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const targetBase = snapshot.nearbyBases.find((b) => b.userId === rep.targetUserId);
+                              if (targetBase) {
+                                setSelectedRemoteBase(targetBase);
+                                setViewMode("world");
+                                const { x: relX, z: relZ } = worldToRender(
+                                  targetBase.coordinateX,
+                                  targetBase.coordinateZ,
+                                  snapshot.base.coordinateX,
+                                  snapshot.base.coordinateZ,
+                                );
+                                focusOn([relX, 5, relZ]);
+                              }
+                            }}
+                            className="rounded bg-sky-500/20 px-2 py-1 text-[11px] font-bold text-sky-200 hover:bg-sky-500/30"
+                          >
+                            🗺️ Xem mục tiêu
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(busy) || displayWood < 30 || displayFood < 20}
+                            onClick={() => void act("scout-base", { type: "scoutBase", targetUserId: rep.targetUserId })}
+                            className="rounded bg-teal-500/20 px-2 py-1 text-[11px] font-bold text-teal-200 hover:bg-teal-500/30 disabled:opacity-40"
+                          >
+                            🔭 Do thám lại
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -994,6 +1242,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             <Minimap
               cityX={snapshot.base.coordinateX}
               cityZ={snapshot.base.coordinateZ}
+              viewRadiusMeters={viewRadiusMeters}
               nearbyBases={snapshot.nearbyBases.map((base) => ({
                 coordinateX: base.coordinateX,
                 coordinateZ: base.coordinateZ,

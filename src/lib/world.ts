@@ -167,6 +167,37 @@ export type WorldMapMissionView = {
   rewardItemCount: number;
 };
 
+export interface WorldScoutReport {
+  targetUserId: string;
+  targetName: string;
+  targetX: number;
+  targetZ: number;
+  scoutLevel: number;
+  scoutedAt: string;
+  distanceMeters: number;
+  castleLevel: number;
+  pvpShieldUntil: string | null;
+  approximateWood: number;
+  approximateStone: number;
+  estimatedTotalTroops: string;
+  exactInfantry?: number;
+  exactArchers?: number;
+  exactCavalry?: number;
+  food?: number;
+  warehouseLevel?: number;
+  factoryLevel?: number;
+  militaryTier?: number;
+  militaryTierName?: string;
+  productionEfficiencyTier?: number;
+  marchActive?: boolean;
+  trainingActive?: boolean;
+  buildings?: Array<{
+    type: string;
+    name: string;
+    level: number;
+  }>;
+}
+
 export type WorldSnapshot = {
   userId: string;
   now: string;
@@ -3312,6 +3343,7 @@ export async function performWorldAction(
         archers: number;
         cavalry: number;
       }
+    | { type: "scoutBase"; targetUserId: string }
     | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" },
   now = new Date(),
 ) {
@@ -3422,6 +3454,153 @@ export async function performWorldAction(
       message: `Đạo quân đang hành quân ${Math.ceil(
         (attack.arrivesAt.getTime() - now.getTime()) / 60_000,
       )} phút; dự kiến tới lúc ${attack.arrivesAt.toISOString()}.`,
+    };
+  }
+
+  if (action.type === "scoutBase") {
+    if (userId === action.targetUserId) {
+      throw new WorldActionError("Không thể do thám căn cứ của chính mình.", 400);
+    }
+    const SCOUT_WOOD_COST = 30;
+    const SCOUT_FOOD_COST = 20;
+
+    await advanceWorld(userId, now);
+    await advanceWorld(action.targetUserId, now);
+
+    const report = await prisma.$transaction(async (tx) => {
+      const [scoutBase, targetBase, scoutBuildings, targetBuildings] = await Promise.all([
+        tx.worldBase.findUnique({
+          where: { userId },
+          include: { user: { select: { username: true, displayName: true } } },
+        }),
+        tx.worldBase.findUnique({
+          where: { userId: action.targetUserId },
+          include: { user: { select: { username: true, displayName: true } } },
+        }),
+        tx.worldBuilding.findMany({
+          where: { base: { userId } },
+          select: { buildingType: true, level: true, pendingLevel: true, completesAt: true },
+        }),
+        tx.worldBuilding.findMany({
+          where: { base: { userId: action.targetUserId } },
+          select: { buildingType: true, level: true, pendingLevel: true, completesAt: true },
+        }),
+      ]);
+
+      if (!scoutBase) throw new WorldActionError("Căn cứ của bạn chưa được khởi tạo.", 404);
+      if (!targetBase || targetBase.coordinateX === null || targetBase.coordinateZ === null) {
+        throw new WorldActionError("Không tìm thấy căn cứ mục tiêu.", 404);
+      }
+
+      const scoutCampLevel = scoutCampLevelFromRows(scoutBuildings, now);
+      if (scoutCampLevel < 1) {
+        throw new WorldActionError("Cần xây dựng Trại trinh sát trước khi cử trinh sát do thám.", 400);
+      }
+
+      const distanceMeters = Math.round(
+        Math.hypot(
+          (scoutBase.coordinateX ?? 0) - targetBase.coordinateX,
+          (scoutBase.coordinateZ ?? 0) - targetBase.coordinateZ,
+        ),
+      );
+      const maxViewRadius = worldViewRadiusMeters(scoutCampLevel);
+      if (distanceMeters > maxViewRadius) {
+        throw new WorldActionError(
+          `Căn cứ mục tiêu ở cách ${(distanceMeters / 1000).toFixed(1)} km, vượt quá tầm do thám của Trại trinh sát cấp ${scoutCampLevel} (${(maxViewRadius / 1000).toFixed(1)} km). Hãy nâng cấp Trại trinh sát!`,
+          400,
+        );
+      }
+
+      if (scoutBase.wood < SCOUT_WOOD_COST || scoutBase.food < SCOUT_FOOD_COST) {
+        throw new WorldActionError(
+          `Cần ${SCOUT_WOOD_COST} gỗ và ${SCOUT_FOOD_COST} lương thực để trang bị đoàn trinh sát.`,
+          400,
+        );
+      }
+
+      // Deduct scouting supplies
+      const updated = await tx.worldBase.updateMany({
+        where: {
+          id: scoutBase.id,
+          version: scoutBase.version,
+          wood: { gte: SCOUT_WOOD_COST },
+          food: { gte: SCOUT_FOOD_COST },
+        },
+        data: {
+          wood: { decrement: SCOUT_WOOD_COST },
+          food: { decrement: SCOUT_FOOD_COST },
+          version: { increment: 1 },
+        },
+      });
+      if (!updated.count) {
+        throw new WorldActionError("Tài nguyên không đủ hoặc căn cứ vừa thay đổi.", 409);
+      }
+
+      const [targetMilitaryTier, targetProductionLevel] = await Promise.all([
+        worldResearchLevel(tx, targetBase.id, "MILITARY_TIER"),
+        worldResearchLevel(tx, targetBase.id, "PRODUCTION_EFFICIENCY"),
+      ]);
+
+      const targetTotalTroops = targetBase.infantry + targetBase.archers + targetBase.cavalry;
+      const targetName = targetBase.user.displayName || targetBase.user.username;
+
+      let estimatedTotalTroops = "0 quân (Không có quân đồn trú)";
+      if (targetTotalTroops > 0) {
+        if (targetTotalTroops < 20) {
+          estimatedTotalTroops = "Dưới 20 quân";
+        } else if (targetTotalTroops <= 100) {
+          estimatedTotalTroops = `Khoảng ${Math.floor(targetTotalTroops / 10) * 10}–${Math.ceil(targetTotalTroops / 10) * 10} quân`;
+        } else {
+          estimatedTotalTroops = `Khoảng ~${Math.round(targetTotalTroops / 25) * 25} quân`;
+        }
+      }
+
+      const data: WorldScoutReport = {
+        targetUserId: targetBase.userId,
+        targetName,
+        targetX: targetBase.coordinateX,
+        targetZ: targetBase.coordinateZ,
+        scoutLevel: scoutCampLevel,
+        scoutedAt: now.toISOString(),
+        distanceMeters,
+        castleLevel: targetBase.castleLevel,
+        pvpShieldUntil: targetBase.pvpShieldUntil?.toISOString() ?? null,
+        approximateWood: Math.round(targetBase.wood / 50) * 50,
+        approximateStone: Math.round(targetBase.stone / 50) * 50,
+        estimatedTotalTroops,
+      };
+
+      if (scoutCampLevel >= 2) {
+        data.exactInfantry = targetBase.infantry;
+        data.exactArchers = targetBase.archers;
+        data.exactCavalry = targetBase.cavalry;
+        data.food = targetBase.food;
+        data.warehouseLevel = targetBase.warehouseLevel;
+        data.factoryLevel = targetBase.factoryLevel;
+      }
+
+      if (scoutCampLevel >= 3) {
+        data.militaryTier = targetMilitaryTier;
+        data.militaryTierName = worldMilitaryTierName(targetMilitaryTier);
+        data.productionEfficiencyTier = targetProductionLevel;
+        data.marchActive = targetBase.marchActive;
+        data.trainingActive = Boolean(targetBase.trainingType);
+        data.buildings = targetBuildings.map((b) => {
+          const effectiveLevel = b.completesAt <= now ? b.pendingLevel ?? b.level : b.level;
+          return {
+            type: b.buildingType,
+            name: WORLD_BUILDING_DEFINITIONS[b.buildingType as WorldBuildingType]?.name ?? b.buildingType,
+            level: effectiveLevel,
+          };
+        });
+      }
+
+      return data;
+    });
+
+    return {
+      message: `Trinh sát đã thâm nhập thành công căn cứ của ${report.targetName} và gửi báo cáo về!`,
+      scoutReport: report,
     };
   }
 

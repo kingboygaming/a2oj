@@ -211,6 +211,7 @@ export function WorldMapSystem({
   mapObjects,
   playerCoordinateX = 0,
   playerCoordinateZ = 0,
+  maxRenderDistance = VIEW_RADIUS_UNITS,
   onSelect,
 }: {
   selectedId: string | null;
@@ -219,6 +220,7 @@ export function WorldMapSystem({
   mapObjects?: WorldMapObject[];
   playerCoordinateX?: number;
   playerCoordinateZ?: number;
+  maxRenderDistance?: number;
   onSelect: (object: WorldMapObject) => void;
 }) {
   const allObjects = useMemo(
@@ -245,7 +247,7 @@ export function WorldMapSystem({
           playerCoordinateX,
           playerCoordinateZ,
         );
-        if (Math.hypot(relX, relZ) > VIEW_RADIUS_UNITS) return null;
+        if (Math.hypot(relX, relZ) > maxRenderDistance) return null;
 
         return (
           <ResourceLandmark
@@ -280,7 +282,7 @@ export function WorldMapSystem({
           playerCoordinateX,
           playerCoordinateZ,
         );
-        if (Math.hypot(relX, relZ) > VIEW_RADIUS_UNITS) return null;
+        if (Math.hypot(relX, relZ) > maxRenderDistance) return null;
 
         return (
           <RogueCamp
