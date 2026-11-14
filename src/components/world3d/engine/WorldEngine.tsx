@@ -22,18 +22,28 @@ interface WorldEngineProps {
 function CanvasSizeSync() {
   const setSize = useThree((state) => state.setSize);
   const gl = useThree((state) => state.gl);
-  const size = useThree((state) => state.size);
-  const applied = useRef({ width: size.width, height: size.height });
+  // Starts empty so the first observation always pushes a size to the renderer,
+  // even when react-use-measure already reported bounds the canvas ignores.
+  const applied = useRef({ width: 0, height: 0 });
 
   useEffect(() => {
-    const host = gl.domElement.parentElement;
-    if (!host) return;
-
     let frame = 0;
+    let attempts = 0;
+    let observer: ResizeObserver | null = null;
+
     const sync = () => {
       frame = 0;
-      const rect = host.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return;
+      const host = gl.domElement.parentElement;
+      const rect = host?.getBoundingClientRect();
+      if (!host || !rect || rect.width < 1 || rect.height < 1) {
+        // The canvas can mount before its host is laid out; retry for ~5s.
+        if (attempts++ < 300) frame = requestAnimationFrame(sync);
+        return;
+      }
+      if (!observer) {
+        observer = new ResizeObserver(schedule);
+        observer.observe(host);
+      }
       const last = applied.current;
       if (
         Math.abs(last.width - rect.width) < 0.5 &&
@@ -45,15 +55,12 @@ function CanvasSizeSync() {
       setSize(rect.width, rect.height);
     };
     const schedule = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(sync);
+      if (!frame) frame = requestAnimationFrame(sync);
     };
 
     schedule();
-    const observer = new ResizeObserver(schedule);
-    observer.observe(host);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
   }, [gl, setSize]);
