@@ -73,9 +73,15 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
   const quality = useGraphicsStore((s) => s.quality);
   const setQuality = useGraphicsStore((s) => s.setQuality);
+  const hydrateQuality = useGraphicsStore((s) => s.hydrateQuality);
   const { viewMode, setViewMode } = useCameraStore();
   // Keep the game flush with the real header height (not a hardcoded 64px).
   useHeaderHeight();
+
+  // Apply the persisted graphics preset after hydration (see useGraphicsStore).
+  useEffect(() => {
+    hydrateQuality();
+  }, [hydrateQuality]);
 
   // De-duplicate concurrent snapshot fetches: polling, actions and the manual
   // refresh button all share the same in-flight request.
