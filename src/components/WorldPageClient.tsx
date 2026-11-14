@@ -40,6 +40,31 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
       return {};
     }
   });
+
+  const [activeScout, setActiveScout] = useState<{
+    targetUserId: string;
+    targetName: string;
+    targetX: number;
+    targetZ: number;
+    distanceMeters: number;
+    startedAt: number;
+    completesAt: number;
+    totalDurationSeconds: number;
+    report: WorldScoutReport;
+  } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem(`world_active_scout_${initialSnapshot.userId}`);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      if (parsed.completesAt && Date.now() < parsed.completesAt) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
@@ -53,6 +78,29 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Process completed scout mission
+  useEffect(() => {
+    if (!activeScout) return;
+    if (nowMs >= activeScout.completesAt) {
+      setScoutReports((prev) => {
+        const next = {
+          ...prev,
+          [activeScout.targetUserId]: activeScout.report,
+        };
+        try {
+          localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      setMessage(`🎉 Đoàn trinh sát đã trở về an toàn! Báo cáo tình báo từ căn cứ "${activeScout.targetName}" đã sẵn sàng.`);
+      setIsError(false);
+      setActiveScout(null);
+      try {
+        localStorage.removeItem(`world_active_scout_${snapshot.userId}`);
+      } catch {}
+    }
+  }, [nowMs, activeScout, snapshot.userId]);
 
   const elapsedHours = Math.max(0, nowMs - lastSyncedServerTimeRef.current) / 3_600_000;
   const displayWood = Math.min(
@@ -164,16 +212,34 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
       if (!response.ok) throw new Error(result.error ?? "Không thể thực hiện thao tác.");
       setMessage(result.message);
       if (result.scoutReport) {
-        setScoutReports((prev) => {
-          const next = {
-            ...prev,
-            [result.scoutReport.targetUserId]: result.scoutReport,
+        if (result.travelDurationSeconds && result.travelDurationSeconds > 0) {
+          const mission = {
+            targetUserId: result.scoutReport.targetUserId,
+            targetName: result.scoutReport.targetName,
+            targetX: result.scoutReport.targetX,
+            targetZ: result.scoutReport.targetZ,
+            distanceMeters: result.scoutReport.distanceMeters,
+            startedAt: Date.now(),
+            completesAt: Date.now() + result.travelDurationSeconds * 1000,
+            totalDurationSeconds: result.travelDurationSeconds,
+            report: result.scoutReport,
           };
+          setActiveScout(mission);
           try {
-            localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+            localStorage.setItem(`world_active_scout_${snapshot.userId}`, JSON.stringify(mission));
           } catch {}
-          return next;
-        });
+        } else {
+          setScoutReports((prev) => {
+            const next = {
+              ...prev,
+              [result.scoutReport.targetUserId]: result.scoutReport,
+            };
+            try {
+              localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
       }
       await refresh();
     } catch (error) {
@@ -344,15 +410,37 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
           >
             {busy === "attack-base" ? "Đang điều quân…" : "Tấn công căn cứ"}
           </button>
-          <button
-            type="button"
-            disabled={Boolean(busy) || !attackTargetId || scoutCampLevel === 0 || displayWood < 30 || displayFood < 20}
-            onClick={() => void act("scout-base", { type: "scoutBase", targetUserId: attackTargetId })}
-            className="rounded-lg border border-[var(--teal)] bg-[var(--teal)]/10 px-4 py-2 text-sm font-bold text-[var(--teal)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {busy === "scout-base" ? "Đang do thám…" : "🔭 Do thám (30🪵 20🌾)"}
-          </button>
+          {activeScout?.targetUserId === attackTargetId ? (() => {
+            const remSec = Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000));
+            return (
+              <span className="rounded-lg border border-[var(--teal)] bg-[var(--teal)]/10 px-4 py-2 text-sm font-bold text-[var(--teal)]">
+                🔭 Đang thám thính ({remSec}s)...
+              </span>
+            );
+          })() : (
+            <button
+              type="button"
+              disabled={Boolean(busy) || Boolean(activeScout) || !attackTargetId || scoutCampLevel === 0 || displayWood < 30 || displayFood < 20}
+              onClick={() => void act("scout-base", { type: "scoutBase", targetUserId: attackTargetId })}
+              className="rounded-lg border border-[var(--teal)] bg-[var(--teal)]/10 px-4 py-2 text-sm font-bold text-[var(--teal)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy === "scout-base" ? "Đang do thám…" : activeScout ? "Đang có đoàn trinh sát..." : "🔭 Do thám (30🪵 20🌾)"}
+            </button>
+          )}
         </div>
+        {activeScout && (
+          <div className="mt-3 rounded-lg border border-sky-400/30 bg-sky-50 dark:bg-sky-950/40 p-3 text-xs text-sky-900 dark:text-sky-100 space-y-1.5">
+            <div className="flex items-center justify-between font-bold">
+              <span>🔭 Nhiệm vụ trinh sát đang di chuyển: {activeScout.targetName}</span>
+              <span className="font-mono text-amber-600 dark:text-amber-300 font-bold">
+                {Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000))}s còn lại
+              </span>
+            </div>
+            <p className="text-[11px] text-sky-700 dark:text-sky-300">
+              Khoảng cách {(activeScout.distanceMeters / 1000).toFixed(1)} km · Toạ độ ({Math.round(activeScout.targetX / 1000)}k, {Math.round(activeScout.targetZ / 1000)}k)
+            </p>
+          </div>
+        )}
         {scoutCampLevel === 0 && (
           <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
             ⚠️ Bạn cần xây dựng <strong>Trại trinh sát</strong> trước khi có thể cử trinh sát do thám căn cứ đối phương.
@@ -511,17 +599,40 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
           const min = Math.floor(remSec / 60);
           const sec = remSec % 60;
           const countdownStr = remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…";
+
+          const type = snapshot.base.army.trainingType;
+          const secPerUnit = type === "INFANTRY" ? 5 : type === "ARCHERS" ? 7 : 10;
+          const totalSec = Math.max(1, snapshot.base.army.trainingCount * secPerUnit);
+          const percent = Math.min(100, Math.max(0, Math.round(((totalSec - remSec) / totalSec) * 100)));
+          const troopLabel = type === "INFANTRY" ? "bộ binh" : type === "ARCHERS" ? "cung thủ" : "kỵ binh";
+
           return (
-            <div className="mt-3 flex items-center justify-between rounded-lg bg-[var(--teal)]/10 border border-[var(--teal)]/20 px-4 py-2.5 text-sm text-[var(--navy)]">
-              <div>
-                <p className="font-semibold">
-                  ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"}
-                </p>
-                <p className="text-xs text-[var(--muted)]">Hoàn tất lúc {utcLabel(snapshot.base.army.trainingCompletesAt)}</p>
+            <div className="mt-3 rounded-lg bg-[var(--teal)]/10 border border-[var(--teal)]/20 p-3 text-sm text-[var(--navy)] space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold">
+                    ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {troopLabel}
+                  </p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Hoàn tất lúc {new Date(targetMs).toLocaleTimeString("vi-VN")} (còn {remSec > 60 ? `${min}p ${sec}s` : `${remSec}s`})
+                  </p>
+                </div>
+                <span className="font-mono text-sm font-bold text-[var(--teal)] bg-white/70 dark:bg-black/40 px-2.5 py-1 rounded border border-[var(--teal)]/30">
+                  {countdownStr}
+                </span>
               </div>
-              <span className="font-mono text-sm font-bold text-[var(--teal)] bg-white/70 px-2.5 py-1 rounded border border-[var(--teal)]/30">
-                {countdownStr}
-              </span>
+              <div className="space-y-1">
+                <div className="flex justify-between text-[11px] text-[var(--muted)] font-semibold">
+                  <span>Tiến độ huấn luyện</span>
+                  <span>{percent}%</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                  <div
+                    className="h-full bg-gradient-to-r from-[var(--teal)] to-emerald-400 transition-all duration-300"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+              </div>
             </div>
           );
         })()}

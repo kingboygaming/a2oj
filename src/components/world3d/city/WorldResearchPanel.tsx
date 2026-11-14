@@ -35,6 +35,7 @@ export function WorldResearchPanel({
   castleLevel,
   resources,
   busy,
+  nowMs = Date.now(),
   onStart,
 }: {
   research: ResearchView[];
@@ -44,6 +45,7 @@ export function WorldResearchPanel({
   castleLevel: number;
   resources: WorldResearchStep["cost"];
   busy: boolean;
+  nowMs?: number;
   onStart: (key: WorldResearchKey) => void;
 }) {
   const levels = new Map(research.map((entry) => [entry.key, entry.level]));
@@ -56,12 +58,27 @@ export function WorldResearchPanel({
         <p className="mt-1 text-xs text-white/55">
           Hiệu suất sản xuất +{(levels.get("PRODUCTION_EFFICIENCY") ?? 0) * 10}% · tốc độ nghiên cứu −{researchSpeedLevel * 10}%
         </p>
-        {activeResearch && (
-          <p className="mt-3 rounded-lg bg-sky-300/10 px-3 py-2 text-xs text-sky-100">
-            Đang nghiên cứu {WORLD_RESEARCH_DEFINITIONS[activeResearch.key].step(activeResearch.level).name}
-            {" · "}hoàn tất {new Date(activeResearch.completesAt).toLocaleString("vi-VN")}
-          </p>
-        )}
+        {activeResearch && (() => {
+          const targetMs = new Date(activeResearch.completesAt).getTime();
+          const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+          const min = Math.floor(remSec / 60);
+          const sec = remSec % 60;
+          return (
+            <div className="mt-3 rounded-xl border border-sky-400/30 bg-sky-950/40 p-2.5 text-xs text-sky-100 space-y-1">
+              <div className="flex items-center justify-between font-bold">
+                <span className="text-sky-300">
+                  🔬 {WORLD_RESEARCH_DEFINITIONS[activeResearch.key].step(activeResearch.level).name}
+                </span>
+                <span className="font-mono text-amber-300 bg-black/50 px-2 py-0.5 rounded border border-white/10">
+                  {remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…"}
+                </span>
+              </div>
+              <p className="text-[10px] text-sky-300/70">
+                Dự kiến xong lúc {new Date(targetMs).toLocaleTimeString("vi-VN")}
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {WORLD_RESEARCH_KEYS.map((key) => {

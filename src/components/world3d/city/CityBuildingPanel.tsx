@@ -16,6 +16,7 @@ export function CityBuildingPanel({
   wood,
   stone,
   busy,
+  nowMs = Date.now(),
   onChoose,
   onAction,
 }: {
@@ -25,6 +26,7 @@ export function CityBuildingPanel({
   wood: number;
   stone: number;
   busy: boolean;
+  nowMs?: number;
   onChoose: (type: WorldBuildingType) => void;
   onAction: (action: "BUILD" | "UPGRADE" | "DEMOLISH", plotIndex: number, type?: WorldBuildingType) => void;
 }) {
@@ -54,9 +56,39 @@ export function CityBuildingPanel({
         <h3 className="mt-1 text-lg font-bold">{definition.name}</h3>
         <p className="mt-1 text-xs text-white/55">
           {inProgress
-            ? `Đang ${building.status === "UPGRADING" ? "nâng cấp" : "xây dựng"} · hoàn tất ${new Date(building.completesAt).toLocaleString("vi-VN")}`
+            ? `Cấp ${effectiveLevel} → ${building.pendingLevel ?? effectiveLevel + 1}`
             : `Cấp ${effectiveLevel}/${maxLevel} · ${definition.description}`}
         </p>
+        {inProgress && (() => {
+          const startMs = new Date(building.startedAt).getTime();
+          const targetMs = new Date(building.completesAt).getTime();
+          const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+          const totalSec = Math.max(1, Math.round((targetMs - startMs) / 1000));
+          const percent = Math.min(100, Math.max(0, Math.round(((nowMs - startMs) / (targetMs - startMs)) * 100)));
+          const min = Math.floor(remSec / 60);
+          const sec = remSec % 60;
+          return (
+            <div className="mt-3 rounded-xl border border-amber-400/25 bg-black/40 p-3 space-y-2 text-xs">
+              <div className="flex items-center justify-between font-bold">
+                <span className="text-amber-300">
+                  ⏳ Đang {building.status === "UPGRADING" ? "nâng cấp" : "xây dựng"}
+                </span>
+                <span className="font-mono text-amber-100 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-400/30">
+                  {remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…"}
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-black/60">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-300 ease-out"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-white/50 text-right">
+                Hoàn tất lúc {new Date(building.completesAt).toLocaleTimeString("vi-VN")} ({percent}%)
+              </p>
+            </div>
+          );
+        })()}
         {!inProgress && (
           <div className="mt-4 flex flex-wrap gap-2">
             {isMax ? (

@@ -38,6 +38,18 @@ const WorldScene = dynamic(
   { ssr: false }
 );
 
+export interface ActiveScoutMission {
+  targetUserId: string;
+  targetName: string;
+  targetX: number;
+  targetZ: number;
+  distanceMeters: number;
+  startedAt: number;
+  completesAt: number;
+  totalDurationSeconds: number;
+  report: WorldScoutReport;
+}
+
 type ActionRequest =
   | { type: "join"; eventId: string }
   | { type: "contribute"; eventId: string }
@@ -85,6 +97,21 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     }
   });
 
+  const [activeScout, setActiveScout] = useState<ActiveScoutMission | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem(`world_active_scout_${initialSnapshot.userId}`);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      if (parsed.completesAt && Date.now() < parsed.completesAt) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
   const quality = useGraphicsStore((s) => s.quality);
   const setQuality = useGraphicsStore((s) => s.setQuality);
   const hydrateQuality = useGraphicsStore((s) => s.hydrateQuality);
@@ -110,6 +137,29 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Process completed scout mission
+  useEffect(() => {
+    if (!activeScout) return;
+    if (nowMs >= activeScout.completesAt) {
+      setScoutReports((prev) => {
+        const next = {
+          ...prev,
+          [activeScout.targetUserId]: activeScout.report,
+        };
+        try {
+          localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      setMessage(`🎉 Đoàn trinh sát đã trở về an toàn! Báo cáo tình báo từ căn cứ "${activeScout.targetName}" đã sẵn sàng.`);
+      setIsError(false);
+      setActiveScout(null);
+      try {
+        localStorage.removeItem(`world_active_scout_${snapshot.userId}`);
+      } catch {}
+    }
+  }, [nowMs, activeScout, snapshot.userId]);
 
   const elapsedHours = Math.max(0, nowMs - lastSyncedServerTimeRef.current) / 3_600_000;
   const displayWood = Math.min(
@@ -277,16 +327,34 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       if (!response.ok) throw new Error(result.error ?? "Không thể thực hiện thao tác.");
       setMessage(result.message);
       if (result.scoutReport) {
-        setScoutReports((prev) => {
-          const next = {
-            ...prev,
-            [result.scoutReport.targetUserId]: result.scoutReport,
+        if (result.travelDurationSeconds && result.travelDurationSeconds > 0) {
+          const mission: ActiveScoutMission = {
+            targetUserId: result.scoutReport.targetUserId,
+            targetName: result.scoutReport.targetName,
+            targetX: result.scoutReport.targetX,
+            targetZ: result.scoutReport.targetZ,
+            distanceMeters: result.scoutReport.distanceMeters,
+            startedAt: Date.now(),
+            completesAt: Date.now() + result.travelDurationSeconds * 1000,
+            totalDurationSeconds: result.travelDurationSeconds,
+            report: result.scoutReport,
           };
+          setActiveScout(mission);
           try {
-            localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+            localStorage.setItem(`world_active_scout_${snapshot.userId}`, JSON.stringify(mission));
           } catch {}
-          return next;
-        });
+        } else {
+          setScoutReports((prev) => {
+            const next = {
+              ...prev,
+              [result.scoutReport.targetUserId]: result.scoutReport,
+            };
+            try {
+              localStorage.setItem(`world_scout_reports_${snapshot.userId}`, JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
       }
       await refresh();
     } catch (error) {
@@ -553,20 +621,51 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 ⚠️ Cần xây dựng <strong>Trại trinh sát</strong> trong thành phố để do thám căn cứ đối phương.
               </p>
             ) : (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  disabled={Boolean(busy) || displayWood < 30 || displayFood < 20}
-                  onClick={() =>
-                    act("scout-base", {
-                      type: "scoutBase",
-                      targetUserId: selectedRemoteBase.userId,
-                    })
-                  }
-                  className="w-full rounded-xl border border-sky-400/40 bg-sky-500/20 py-1.5 text-center text-xs font-bold text-sky-200 transition hover:bg-sky-500/30 disabled:opacity-40"
-                >
-                  {busy === "scout-base" ? "Đang cử trinh sát..." : "🔭 Phái trinh sát do thám (30 🪵, 20 🌾)"}
-                </button>
+              <div className="mt-2 space-y-2">
+                {activeScout?.targetUserId === selectedRemoteBase.userId ? (() => {
+                  const remSec = Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000));
+                  const progress = Math.min(100, Math.max(0, Math.round(((activeScout.totalDurationSeconds - remSec) / activeScout.totalDurationSeconds) * 100)));
+                  return (
+                    <div className="rounded-xl border border-sky-400/40 bg-sky-950/60 p-2.5 text-xs text-sky-200 space-y-1.5">
+                      <div className="flex items-center justify-between font-bold text-sky-300">
+                        <span className="flex items-center gap-1.5 animate-pulse">
+                          <span>🔭</span> Đang tiếp cận & thám thính...
+                        </span>
+                        <span className="font-mono text-amber-300 bg-black/50 px-2 py-0.5 rounded border border-sky-400/30">
+                          {remSec}s
+                        </span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-black/60">
+                        <div
+                          className="h-full bg-gradient-to-r from-sky-500 via-teal-400 to-amber-300 transition-all duration-300 ease-out"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-sky-300/70">
+                        <span>Khoảng cách {(activeScout.distanceMeters / 1000).toFixed(1)} km</span>
+                        <span>{progress}%</span>
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <button
+                    type="button"
+                    disabled={Boolean(busy) || Boolean(activeScout) || displayWood < 30 || displayFood < 20}
+                    onClick={() =>
+                      act("scout-base", {
+                        type: "scoutBase",
+                        targetUserId: selectedRemoteBase.userId,
+                      })
+                    }
+                    className="w-full rounded-xl border border-sky-400/40 bg-sky-500/20 py-1.5 text-center text-xs font-bold text-sky-200 transition hover:bg-sky-500/30 disabled:opacity-40"
+                  >
+                    {busy === "scout-base"
+                      ? "Đang cử trinh sát..."
+                      : activeScout
+                        ? "Đang có đoàn trinh sát hoạt động..."
+                        : "🔭 Phái trinh sát do thám (30 🪵, 20 🌾)"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -661,6 +760,48 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               <span>🐎{snapshot.base.army.cavalry.toLocaleString("vi-VN")}</span>
             </div>
           </div>
+
+          {/* Active Shield Indicator */}
+          {snapshot.base.pvpShieldUntil && new Date(snapshot.base.pvpShieldUntil).getTime() > nowMs && (() => {
+            const shieldRemSec = Math.max(0, Math.ceil((new Date(snapshot.base.pvpShieldUntil).getTime() - nowMs) / 1000));
+            const hours = Math.floor(shieldRemSec / 3600);
+            const mins = Math.floor((shieldRemSec % 3600) / 60);
+            return (
+              <div className="flex items-center gap-2 rounded-xl border border-sky-400/40 bg-sky-950/80 px-3 py-1.5 text-[11px] font-bold text-sky-200 backdrop-blur-md shadow-md">
+                <span>🛡️ Khiên bảo hộ:</span>
+                <span className="font-mono text-white">{hours}h {mins}m</span>
+              </div>
+            );
+          })()}
+
+          {/* Active Scout Mission HUD Floating Badge */}
+          {activeScout && (() => {
+            const remSec = Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000));
+            const progress = Math.min(100, Math.max(0, Math.round(((activeScout.totalDurationSeconds - remSec) / activeScout.totalDurationSeconds) * 100)));
+            return (
+              <div
+                onClick={() => {
+                  setActiveTab("intel");
+                  setShowPanel(true);
+                }}
+                className="cursor-pointer flex items-center gap-2.5 rounded-xl border border-sky-400/40 bg-black/80 px-3 py-1.5 text-xs text-white backdrop-blur-md shadow-lg shadow-sky-950/40 hover:border-sky-400 transition"
+              >
+                <span className="animate-spin text-base">🔭</span>
+                <div>
+                  <div className="flex items-center justify-between gap-3 text-[10px]">
+                    <span className="font-bold text-sky-300">Do thám {activeScout.targetName}</span>
+                    <span className="font-mono font-bold text-amber-300">{remSec}s</span>
+                  </div>
+                  <div className="mt-1 h-1.5 w-28 overflow-hidden rounded-full bg-white/20">
+                    <div
+                      className="h-full bg-sky-400 transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Controls — right */}
@@ -730,32 +871,51 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
           {/* Tabs */}
           <div className="mb-3 flex flex-wrap gap-1">
-            {(["base", "army", "research", "events", "alliance", "build", "intel"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-bold transition sm:text-xs ${
-                  activeTab === tab
-                    ? "bg-[var(--teal)] text-white"
-                    : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                {tab === "base"
-                  ? "🏰 Căn cứ"
-                  : tab === "army"
-                    ? "⚔️ Quân"
-                    : tab === "research"
-                      ? "🔬 Nghiên cứu"
-                      : tab === "events"
-                        ? "📅 Sự kiện"
-                        : tab === "alliance"
-                          ? "🤝 Liên minh"
-                          : tab === "build"
-                            ? "🏗️ Xây"
-                            : `🔭 Tình báo (${Object.keys(scoutReports).length})`}
-              </button>
-            ))}
+            {(["base", "army", "research", "events", "alliance", "build", "intel"] as const).map((tab) => {
+              const remTrainSec = snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt
+                ? Math.max(0, Math.ceil((new Date(snapshot.base.army.trainingCompletesAt).getTime() - nowMs) / 1000))
+                : 0;
+              const remResearchSec = snapshot.base.activeResearch?.completesAt
+                ? Math.max(0, Math.ceil((new Date(snapshot.base.activeResearch.completesAt).getTime() - nowMs) / 1000))
+                : 0;
+              const remCastleSec = snapshot.base.castlePendingLevel && snapshot.base.castleUpgradeCompletesAt
+                ? Math.max(0, Math.ceil((new Date(snapshot.base.castleUpgradeCompletesAt).getTime() - nowMs) / 1000))
+                : 0;
+              const inProgressBuildingsCount = snapshot.buildings.filter((b) => b.status !== "COMPLETED").length;
+              const remScoutSec = activeScout ? Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000)) : 0;
+
+              let label = "";
+              if (tab === "base") {
+                label = remCastleSec > 0 ? `🏰 Căn cứ (${remCastleSec}s)` : "🏰 Căn cứ";
+              } else if (tab === "army") {
+                label = remTrainSec > 0 ? `⚔️ Quân (${remTrainSec}s)` : "⚔️ Quân";
+              } else if (tab === "research") {
+                label = remResearchSec > 0 ? `🔬 Nghiên cứu (${remResearchSec}s)` : "🔬 Nghiên cứu";
+              } else if (tab === "events") {
+                label = "📅 Sự kiện";
+              } else if (tab === "alliance") {
+                label = "🤝 Liên minh";
+              } else if (tab === "build") {
+                label = inProgressBuildingsCount > 0 ? `🏗️ Xây (${inProgressBuildingsCount})` : "🏗️ Xây";
+              } else {
+                label = remScoutSec > 0 ? `🔭 Tình báo (${remScoutSec}s)` : `🔭 Tình báo (${Object.keys(scoutReports).length})`;
+              }
+
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-bold transition sm:text-xs ${
+                    activeTab === tab
+                      ? "bg-[var(--teal)] text-white shadow-sm"
+                      : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
 
           {/* ── Tab: Base ── */}
@@ -785,11 +945,27 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 <p className="mt-2 text-[10px] leading-4 text-white/40">
                   Các công trình sản xuất chỉ xuất hiện sau khi bạn tự xây dựng. Dữ liệu tài nguyên hiện có không bị đặt lại.
                 </p>
-                {snapshot.base.castlePendingLevel ? (
-                  <p className="mt-3 rounded-lg bg-amber-200/10 px-3 py-2 text-xs text-amber-100">
-                    ⏳ Đang nâng cấp lên cấp {snapshot.base.castlePendingLevel} · {snapshot.base.castleUpgradeCompletesAt ? utcLabel(snapshot.base.castleUpgradeCompletesAt) : ""}
-                  </p>
-                ) : (
+                {snapshot.base.castlePendingLevel && snapshot.base.castleUpgradeCompletesAt ? (() => {
+                  const targetMs = new Date(snapshot.base.castleUpgradeCompletesAt).getTime();
+                  const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+                  const min = Math.floor(remSec / 60);
+                  const sec = remSec % 60;
+                  return (
+                    <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-950/40 p-3 text-xs text-amber-200 space-y-1.5 shadow-md">
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="flex items-center gap-1.5 text-amber-300">
+                          <span className="animate-pulse">🏰</span> Đang nâng cấp lên cấp {snapshot.base.castlePendingLevel}
+                        </span>
+                        <span className="font-mono text-amber-100 bg-black/50 px-2 py-0.5 rounded border border-amber-400/30 font-bold">
+                          {remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…"}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-amber-300/70">
+                        Dự kiến hoàn tất lúc {new Date(targetMs).toLocaleTimeString("vi-VN")}
+                      </p>
+                    </div>
+                  );
+                })() : (
                   <button
                     type="button"
                     disabled={
@@ -845,6 +1021,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 wood={displayWood}
                 stone={displayStone}
                 busy={Boolean(busy)}
+                nowMs={nowMs}
                 onChoose={(type) => setPlacementType(type)}
                 onAction={(type, plotIndex, buildingType) => {
                   if (type === "BUILD" && !buildingType) return;
@@ -892,6 +1069,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 rare: snapshot.base.rare,
               }}
               busy={busy === "research"}
+              nowMs={nowMs}
               onStart={(key) => void researchAction(key)}
             />
           )}
@@ -944,17 +1122,45 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 const min = Math.floor(remSec / 60);
                 const sec = remSec % 60;
                 const countdownStr = remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…";
+
+                const type = snapshot.base.army.trainingType;
+                const secPerUnit = type === "INFANTRY" ? 5 : type === "ARCHERS" ? 7 : 10;
+                const totalSec = Math.max(1, snapshot.base.army.trainingCount * secPerUnit);
+                const percent = Math.min(100, Math.max(0, Math.round(((totalSec - remSec) / totalSec) * 100)));
+                const troopLabel = type === "INFANTRY" ? "bộ binh" : type === "ARCHERS" ? "cung thủ" : "kỵ binh";
+
                 return (
-                  <div className="flex items-center justify-between rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-xs text-teal-300">
-                    <div>
-                      <p className="font-semibold text-white">
-                        ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-teal-300/60">Hoàn tất lúc {utcLabel(snapshot.base.army.trainingCompletesAt)}</p>
+                  <div className="rounded-xl border border-teal-500/40 bg-gradient-to-br from-teal-950/60 to-black/60 p-3 text-xs text-teal-100 space-y-2 shadow-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="animate-pulse text-base">⏳</span>
+                        <div>
+                          <p className="font-bold text-white text-sm">
+                            Đang huấn luyện {snapshot.base.army.trainingCount} {troopLabel}
+                          </p>
+                          <p className="text-[10px] text-teal-300/70">
+                            Xong lúc {new Date(targetMs).toLocaleTimeString("vi-VN")} (còn {remSec > 60 ? `${min}p ${sec}s` : `${remSec}s`})
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-mono text-sm font-bold text-teal-200 bg-teal-900/60 px-2.5 py-1 rounded-lg border border-teal-400/30">
+                        {countdownStr}
+                      </span>
                     </div>
-                    <span className="font-mono text-xs font-bold text-teal-200 bg-teal-950/60 px-2 py-1 rounded border border-teal-400/30">
-                      {countdownStr}
-                    </span>
+
+                    {/* Progress Bar */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] text-teal-300/80 font-bold">
+                        <span>Tiến độ hoàn thành</span>
+                        <span>{percent}%</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-black/60">
+                        <div
+                          className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-300 ease-out"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -1127,6 +1333,34 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   </p>
                 </div>
               </div>
+
+              {/* Active Scout Mission Card */}
+              {activeScout && (() => {
+                const remSec = Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000));
+                const progress = Math.min(100, Math.max(0, Math.round(((activeScout.totalDurationSeconds - remSec) / activeScout.totalDurationSeconds) * 100)));
+                return (
+                  <div className="rounded-xl border border-sky-400/50 bg-gradient-to-r from-sky-950/80 to-teal-950/80 p-3 text-xs text-sky-100 shadow-lg space-y-2">
+                    <div className="flex items-center justify-between font-bold">
+                      <span className="flex items-center gap-1.5 text-sky-300">
+                        <span className="animate-spin">🔭</span> Đang trên đường thám thính...
+                      </span>
+                      <span className="font-mono text-amber-300 bg-black/60 px-2 py-0.5 rounded border border-sky-400/40 font-bold">
+                        {remSec}s còn lại
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-white font-bold">{activeScout.targetName}</span>
+                      <span className="text-white/60">Cách {(activeScout.distanceMeters / 1000).toFixed(1)} km</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-black/60">
+                      <div
+                        className="h-full bg-gradient-to-r from-sky-400 via-teal-300 to-amber-300 transition-all duration-300 ease-out"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Saved Scout Reports List */}
               <div className="space-y-2">

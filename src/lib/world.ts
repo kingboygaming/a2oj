@@ -175,6 +175,7 @@ export interface WorldScoutReport {
   scoutLevel: number;
   scoutedAt: string;
   distanceMeters: number;
+  travelDurationSeconds?: number;
   castleLevel: number;
   pvpShieldUntil: string | null;
   approximateWood: number;
@@ -3555,6 +3556,12 @@ export async function performWorldAction(
         }
       }
 
+      // Base speed: Lv1 = 120m/s, Lv2 = 180m/s (+50%), Lv3 = 240m/s (+100%)
+      const speedMultiplier = scoutCampLevel === 3 ? 2.0 : scoutCampLevel === 2 ? 1.5 : 1.0;
+      const speedMetersPerSec = 120 * speedMultiplier;
+      const travelDurationSeconds = Math.max(8, Math.min(60, Math.round(distanceMeters / speedMetersPerSec)));
+      const completesAt = new Date(now.getTime() + travelDurationSeconds * 1000).toISOString();
+
       const data: WorldScoutReport = {
         targetUserId: targetBase.userId,
         targetName,
@@ -3563,6 +3570,7 @@ export async function performWorldAction(
         scoutLevel: scoutCampLevel,
         scoutedAt: now.toISOString(),
         distanceMeters,
+        travelDurationSeconds,
         castleLevel: targetBase.castleLevel,
         pvpShieldUntil: targetBase.pvpShieldUntil?.toISOString() ?? null,
         approximateWood: Math.round(targetBase.wood / 50) * 50,
@@ -3599,8 +3607,10 @@ export async function performWorldAction(
     });
 
     return {
-      message: `Trinh sát đã thâm nhập thành công căn cứ của ${report.targetName} và gửi báo cáo về!`,
+      message: `Đoàn trinh sát đã xuất kích! Dự kiến tiếp cận và gửi báo cáo về sau ${report.travelDurationSeconds ?? 10} giây.`,
       scoutReport: report,
+      travelDurationSeconds: report.travelDurationSeconds ?? 10,
+      completesAt: new Date(now.getTime() + (report.travelDurationSeconds ?? 10) * 1000).toISOString(),
     };
   }
 
