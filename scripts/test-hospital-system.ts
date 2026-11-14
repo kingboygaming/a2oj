@@ -250,6 +250,66 @@ async function run() {
     await cleanupUser("test_no_hospital_user");
   });
 
+  // Test 10: Field Medicine Research increases Hospital capacity (+50 per level)
+  await testCase("Field Medicine research expands hospital capacity (+50 per level)", async () => {
+    // Current user has Hospital level 2 (base capacity 300)
+    // Add FIELD_MEDICINE level 2 research
+    const userBase = await prisma.worldBase.findUniqueOrThrow({ where: { userId: user.id } });
+    await prisma.worldResearch.upsert({
+      where: {
+        baseId_researchKey: {
+          baseId: userBase.id,
+          researchKey: "FIELD_MEDICINE",
+        },
+      },
+      create: {
+        baseId: userBase.id,
+        researchKey: "FIELD_MEDICINE",
+        level: 2,
+      },
+      update: { level: 2 },
+    });
+
+    const snapshot = await loadWorldSnapshot(user.id, currentTime);
+    assert.strictEqual(snapshot.base.hospital.level, 2);
+    // Capacity should now be 300 + 2 * 50 = 400
+    assert.strictEqual(snapshot.base.hospital.capacity, 400);
+  });
+
+  // Test 11: Field Medicine Research accelerates healing time
+  await testCase("Field Medicine research accelerates healing duration", async () => {
+    // Cavalry base trainingSeconds = 10.
+    // Base healing = round(10 * 0.4) = 4s per unit.
+    // With FIELD_MEDICINE level 2 (speedMultiplier = 1 - 0.2 = 0.8):
+    // secondsPerUnit = round(10 * 0.4 * 0.8) = round(3.2) = 3s per unit.
+    // For 10 cavalry, total seconds = 30s instead of 40s.
+    await prisma.worldBase.update({
+      where: { userId: user.id },
+      data: {
+        wood: 1000,
+        stone: 1000,
+        woundedCavalry: 10,
+        healingType: null,
+        healingCount: 0,
+        healingCompletesAt: null,
+      },
+    });
+
+    await performWorldAction(user.id, {
+      type: "heal",
+      troopType: "CAVALRY",
+      count: 10,
+    }, currentTime);
+
+    const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId: user.id } });
+    assert.strictEqual(base.healingType, "CAVALRY");
+    assert.strictEqual(base.healingCount, 10);
+    assert(base.healingCompletesAt !== null);
+
+    const durationSeconds = Math.round((base.healingCompletesAt.getTime() - currentTime.getTime()) / 1000);
+    assert.strictEqual(durationSeconds, 30); // 3s * 10 = 30s (accelerated from 40s)
+  });
+
   // Cleanup
   await cleanupUser("test_hospital_hero");
 

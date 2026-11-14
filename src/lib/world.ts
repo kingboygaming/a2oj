@@ -998,7 +998,8 @@ async function admitWoundedTroops(
       level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
     })),
   );
-  const hospitalCapacity = worldHospitalCapacity(hospitalLevel);
+  const fieldMedicineLevel = await worldResearchLevel(tx, base.id, "FIELD_MEDICINE");
+  const hospitalCapacity = worldHospitalCapacity(hospitalLevel, fieldMedicineLevel);
   const currentWounded = base.woundedInfantry + base.woundedArchers + base.woundedCavalry;
   const availableSpace = Math.max(0, hospitalCapacity - currentWounded);
 
@@ -2686,6 +2687,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   const researchByKey = new Map(research.map((entry) => [entry.key, entry.level]));
   const militaryTier = researchByKey.get("MILITARY_TIER") ?? 0;
   const productionResearchLevel = researchByKey.get("PRODUCTION_EFFICIENCY") ?? 0;
+  const fieldMedicineLevel = researchByKey.get("FIELD_MEDICINE") ?? 0;
   let activeResearch: { key: WorldResearchKey; level: number; completesAt: Date } | null = null;
   if (base.activeResearchKey !== null) {
     const key = base.activeResearchKey;
@@ -2858,6 +2860,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
               level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
             })),
           ),
+          fieldMedicineLevel,
         ),
         woundedInfantry: base.woundedInfantry,
         woundedArchers: base.woundedArchers,
@@ -2872,6 +2875,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
                 level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
               })),
             ),
+            fieldMedicineLevel,
           ) - (base.woundedInfantry + base.woundedArchers + base.woundedCavalry),
         ),
         healingType: base.healingType,
@@ -4005,11 +4009,13 @@ export async function performWorldAction(
       throw new WorldActionError(`Không đủ ${action.count} ${stats.label} bị thương để điều trị.`, 400);
     }
 
+    const fieldMedicineLevel = await worldResearchLevel(prisma, base.id, "FIELD_MEDICINE");
+    const speedMultiplier = Math.max(0.5, 1 - fieldMedicineLevel * 0.1);
     const woodPerUnit = Math.max(1, Math.round(stats.costWood * 0.3));
     const stonePerUnit = Math.max(1, Math.round(stats.costStone * 0.3));
     const woodCost = woodPerUnit * action.count;
     const stoneCost = stonePerUnit * action.count;
-    const secondsPerUnit = Math.max(1, Math.round(stats.trainingSeconds * 0.4));
+    const secondsPerUnit = Math.max(1, Math.round(stats.trainingSeconds * 0.4 * speedMultiplier));
     const healingCompletesAt = new Date(now.getTime() + secondsPerUnit * action.count * 1000);
 
     const started = await prisma.worldBase.updateMany({

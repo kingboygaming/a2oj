@@ -12,6 +12,7 @@ import {
 import { heightAtRender } from "../terrain/BiomeManager";
 import { AnimatedFlag } from "./AnimatedFlag";
 import { BuildingFloatingTimer } from "./BuildingFloatingTimer";
+import { HealingVFX } from "./HealingVFX";
 import {
   WORLD_BUILDING_DEFINITIONS,
   WORLD_BUILDING_PLOT_COUNT,
@@ -286,14 +287,17 @@ export function CastleSystem({
                       ? "Cung thủ"
                       : "Kỵ binh";
                 return (
-                  <BuildingFloatingTimer
-                    heightOffset={6.0}
-                    completesAtMs={new Date(healing.healingCompletesAt).getTime()}
-                    icon="🩹"
-                    label="Điều trị"
-                    detail={`+${healing.healingCount} ${troopLabel}`}
-                    onComplete={onActivityComplete}
-                  />
+                  <group>
+                    <HealingVFX />
+                    <BuildingFloatingTimer
+                      heightOffset={6.0}
+                      completesAtMs={new Date(healing.healingCompletesAt).getTime()}
+                      icon="🩹"
+                      label="Điều trị"
+                      detail={`+${healing.healingCount} ${troopLabel}`}
+                      onComplete={onActivityComplete}
+                    />
+                  </group>
                 );
               }
 

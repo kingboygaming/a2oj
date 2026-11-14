@@ -115,7 +115,8 @@ export function worldHospitalLevel(
   return level;
 }
 
-export function worldHospitalCapacity(hospitalLevel: number): number {
-  return Math.max(0, hospitalLevel) * HOSPITAL_CAPACITY_PER_LEVEL;
+export function worldHospitalCapacity(hospitalLevel: number, fieldMedicineLevel = 0): number {
+  if (hospitalLevel <= 0) return 0;
+  return hospitalLevel * HOSPITAL_CAPACITY_PER_LEVEL + Math.max(0, fieldMedicineLevel) * 50;
 }
 

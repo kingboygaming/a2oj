@@ -2,6 +2,7 @@ export const WORLD_RESEARCH_KEYS = [
   "MILITARY_TIER",
   "PRODUCTION_EFFICIENCY",
   "RESEARCH_SPEED",
+  "FIELD_MEDICINE",
 ] as const;
 
 export type WorldResearchKey = (typeof WORLD_RESEARCH_KEYS)[number];
@@ -86,6 +87,21 @@ export const WORLD_RESEARCH_DEFINITIONS: Record<WorldResearchKey, WorldResearchD
         castleLevel: 1,
         cost: { wood: 150 * level, stone: 100 * level, iron: 20 * level, food: 50 * level, rare: 0 },
         effect: `Giảm ${10 * level}% thời gian nghiên cứu.`,
+      };
+    },
+  },
+  FIELD_MEDICINE: {
+    name: "Y học quân sự",
+    description: "Cải tiến kỹ thuật cấp cứu, rút ngắn thời gian điều trị và mở rộng sức chứa thương binh.",
+    maxLevel: 5,
+    step(level) {
+      return {
+        level,
+        name: `Y học quân sự ${level}`,
+        durationSeconds: 100 * level,
+        castleLevel: 2,
+        cost: { wood: 140 * level, stone: 90 * level, iron: 20 * level, food: 60 * level, rare: 0 },
+        effect: `Giảm ${10 * level}% thời gian điều trị và cộng thêm +${50 * level} sức chứa thương binh.`,
       };
     },
   },
