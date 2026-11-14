@@ -580,8 +580,8 @@ export async function performWorldAllianceAction(
         throw new WorldAllianceActionError("Bạn không thuộc liên minh đang tham chiến.", 403);
       }
       if (!base) throw new WorldAllianceActionError("Căn cứ chưa được khởi tạo.", 409);
-      if (base.trainingType || base.marchActive) {
-        throw new WorldAllianceActionError("Hoàn tất huấn luyện và chờ đạo quân hiện tại trở về trước.", 409);
+      if (base.marchActive) {
+        throw new WorldAllianceActionError("Chờ đạo quân hiện tại trở về trước.", 409);
       }
 
       const priorScore = await tx.worldAllianceWarScore.findUnique({
@@ -603,7 +603,6 @@ export async function performWorldAllianceAction(
       const reserved = await tx.worldBase.updateMany({
         where: {
           id: base.id,
-          trainingType: null,
           marchActive: false,
           infantry: { gte: casualties.infantry },
           archers: { gte: casualties.archers },

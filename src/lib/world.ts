@@ -7,6 +7,8 @@ import {
   WORLD_TRAINING_BUILDINGS,
   isWorldBuildingType,
   worldBuildingMaxLevel,
+  worldHospitalCapacity,
+  worldHospitalLevel,
   worldScoutCampLevel,
   worldViewRadiusMeters,
   type WorldBuildingType,
@@ -90,6 +92,12 @@ type WorldBaseState = {
   trainingType: string | null;
   trainingCount: number;
   trainingCompletesAt: Date | null;
+  woundedInfantry: number;
+  woundedArchers: number;
+  woundedCavalry: number;
+  healingType: string | null;
+  healingCount: number;
+  healingCompletesAt: Date | null;
   marchActive: boolean;
   activePvpAttackId: string | null;
   coordinateX: number | null;
@@ -249,6 +257,18 @@ export type WorldSnapshot = {
       trainingCount: number;
       trainingCompletesAt: string | null;
       marchActive: boolean;
+    };
+    hospital: {
+      level: number;
+      capacity: number;
+      woundedInfantry: number;
+      woundedArchers: number;
+      woundedCavalry: number;
+      totalWounded: number;
+      availableSpace: number;
+      healingType: string | null;
+      healingCount: number;
+      healingCompletesAt: string | null;
     };
   };
   offline: {
@@ -724,7 +744,7 @@ function pendingProductionResearch(
     : null;
 }
 
-async function advanceWorld(userId: string, now: Date) {
+export async function advanceWorld(userId: string, now: Date) {
   await ensureBase(userId, now);
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -747,6 +767,29 @@ async function advanceWorld(userId: string, now: Date) {
       productionResearchLevel,
       pendingProductionResearch(base),
     );
+    let healedInfantry = 0;
+    let healedArchers = 0;
+    let healedCavalry = 0;
+    let clearHealing = false;
+    if (base.healingCompletesAt && base.healingCompletesAt <= now && base.healingType) {
+      if (base.healingType === "INFANTRY") healedInfantry = base.healingCount;
+      else if (base.healingType === "ARCHERS") healedArchers = base.healingCount;
+      else if (base.healingType === "CAVALRY") healedCavalry = base.healingCount;
+      clearHealing = true;
+    }
+    let trainedInfantry = 0;
+    let trainedArchers = 0;
+    let trainedCavalry = 0;
+    let clearTraining = false;
+    if (base.trainingCompletesAt && base.trainingCompletesAt <= now && base.trainingType) {
+      if (base.trainingType === "INFANTRY") trainedInfantry = base.trainingCount;
+      else if (base.trainingType === "ARCHERS") trainedArchers = base.trainingCount;
+      else if (base.trainingType === "CAVALRY") trainedCavalry = base.trainingCount;
+      clearTraining = true;
+    }
+    const totalNewInfantry = healedInfantry + trainedInfantry;
+    const totalNewArchers = healedArchers + trainedArchers;
+    const totalNewCavalry = healedCavalry + trainedCavalry;
     const updated = await prisma.worldBase.updateMany({
       where: { id: base.id, version: base.version },
       data: {
@@ -763,6 +806,23 @@ async function advanceWorld(userId: string, now: Date) {
         castleUpgradeCompletesAt: progress.castleUpgradeCompletesAt,
         upgradeType: progress.upgradeType,
         upgradeCompletesAt: progress.upgradeCompletesAt,
+        ...(totalNewInfantry > 0 ? { infantry: { increment: totalNewInfantry } } : {}),
+        ...(totalNewArchers > 0 ? { archers: { increment: totalNewArchers } } : {}),
+        ...(totalNewCavalry > 0 ? { cavalry: { increment: totalNewCavalry } } : {}),
+        ...(clearHealing
+          ? {
+              healingType: null,
+              healingCount: 0,
+              healingCompletesAt: null,
+            }
+          : {}),
+        ...(clearTraining
+          ? {
+              trainingType: null,
+              trainingCount: 0,
+              trainingCompletesAt: null,
+            }
+          : {}),
         lastSimulatedAt: now,
         version: { increment: 1 },
       },
@@ -821,7 +881,6 @@ async function processWorldTraining(now: Date) {
     where: {
       trainingCompletesAt: { lte: now },
       trainingType: { not: null },
-      activePvpAttackId: null,
     },
     take: 100,
     select: {
@@ -855,7 +914,6 @@ async function processWorldTraining(now: Date) {
         id: queue.id,
         trainingType: queue.trainingType,
         trainingCompletesAt: queue.trainingCompletesAt,
-        activePvpAttackId: null,
       },
       data: {
         [troopField]: { increment: queue.trainingCount },
@@ -868,6 +926,130 @@ async function processWorldTraining(now: Date) {
     completed += result.count;
   }
   return completed;
+}
+
+async function processWorldHealing(now: Date) {
+  const completedQueues = await prisma.worldBase.findMany({
+    where: {
+      healingCompletesAt: { lte: now },
+      healingType: { not: null },
+    },
+    take: 100,
+    select: {
+      id: true,
+      healingType: true,
+      healingCount: true,
+      healingCompletesAt: true,
+    },
+  });
+  let completed = 0;
+
+  for (const queue of completedQueues) {
+    const troopField =
+      queue.healingType === "INFANTRY"
+        ? "infantry"
+        : queue.healingType === "ARCHERS"
+          ? "archers"
+          : queue.healingType === "CAVALRY"
+            ? "cavalry"
+            : null;
+    if (!troopField || !queue.healingCompletesAt) {
+      continue;
+    }
+
+    const result = await prisma.worldBase.updateMany({
+      where: {
+        id: queue.id,
+        healingType: queue.healingType,
+        healingCompletesAt: queue.healingCompletesAt,
+      },
+      data: {
+        [troopField]: { increment: queue.healingCount },
+        healingType: null,
+        healingCount: 0,
+        healingCompletesAt: null,
+        version: { increment: 1 },
+      },
+    });
+    completed += result.count;
+  }
+  return completed;
+}
+
+async function admitWoundedTroops(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  casualties: { infantry: number; archers: number; cavalry: number },
+  defenseBonus = false,
+) {
+  const totalCas = casualties.infantry + casualties.archers + casualties.cavalry;
+  if (totalCas <= 0) return { admitted: 0, killed: 0 };
+
+  const base = await tx.worldBase.findUniqueOrThrow({ where: { userId } });
+  const buildings = await tx.worldBuilding.findMany({
+    where: { baseId: base.id },
+    select: { buildingType: true, level: true, completesAt: true, pendingLevel: true },
+  });
+
+  const now = new Date();
+  const hospitalLevel = worldHospitalLevel(
+    buildings.map((b) => ({
+      type: b.buildingType,
+      level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
+    })),
+  );
+  const hospitalCapacity = worldHospitalCapacity(hospitalLevel);
+  const currentWounded = base.woundedInfantry + base.woundedArchers + base.woundedCavalry;
+  const availableSpace = Math.max(0, hospitalCapacity - currentWounded);
+
+  const woundedRate = defenseBonus ? 0.7 : 0.6;
+  const woundedCandidate = calculateCasualtiesAtRate(
+    casualties.infantry,
+    casualties.archers,
+    casualties.cavalry,
+    woundedRate,
+  );
+
+  const candidateTotal = woundedCandidate.infantry + woundedCandidate.archers + woundedCandidate.cavalry;
+  if (candidateTotal <= 0 || availableSpace <= 0) {
+    return { admitted: 0, killed: totalCas };
+  }
+
+  const ratio = Math.min(1, availableSpace / candidateTotal);
+  const admitted = {
+    infantry: Math.floor(woundedCandidate.infantry * ratio),
+    archers: Math.floor(woundedCandidate.archers * ratio),
+    cavalry: Math.floor(woundedCandidate.cavalry * ratio),
+  };
+  let spaceLeft = Math.min(availableSpace, candidateTotal) - (admitted.infantry + admitted.archers + admitted.cavalry);
+  const keys: Array<"infantry" | "archers" | "cavalry"> = (["infantry", "archers", "cavalry"] as const).slice().sort(
+    (a, b) => (woundedCandidate[b] - admitted[b]) - (woundedCandidate[a] - admitted[a]),
+  );
+  for (const k of keys) {
+    if (spaceLeft <= 0) break;
+    if (admitted[k] < woundedCandidate[k]) {
+      admitted[k] += 1;
+      spaceLeft -= 1;
+    }
+  }
+
+  const admittedTotal = admitted.infantry + admitted.archers + admitted.cavalry;
+  if (admittedTotal > 0) {
+    await tx.worldBase.updateMany({
+      where: { id: base.id, version: base.version },
+      data: {
+        woundedInfantry: { increment: admitted.infantry },
+        woundedArchers: { increment: admitted.archers },
+        woundedCavalry: { increment: admitted.cavalry },
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  return {
+    admitted: admittedTotal,
+    killed: totalCas - admittedTotal,
+  };
 }
 
 function calculateCasualties(infantry: number, archers: number, cavalry: number) {
@@ -1226,6 +1408,11 @@ async function processWorldBaseAttacks(now: Date) {
         });
         if (!defenderUpdated.count) throw new Error(`Could not settle defending base for attack ${id}.`);
 
+        await admitWoundedTroops(tx, attack.attackerUserId, attackerLosses, false);
+        if (!attackerWins) {
+          await admitWoundedTroops(tx, attack.defenderUserId, defenderLosses, true);
+        }
+
         const completed = await tx.worldBaseAttack.updateMany({
           where: { id, status: "RESOLVING" },
           data: {
@@ -1446,16 +1633,24 @@ async function hasActiveWorldMapMarch(tx: Prisma.TransactionClient, userId: stri
 }
 
 async function committedWorldMapTroops(
-  tx: Pick<Prisma.TransactionClient, "worldResourceNode" | "worldMapMarch">,
+  tx: Pick<Prisma.TransactionClient, "worldResourceNode" | "worldMapMarch" | "worldMarch" | "worldBaseAttack">,
   userId: string,
 ): Promise<WorldMapTroops> {
-  const [garrisons, marches] = await Promise.all([
+  const [garrisons, mapMarches, eventMarches, baseAttacks] = await Promise.all([
     tx.worldResourceNode.findMany({
       where: { ownerUserId: userId },
       select: { garrisonInfantry: true, garrisonArchers: true, garrisonCavalry: true },
     }),
     tx.worldMapMarch.findMany({
       where: { userId, status: { in: ["IN_TRANSIT", "RESOLVING", "RETURNING"] } },
+      select: { infantry: true, archers: true, cavalry: true },
+    }),
+    tx.worldMarch.findMany({
+      where: { userId, status: { in: ["IN_TRANSIT", "RETURNING"] } },
+      select: { infantry: true, archers: true, cavalry: true },
+    }),
+    tx.worldBaseAttack.findMany({
+      where: { attackerUserId: userId, status: "IN_TRANSIT" },
       select: { infantry: true, archers: true, cavalry: true },
     }),
   ]);
@@ -1465,10 +1660,20 @@ async function committedWorldMapTroops(
     total.archers += garrison.garrisonArchers;
     total.cavalry += garrison.garrisonCavalry;
   }
-  for (const march of marches) {
+  for (const march of mapMarches) {
     total.infantry += march.infantry;
     total.archers += march.archers;
     total.cavalry += march.cavalry;
+  }
+  for (const march of eventMarches) {
+    total.infantry += march.infantry;
+    total.archers += march.archers;
+    total.cavalry += march.cavalry;
+  }
+  for (const attack of baseAttacks) {
+    total.infantry += attack.infantry;
+    total.archers += attack.archers;
+    total.cavalry += attack.cavalry;
   }
   return total;
 }
@@ -1916,6 +2121,7 @@ async function processWorldMapMarches(now: Date) {
               },
             });
             await returnWorldMapTroops(tx, defenderUserId, defenderSurvivors);
+            await admitWoundedTroops(tx, defenderUserId, defenderLosses, false);
             await tx.worldMapMarch.create({
               data: {
                 userId: defenderUserId,
@@ -2063,6 +2269,22 @@ async function processWorldMapReturns(now: Date) {
           archers: march.archers,
           cavalry: march.cavalry,
         });
+        if (
+          march.casualtiesInfantry > 0 ||
+          march.casualtiesArchers > 0 ||
+          march.casualtiesCavalry > 0
+        ) {
+          await admitWoundedTroops(
+            tx,
+            march.userId,
+            {
+              infantry: march.casualtiesInfantry,
+              archers: march.casualtiesArchers,
+              cavalry: march.casualtiesCavalry,
+            },
+            false,
+          );
+        }
         return true;
       });
       if (didComplete) completed += 1;
@@ -2181,6 +2403,7 @@ export async function processScheduledWorldJobs(now = new Date()) {
   const research = await processWorldResearch(now);
   const mapOperations = await processWorldMapOperations(now);
   const trained = await processWorldTraining(now);
+  const healed = await processWorldHealing(now);
   const marches = await processWorldMarches(now);
   const baseAttacks = await processWorldBaseAttacks(now);
   const staleBefore = new Date(now.getTime() - JOB_LOCK_TIMEOUT_MS);
@@ -2621,6 +2844,40 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
         trainingCompletesAt: base.trainingCompletesAt?.toISOString() ?? null,
         marchActive: base.marchActive,
       },
+      hospital: {
+        level: worldHospitalLevel(
+          baseBuildings.map((b) => ({
+            type: b.buildingType,
+            level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
+          })),
+        ),
+        capacity: worldHospitalCapacity(
+          worldHospitalLevel(
+            baseBuildings.map((b) => ({
+              type: b.buildingType,
+              level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
+            })),
+          ),
+        ),
+        woundedInfantry: base.woundedInfantry,
+        woundedArchers: base.woundedArchers,
+        woundedCavalry: base.woundedCavalry,
+        totalWounded: base.woundedInfantry + base.woundedArchers + base.woundedCavalry,
+        availableSpace: Math.max(
+          0,
+          worldHospitalCapacity(
+            worldHospitalLevel(
+              baseBuildings.map((b) => ({
+                type: b.buildingType,
+                level: b.completesAt <= now ? b.pendingLevel ?? b.level : b.level,
+              })),
+            ),
+          ) - (base.woundedInfantry + base.woundedArchers + base.woundedCavalry),
+        ),
+        healingType: base.healingType,
+        healingCount: base.healingCount,
+        healingCompletesAt: base.healingCompletesAt?.toISOString() ?? null,
+      },
     },
     offline: {
       elapsedSeconds: world.elapsedSeconds,
@@ -3017,7 +3274,6 @@ export async function performWorldMapAction(
   return prisma.$transaction(async (tx) => {
     const base = await tx.worldBase.findUniqueOrThrow({ where: { userId } });
     if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
-    if (base.trainingType) throw new WorldActionError("Chờ huấn luyện hoàn tất trước khi điều quân.", 409);
     if (base.marchActive) throw new WorldActionError("Quân khác đang hành quân; hãy chờ họ trở về.", 409);
     if (await hasActiveWorldMapMarch(tx, userId)) {
       throw new WorldActionError("Một đạo quân đang hành quân hoặc trở về.", 409);
@@ -3090,7 +3346,6 @@ export async function performWorldMapAction(
         id: base.id,
         version: base.version,
         activePvpAttackId: null,
-        trainingType: null,
         marchActive: false,
         infantry: { gte: troops.infantry },
         archers: { gte: troops.archers },
@@ -3330,6 +3585,7 @@ export async function performWorldAction(
     | { type: "contribute"; eventId: string }
     | { type: "claim"; eventId: string }
     | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
+    | { type: "heal"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
     | {
         type: "dispatch";
         eventId: string;
@@ -3380,8 +3636,8 @@ export async function performWorldAction(
           409,
         );
       }
-      if (attackerBase.trainingType || attackerBase.marchActive) {
-        throw new WorldActionError("Hoàn tất huấn luyện và chờ quân đang hành quân trở về.", 409);
+      if (attackerBase.marchActive) {
+        throw new WorldActionError("Chờ quân đang hành quân trở về.", 409);
       }
       const distanceMeters = Math.round(
         Math.hypot(
@@ -3418,7 +3674,6 @@ export async function performWorldAction(
           id: attackerBase.id,
           version: attackerBase.version,
           activePvpAttackId: null,
-          trainingType: null,
           marchActive: false,
           infantry: { gte: action.infantry },
           archers: { gte: action.archers },
@@ -3656,68 +3911,137 @@ export async function performWorldAction(
   }
 
   if (action.type === "train") {
+    await advanceWorld(userId, now);
+    return prisma.$transaction(async (tx) => {
+      const base = await tx.worldBase.findUniqueOrThrow({ where: { userId } });
+      const stats = TROOP_STATS[action.troopType];
+      if (base.trainingType) {
+        throw new WorldActionError("Hàng đợi đang huấn luyện một đạo quân.", 409);
+      }
+      const trainingBuilding = await tx.worldBuilding.findFirst({
+        where: {
+          baseId: base.id,
+          buildingType: WORLD_TRAINING_BUILDINGS[action.troopType],
+          OR: [{ level: { gt: 0 } }, { completesAt: { lte: now } }],
+        },
+        select: { id: true },
+      });
+      if (!trainingBuilding) {
+        const requiredBuilding = WORLD_BUILDING_DEFINITIONS[WORLD_TRAINING_BUILDINGS[action.troopType]];
+        throw new WorldActionError(`Cần xây xong ${requiredBuilding.name} trước khi huấn luyện ${stats.label}.`, 409);
+      }
+      const troopField =
+        action.troopType === "INFANTRY"
+          ? "infantry"
+          : action.troopType === "ARCHERS"
+            ? "archers"
+            : "cavalry";
+      const committed = await committedWorldMapTroops(tx, userId);
+      if (base[troopField] + committed[troopField] + action.count > MAX_TROOPS_PER_TYPE) {
+        throw new WorldActionError(`Mỗi loại quân được giới hạn ${MAX_TROOPS_PER_TYPE.toLocaleString("vi-VN")} lính.`, 400);
+      }
+      const woodCost = stats.costWood * action.count;
+      const stoneCost = stats.costStone * action.count;
+      if (base.wood < woodCost || base.stone < stoneCost) {
+        throw new WorldActionError(`Cần ${woodCost} gỗ và ${stoneCost} đá để huấn luyện.`, 400);
+      }
+      const trainingCompletesAt = new Date(now.getTime() + stats.trainingSeconds * action.count * 1000);
+      const started = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: base.version,
+          trainingType: null,
+          wood: { gte: woodCost },
+          stone: { gte: stoneCost },
+          [troopField]: { lte: MAX_TROOPS_PER_TYPE - action.count - committed[troopField] },
+        },
+        data: {
+          wood: { decrement: woodCost },
+          stone: { decrement: stoneCost },
+          trainingType: action.troopType,
+          trainingCount: action.count,
+          trainingCompletesAt,
+          version: { increment: 1 },
+        },
+      });
+      if (!started.count) {
+        throw new WorldActionError("Căn cứ vừa thay đổi hoặc hàng đợi đã bận. Hãy tải lại và thử lại.", 409);
+      }
+      return {
+        message: `Đã bắt đầu huấn luyện ${action.count} ${stats.label}; dự kiến hoàn tất sau ${Math.ceil(stats.trainingSeconds * action.count / 60)} phút.`,
+      };
+    });
+  }
+
+  if (action.type === "heal") {
     const current = await advanceWorld(userId, now);
     const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
     const stats = TROOP_STATS[action.troopType];
     if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
-    if (base.marchActive || await hasActiveWorldMapMarch(prisma, userId)) {
-      throw new WorldActionError("Quân đang hành quân; hãy chờ họ trở về trước khi huấn luyện.", 409);
+    if (base.healingType) {
+      throw new WorldActionError("Quân y viện đang điều trị một nhóm thương binh.", 409);
     }
-    if (base.trainingType) {
-      throw new WorldActionError("Hàng đợi đang huấn luyện một đạo quân.", 409);
-    }
-    const trainingBuilding = await prisma.worldBuilding.findFirst({
+
+    const hospitalBuilding = await prisma.worldBuilding.findFirst({
       where: {
         baseId: base.id,
-        buildingType: WORLD_TRAINING_BUILDINGS[action.troopType],
+        buildingType: "HOSPITAL",
         OR: [{ level: { gt: 0 } }, { completesAt: { lte: now } }],
       },
       select: { id: true },
     });
-    if (!trainingBuilding) {
-      const requiredBuilding = WORLD_BUILDING_DEFINITIONS[WORLD_TRAINING_BUILDINGS[action.troopType]];
-      throw new WorldActionError(`Cần xây xong ${requiredBuilding.name} trước khi huấn luyện ${stats.label}.`, 409);
+    if (!hospitalBuilding) {
+      throw new WorldActionError("Cần xây Quân y viện trước khi điều trị thương binh.", 409);
     }
-    const troopField =
+
+    const woundedField =
       action.troopType === "INFANTRY"
-        ? "infantry"
+        ? ("woundedInfantry" as const)
         : action.troopType === "ARCHERS"
-          ? "archers"
-          : "cavalry";
-    const committed = await committedWorldMapTroops(prisma, userId);
-    if (base[troopField] + committed[troopField] + action.count > MAX_TROOPS_PER_TYPE) {
-      throw new WorldActionError(`Mỗi loại quân được giới hạn ${MAX_TROOPS_PER_TYPE.toLocaleString("vi-VN")} lính.`, 400);
+          ? ("woundedArchers" as const)
+          : ("woundedCavalry" as const);
+
+    if (base[woundedField] < action.count) {
+      throw new WorldActionError(`Không đủ ${action.count} ${stats.label} bị thương để điều trị.`, 400);
     }
-    const woodCost = stats.costWood * action.count;
-    const stoneCost = stats.costStone * action.count;
-    const trainingCompletesAt = new Date(now.getTime() + stats.trainingSeconds * action.count * 1000);
+
+    const woodPerUnit = Math.max(1, Math.round(stats.costWood * 0.3));
+    const stonePerUnit = Math.max(1, Math.round(stats.costStone * 0.3));
+    const woodCost = woodPerUnit * action.count;
+    const stoneCost = stonePerUnit * action.count;
+    const secondsPerUnit = Math.max(1, Math.round(stats.trainingSeconds * 0.4));
+    const healingCompletesAt = new Date(now.getTime() + secondsPerUnit * action.count * 1000);
+
     const started = await prisma.worldBase.updateMany({
       where: {
         id: base.id,
         version: current.version,
         activePvpAttackId: null,
-        trainingType: null,
+        healingType: null,
         wood: { gte: woodCost },
         stone: { gte: stoneCost },
-        [troopField]: { lte: MAX_TROOPS_PER_TYPE - action.count - committed[troopField] },
+        [woundedField]: { gte: action.count },
       },
       data: {
         wood: { decrement: woodCost },
         stone: { decrement: stoneCost },
-        trainingType: action.troopType,
-        trainingCount: action.count,
-        trainingCompletesAt,
+        [woundedField]: { decrement: action.count },
+        healingType: action.troopType,
+        healingCount: action.count,
+        healingCompletesAt,
         version: { increment: 1 },
       },
     });
+
     if (!started.count) {
       if (base.wood < woodCost || base.stone < stoneCost) {
-        throw new WorldActionError(`Cần ${woodCost} gỗ và ${stoneCost} đá để huấn luyện.`, 400);
+        throw new WorldActionError(`Cần ${woodCost} gỗ và ${stoneCost} đá để điều trị.`, 400);
       }
       throw new WorldActionError("Căn cứ vừa thay đổi. Hãy tải lại và thử lại.", 409);
     }
+
     return {
-      message: `Đã bắt đầu huấn luyện ${action.count} ${stats.label}; dự kiến hoàn tất sau ${Math.ceil(stats.trainingSeconds * action.count / 60)} phút.`,
+      message: `Đã bắt đầu điều trị ${action.count} ${stats.label}; dự kiến hoàn tất sau ${Math.ceil(secondsPerUnit * action.count / 60)} phút.`,
     };
   }
 
@@ -3745,7 +4069,6 @@ export async function performWorldAction(
         select: { id: true },
       });
       if (!participation) throw new WorldActionError("Hãy tham gia sự kiện trước khi điều quân.", 400);
-      if (base.trainingType) throw new WorldActionError("Chờ huấn luyện hoàn tất trước khi điều quân.", 409);
       if (base.marchActive) throw new WorldActionError("Đạo quân trước vẫn chưa trở về.", 409);
       if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
       if (await hasActiveWorldMapMarch(tx, userId)) {

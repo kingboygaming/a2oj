@@ -18,6 +18,7 @@ import {
   createSiegeWorkshop,
   createStable,
   createScoutCamp,
+  createHospital,
 } from "./BuildingModels";
 import type { WorldBuildingType } from "@/lib/world-buildings";
 
@@ -107,7 +108,8 @@ export function WorldBuildingModel({
           : type === "STABLE" ? createStable()
             : type === "SIEGE_WORKSHOP" ? createSiegeWorkshop()
               : type === "MILITARY_ACADEMY" ? createResearchLab()
-                : type === "SCOUT_CAMP" ? createScoutCamp(level)
+                : type === "HOSPITAL" ? createHospital(level)
+                  : type === "SCOUT_CAMP" ? createScoutCamp(level)
                 : type === "LUMBER_MILL" ? createFactory(level)
                   : type === "IRON_MINE" ? createIronMine()
                     : type === "STONE_QUARRY" ? createRockQuarry()

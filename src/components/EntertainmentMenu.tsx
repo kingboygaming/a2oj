@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 
 const entertainmentLinks = [
   {
@@ -32,30 +33,11 @@ const entertainmentLinks = [
 
 export function EntertainmentMenu() {
   const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
+  const menuRef = useClickOutside<HTMLDivElement>({
+    enabled: open,
+    onClose: () => setOpen(false),
+  });
 
   return (
     <div ref={menuRef} className="relative shrink-0">

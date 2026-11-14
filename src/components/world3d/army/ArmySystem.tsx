@@ -112,8 +112,8 @@ export function ArmySystem({
   const archerCount = displayCount(army.archers, maxNPCs);
   const cavalryCount = displayCount(army.cavalry, maxNPCs);
 
-  if (marchActive) {
-    // When marching, don't show troops at base
+  if (infantryCount === 0 && archerCount === 0 && cavalryCount === 0) {
+    // No stationed troops at base to show
     return null;
   }
 

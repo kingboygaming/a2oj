@@ -11,7 +11,9 @@ import {
 } from "./BuildingFactory";
 import { heightAtRender } from "../terrain/BiomeManager";
 import { AnimatedFlag } from "./AnimatedFlag";
+import { BuildingFloatingTimer } from "./BuildingFloatingTimer";
 import {
+  WORLD_BUILDING_DEFINITIONS,
   WORLD_BUILDING_PLOT_COUNT,
   type WorldBuildingType,
   type WorldBuildingView,
@@ -35,6 +37,20 @@ interface CastleSystemProps {
   cityView: boolean;
   selectedPlotIndex: number | null;
   placementType: WorldBuildingType | null;
+  castleUpgradeCompletesAt?: string | null;
+  armyTraining?: {
+    trainingType: string | null;
+    trainingCount: number;
+    trainingCompletesAt: string | null;
+  } | null;
+  activeScout?: { completesAt: number; targetName: string } | null;
+  activeResearch?: { key: string; name?: string; completesAt: string | null } | null;
+  healing?: {
+    healingType: string | null;
+    healingCount: number;
+    healingCompletesAt: string | null;
+  } | null;
+  onActivityComplete?: () => void;
   onSelectPlot: (plotIndex: number) => void;
   onSelectCastle: () => void;
   onSelectBuilding: (plotIndex: number) => void;
@@ -50,6 +66,12 @@ export function CastleSystem({
   cityView,
   selectedPlotIndex,
   placementType,
+  castleUpgradeCompletesAt,
+  armyTraining,
+  activeScout,
+  activeResearch,
+  healing,
+  onActivityComplete,
   onSelectPlot,
   onSelectCastle,
   onSelectBuilding,
@@ -114,6 +136,17 @@ export function CastleSystem({
         height={0.75}
       />
 
+      {castleUpgradeCompletesAt && (
+        <BuildingFloatingTimer
+          position={[cx, position[1] + 16 + castleLevel * 0.3, cz]}
+          completesAtMs={new Date(castleUpgradeCompletesAt).getTime()}
+          icon="🏰"
+          label="Nâng cấp Thành chính"
+          detail={`Cấp ${castleLevel} → ${castleLevel + 1}`}
+          onComplete={onActivityComplete}
+        />
+      )}
+
       {layout.walls.map((wall, index) => (
         <WallSegment key={`wall-${index}`} position={wall.pos} rotation={wall.rot} length={wall.len} />
       ))}
@@ -168,6 +201,104 @@ export function CastleSystem({
             ) : placementType && isSelected ? (
               <WorldBuildingModel type={placementType} level={1} position={[0, -0.08, 0]} ghost />
             ) : null}
+
+            {building && (() => {
+              // 1. Building constructing/upgrading
+              if (building.status !== "COMPLETED") {
+                return (
+                  <BuildingFloatingTimer
+                    heightOffset={6.0}
+                    completesAtMs={new Date(building.completesAt).getTime()}
+                    startedAtMs={new Date(building.startedAt).getTime()}
+                    icon="🏗️"
+                    label={building.status === "UPGRADING" ? "Nâng cấp" : "Xây dựng"}
+                    detail={WORLD_BUILDING_DEFINITIONS[building.type]?.name}
+                    onComplete={onActivityComplete}
+                  />
+                );
+              }
+
+              // 2. Training troops in Barracks / Archery Range / Stable
+              if (
+                ((building.type === "BARRACKS" && armyTraining?.trainingType === "INFANTRY") ||
+                  (building.type === "ARCHERY_RANGE" && armyTraining?.trainingType === "ARCHERS") ||
+                  (building.type === "STABLE" && armyTraining?.trainingType === "CAVALRY")) &&
+                armyTraining?.trainingCompletesAt
+              ) {
+                const label =
+                  armyTraining.trainingType === "INFANTRY"
+                    ? "Bộ binh"
+                    : armyTraining.trainingType === "ARCHERS"
+                      ? "Cung thủ"
+                      : "Kỵ binh";
+                const icon =
+                  armyTraining.trainingType === "INFANTRY"
+                    ? "🛡️"
+                    : armyTraining.trainingType === "ARCHERS"
+                      ? "🏹"
+                      : "🐎";
+                return (
+                  <BuildingFloatingTimer
+                    heightOffset={6.0}
+                    completesAtMs={new Date(armyTraining.trainingCompletesAt).getTime()}
+                    icon={icon}
+                    label="Huấn luyện"
+                    detail={`+${armyTraining.trainingCount} ${label}`}
+                    onComplete={onActivityComplete}
+                  />
+                );
+              }
+
+              // 3. Scouting mission in Scout Camp
+              if (building.type === "SCOUT_CAMP" && activeScout) {
+                return (
+                  <BuildingFloatingTimer
+                    heightOffset={6.0}
+                    completesAtMs={activeScout.completesAt}
+                    icon="🔭"
+                    label="Do thám"
+                    detail={activeScout.targetName}
+                    onComplete={onActivityComplete}
+                  />
+                );
+              }
+
+              // 4. Research in Military Academy
+              if (building.type === "MILITARY_ACADEMY" && activeResearch?.completesAt) {
+                return (
+                  <BuildingFloatingTimer
+                    heightOffset={6.0}
+                    completesAtMs={new Date(activeResearch.completesAt).getTime()}
+                    icon="🔬"
+                    label="Nghiên cứu"
+                    detail={activeResearch.name || "Công nghệ"}
+                    onComplete={onActivityComplete}
+                  />
+                );
+              }
+
+              // 5. Healing wounded troops in Hospital
+              if (building.type === "HOSPITAL" && healing?.healingCompletesAt) {
+                const troopLabel =
+                  healing.healingType === "INFANTRY"
+                    ? "Bộ binh"
+                    : healing.healingType === "ARCHERS"
+                      ? "Cung thủ"
+                      : "Kỵ binh";
+                return (
+                  <BuildingFloatingTimer
+                    heightOffset={6.0}
+                    completesAtMs={new Date(healing.healingCompletesAt).getTime()}
+                    icon="🩹"
+                    label="Điều trị"
+                    detail={`+${healing.healingCount} ${troopLabel}`}
+                    onComplete={onActivityComplete}
+                  />
+                );
+              }
+
+              return null;
+            })()}
           </group>
         );
       })}

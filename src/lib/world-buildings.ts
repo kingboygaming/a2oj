@@ -6,6 +6,7 @@ export const WORLD_BUILDING_TYPES = [
   "STABLE",
   "SIEGE_WORKSHOP",
   "MILITARY_ACADEMY",
+  "HOSPITAL",
   "SCOUT_CAMP",
   "LUMBER_MILL",
   "IRON_MINE",
@@ -47,6 +48,7 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   STABLE: { name: "Chuồng ngựa", group: "Quân sự", description: "Huấn luyện kỵ binh.", woodCost: 180, stoneCost: 100, constructionSeconds: 120, requiredCastleLevel: 3 },
   SIEGE_WORKSHOP: { name: "Công xưởng công thành", group: "Quân sự", description: "Mở khóa máy công thành.", woodCost: 260, stoneCost: 180, constructionSeconds: 180, requiredCastleLevel: 5 },
   MILITARY_ACADEMY: { name: "Học viện quân sự", group: "Quân sự", description: "Công trình quân sự nâng cao.", woodCost: 500, stoneCost: 400, constructionSeconds: 300, requiredCastleLevel: 10 },
+  HOSPITAL: { name: "Quân y viện", group: "Quân sự", description: "Tiếp nhận và cứu chữa thương binh. Mỗi cấp tăng 150 sức chứa.", woodCost: 160, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
   SCOUT_CAMP: { name: "Trại trinh sát", group: "Quân sự", description: "Mỗi cấp mở rộng tầm nhìn bản đồ thêm 15 km, tối đa 89 km.", woodCost: 180, stoneCost: 100, constructionSeconds: 90, requiredCastleLevel: 1, maxLevel: 3 },
   LUMBER_MILL: { name: "Xưởng gỗ", group: "Kinh tế", description: "Tăng năng lực khai thác gỗ.", woodCost: 100, stoneCost: 45, constructionSeconds: 60, requiredCastleLevel: 1 },
   IRON_MINE: { name: "Mỏ sắt", group: "Kinh tế", description: "Khai thác quặng sắt; sản lượng mỏ chưa được tích hợp.", woodCost: 150, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
@@ -97,3 +99,23 @@ export function worldViewRadiusMeters(scoutCampLevel: number): number {
   const level = Math.max(0, Math.min(Math.trunc(scoutCampLevel), SCOUT_CAMP_MAX_LEVEL));
   return VIEW_RADIUS_METERS + level * SCOUT_CAMP_VIEW_STEP_METERS;
 }
+
+export const HOSPITAL_CAPACITY_PER_LEVEL = 150;
+
+/** Highest hospital level in a base's building list (0 when not built). */
+export function worldHospitalLevel(
+  buildings: ReadonlyArray<{ type: string; level: number }>,
+): number {
+  let level = 0;
+  for (const building of buildings) {
+    if (building.type === "HOSPITAL" && building.level > level) {
+      level = building.level;
+    }
+  }
+  return level;
+}
+
+export function worldHospitalCapacity(hospitalLevel: number): number {
+  return Math.max(0, hospitalLevel) * HOSPITAL_CAPACITY_PER_LEVEL;
+}
+

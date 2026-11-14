@@ -25,6 +25,11 @@ const requestSchema = z.discriminatedUnion("type", [
     count: z.number().int().min(1).max(100),
   }),
   z.object({
+    type: z.literal("heal"),
+    troopType: z.enum(["INFANTRY", "ARCHERS", "CAVALRY"]),
+    count: z.number().int().min(1).max(5000),
+  }),
+  z.object({
     type: z.literal("dispatch"),
     eventId: z.string().min(1),
     infantry: z.number().int().min(0).max(500),

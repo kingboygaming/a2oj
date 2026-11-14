@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import {
   BG_PRESETS,
   getBgConfigSnapshot,
@@ -42,9 +43,13 @@ export function BackgroundPicker() {
   const headerTransparency = getHeaderTransparency(currentConfig);
   const themeMode = getThemeMode(currentConfig);
 
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useClickOutside<HTMLDivElement>({
+    enabled: open,
+    onClose: () => setOpen(false),
+    ignoreRefs: [triggerRef],
+  });
 
   function toggleMenu() {
     if (!open) {
@@ -55,17 +60,6 @@ export function BackgroundPicker() {
     }
     setOpen((previous) => !previous);
   }
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
 
   function applyAndSave(config: BgConfig) {
     try {

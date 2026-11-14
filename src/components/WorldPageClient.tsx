@@ -396,7 +396,6 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
               Boolean(busy) ||
               !attackTargetId ||
               Boolean(snapshot.base.activePvpAttackId) ||
-              Boolean(snapshot.base.army.trainingType) ||
               snapshot.base.army.marchActive ||
               Object.values(attackArmy).reduce((sum, count) => sum + count, 0) < 1 ||
               Object.values(attackArmy).reduce((sum, count) => sum + count, 0) > 500
@@ -790,7 +789,7 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
                       </div>
                       <button
                         type="button"
-                        disabled={Boolean(busy) || snapshot.base.army.trainingType !== null || Object.values(marchArmy).reduce((sum, count) => sum + count, 0) === 0 || Object.values(marchArmy).reduce((sum, count) => sum + count, 0) > 500}
+                        disabled={Boolean(busy) || Object.values(marchArmy).reduce((sum, count) => sum + count, 0) === 0 || Object.values(marchArmy).reduce((sum, count) => sum + count, 0) > 500}
                         onClick={() => void act(`march-${event.id}`, {
                           type: "dispatch",
                           eventId: event.id,

@@ -29,6 +29,20 @@ interface WorldSceneProps {
     coordinateX: number;
     coordinateZ: number;
     buildings: WorldBuildingView[];
+    castleUpgradeCompletesAt?: string | null;
+    training?: {
+      trainingType: string | null;
+      trainingCount: number;
+      trainingCompletesAt: string | null;
+    } | null;
+    activeScout?: { completesAt: number; targetName: string } | null;
+    activeResearch?: { key: string; name?: string; completesAt: string | null } | null;
+    hospital?: {
+      healingType: string | null;
+      healingCount: number;
+      healingCompletesAt: string | null;
+    } | null;
+    onActivityComplete?: () => void;
     army: {
       infantry: number;
       archers: number;
@@ -120,6 +134,12 @@ export function WorldScene({
           cityView={viewMode === "city"}
           selectedPlotIndex={selectedPlotIndex}
           placementType={placementType}
+          castleUpgradeCompletesAt={baseData.castleUpgradeCompletesAt}
+          armyTraining={baseData.training}
+          activeScout={baseData.activeScout}
+          activeResearch={baseData.activeResearch}
+          healing={baseData.hospital}
+          onActivityComplete={baseData.onActivityComplete}
           onSelectPlot={onSelectPlot}
           onSelectCastle={onSelectCastle}
           onSelectBuilding={onSelectBuilding}

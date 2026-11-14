@@ -551,6 +551,12 @@ model WorldBase {
   trainingType          String?
   trainingCount         Int      @default(0)
   trainingCompletesAt   DateTime?
+  woundedInfantry       Int      @default(0)
+  woundedArchers        Int      @default(0)
+  woundedCavalry        Int      @default(0)
+  healingType           String?
+  healingCount          Int      @default(0)
+  healingCompletesAt    DateTime?
   marchActive           Boolean  @default(false)
   activePvpAttackId     String?
   coordinateX           Int?

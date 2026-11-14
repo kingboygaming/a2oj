@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { RANK_NAME_COLORS } from "@/lib/rank-colors";
+import { useClickOutside } from "@/hooks/useClickOutside";
 
 type UserMenuProps = {
   user: {
@@ -18,29 +19,14 @@ type UserMenuProps = {
 
 export function UserMenu({ user, rank, nameColorClass }: UserMenuProps) {
   const router = useRouter();
-  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
+  const menuRef = useClickOutside<HTMLDivElement>({
+    enabled: open,
+    onClose: () => setOpen(false),
+  });
 
   async function logout() {
     setPending(true);

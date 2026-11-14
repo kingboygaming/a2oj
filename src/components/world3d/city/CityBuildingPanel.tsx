@@ -19,6 +19,7 @@ export function CityBuildingPanel({
   nowMs = Date.now(),
   onChoose,
   onAction,
+  onOpenHospital,
 }: {
   plotIndex: number | null;
   building: WorldBuildingView | null;
@@ -29,6 +30,7 @@ export function CityBuildingPanel({
   nowMs?: number;
   onChoose: (type: WorldBuildingType) => void;
   onAction: (action: "BUILD" | "UPGRADE" | "DEMOLISH", plotIndex: number, type?: WorldBuildingType) => void;
+  onOpenHospital?: () => void;
 }) {
   const [confirmDemolish, setConfirmDemolish] = useState(false);
 
@@ -103,6 +105,15 @@ export function CityBuildingPanel({
                 className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
               >
                 Nâng cấp · {woodCost} gỗ / {stoneCost} đá
+              </button>
+            )}
+            {building.type === "HOSPITAL" && onOpenHospital && (
+              <button
+                type="button"
+                onClick={onOpenHospital}
+                className="rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold text-white hover:bg-teal-500 shadow-sm"
+              >
+                🩹 Khu điều trị thương binh
               </button>
             )}
             <button

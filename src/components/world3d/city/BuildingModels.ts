@@ -658,6 +658,88 @@ export function createScoutCamp(level = 1): THREE.Group {
   return group;
 }
 
+/* ── Hospital (Quân y viện) ── */
+export function createHospital(level = 1): THREE.Group {
+  const group = new THREE.Group();
+  const scale = 0.85 + (level / 20) * 0.35;
+
+  // 1. Main medical hall (stone & plaster walls)
+  const hall = new THREE.Mesh(box(4.2 * scale, 2.4 * scale, 3.2 * scale), WHITE_STONE);
+  hall.castShadow = true;
+  hall.receiveShadow = true;
+  group.add(hall);
+
+  // 2. Timber corner beams & trims
+  const beamMat = WOOD;
+  for (const [bx, bz] of [
+    [-2.1 * scale, -1.6 * scale],
+    [2.1 * scale, -1.6 * scale],
+    [-2.1 * scale, 1.6 * scale],
+    [2.1 * scale, 1.6 * scale],
+  ]) {
+    const beam = new THREE.Mesh(box(0.25 * scale, 2.5 * scale, 0.25 * scale, bx, 0, bz), beamMat);
+    group.add(beam);
+  }
+
+  // 3. Steep pitched gable roof
+  const roofH = 1.4 * scale;
+  const roofGeo = new THREE.ConeGeometry(3.0 * scale, roofH, 4);
+  roofGeo.rotateY(Math.PI / 4);
+  roofGeo.translate(0, 2.4 * scale + roofH / 2, 0);
+  const roof = new THREE.Mesh(roofGeo, ROOF_RED);
+  roof.castShadow = true;
+  group.add(roof);
+
+  // 4. Entrance Door & Porch
+  const doorH = 1.6 * scale;
+  const door = new THREE.Mesh(box(1.0 * scale, doorH, 0.1, 0, 0, 1.6 * scale + 0.05), DOOR);
+  group.add(door);
+
+  // Small awning above door
+  const awning = new THREE.Mesh(box(1.6 * scale, 0.12, 0.8 * scale, 0, doorH + 0.1 * scale, 1.8 * scale), WOOD);
+  group.add(awning);
+
+  // 5. Medical Red Cross Insignia on white crest
+  const crestMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+  const redCrossMat = new THREE.MeshStandardMaterial({ color: 0xdd1111, roughness: 0.4 });
+  const crestBoard = new THREE.Mesh(box(0.9 * scale, 0.9 * scale, 0.08, 0, doorH + 0.7 * scale, 1.62 * scale), crestMat);
+  const crossVert = new THREE.Mesh(box(0.2 * scale, 0.65 * scale, 0.1, 0, doorH + 0.7 * scale, 1.63 * scale), redCrossMat);
+  const crossHoriz = new THREE.Mesh(box(0.65 * scale, 0.2 * scale, 0.1, 0, doorH + 0.7 * scale, 1.63 * scale), redCrossMat);
+  group.add(crestBoard, crossVert, crossHoriz);
+
+  // 6. Healing Herb Crates & Stretcher cot outside
+  const crateMat = WOOD;
+  const crate = new THREE.Mesh(box(0.6 * scale, 0.5 * scale, 0.6 * scale, 1.6 * scale, 0, 1.8 * scale), crateMat);
+  crate.castShadow = true;
+  group.add(crate);
+
+  // Stretcher / Cot
+  const cotCanvas = new THREE.Mesh(box(0.7 * scale, 0.08, 1.4 * scale, -1.5 * scale, 0.25 * scale, 1.8 * scale), crestMat);
+  const cotLeg1 = new THREE.Mesh(cyl(0.04, 0.04, 0.3 * scale, -1.8 * scale, 0, 1.3 * scale, 4), WOOD);
+  const cotLeg2 = new THREE.Mesh(cyl(0.04, 0.04, 0.3 * scale, -1.8 * scale, 0, 2.3 * scale, 4), WOOD);
+  const cotLeg3 = new THREE.Mesh(cyl(0.04, 0.04, 0.3 * scale, -1.2 * scale, 0, 1.3 * scale, 4), WOOD);
+  const cotLeg4 = new THREE.Mesh(cyl(0.04, 0.04, 0.3 * scale, -1.2 * scale, 0, 2.3 * scale, 4), WOOD);
+  group.add(cotCanvas, cotLeg1, cotLeg2, cotLeg3, cotLeg4);
+
+  // 7. Chimney with gentle soothing smoke/lantern
+  const chimney = new THREE.Mesh(cyl(0.25 * scale, 0.3 * scale, 1.5 * scale, -1.2 * scale, 2.6 * scale, -0.6 * scale), DARK_STONE);
+  chimney.castShadow = true;
+  group.add(chimney);
+
+  // 8. Higher level extension wing (levels > 4)
+  if (level > 4) {
+    const wing = new THREE.Mesh(box(1.8 * scale, 1.8 * scale, 2.2 * scale, -2.6 * scale, 0, 0), WHITE_STONE);
+    wing.castShadow = true;
+    const wingRoofGeo = new THREE.ConeGeometry(1.6 * scale, 1.0 * scale, 4);
+    wingRoofGeo.rotateY(Math.PI / 4);
+    wingRoofGeo.translate(-2.6 * scale, 1.8 * scale + 0.5 * scale, 0);
+    const wingRoof = new THREE.Mesh(wingRoofGeo, ROOF_RED);
+    group.add(wing, wingRoof);
+  }
+
+  return group;
+}
+
 export {
   STONE, ROOF_RED, ROOF_BLUE, WOOD, METAL, DOOR,
   WINDOW_MAT, WHITE_STONE, DARK_STONE, GLOW_BLUE, FLAG_RED,

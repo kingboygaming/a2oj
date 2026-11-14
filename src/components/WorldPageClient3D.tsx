@@ -17,6 +17,7 @@ import { FPSCounter } from "@/components/FPSCounter";
 import { WorldObjectPanel } from "@/components/world3d/interaction/WorldObjectPanel";
 import type { WorldMapObject } from "@/lib/world-map-objects";
 import { worldToRender } from "@/lib/world-coordinates";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import { CityBuildingPanel } from "@/components/world3d/city/CityBuildingPanel";
 import { WorldResearchPanel } from "@/components/world3d/city/WorldResearchPanel";
 import {
@@ -26,7 +27,10 @@ import {
   worldViewRadiusMeters,
   type WorldBuildingType,
 } from "@/lib/world-buildings";
-import type { WorldResearchKey } from "@/lib/world-research";
+import {
+  WORLD_RESEARCH_DEFINITIONS,
+  type WorldResearchKey,
+} from "@/lib/world-research";
 
 /* Lazy-load the heavy 3D engine — no SSR */
 const WorldEngine = dynamic(
@@ -55,6 +59,7 @@ type ActionRequest =
   | { type: "contribute"; eventId: string }
   | { type: "claim"; eventId: string }
   | { type: "train"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
+  | { type: "heal"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
   | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number }
   | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number }
   | { type: "scoutBase"; targetUserId: string };
@@ -82,7 +87,9 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
-  const [activeTab, setActiveTab] = useState<"base" | "army" | "research" | "events" | "alliance" | "build" | "intel">("base");
+  const [activeTab, setActiveTab] = useState<"base" | "army" | "hospital" | "research" | "events" | "alliance" | "build" | "intel">("base");
+  const [healSelectedTroop, setHealSelectedTroop] = useState<"INFANTRY" | "ARCHERS" | "CAVALRY">("INFANTRY");
+  const [healCount, setHealCount] = useState<number>(10);
   const [selectedWorldObject, setSelectedWorldObject] = useState<WorldMapObject | null>(null);
   const [selectedRemoteBase, setSelectedRemoteBase] = useState<WorldSnapshot["nearbyBases"][number] | null>(null);
   const [selectedPlotIndex, setSelectedPlotIndex] = useState<number | null>(null);
@@ -124,6 +131,22 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   useEffect(() => {
     hydrateQuality();
   }, [hydrateQuality]);
+
+  // UI click outside & keyboard controls
+  const togglePanelBtnRef = useRef<HTMLButtonElement | null>(null);
+  const sidePanelRef = useClickOutside<HTMLDivElement>({
+    enabled: showPanel,
+    onClose: () => setShowPanel(false),
+    ignoreRefs: [togglePanelBtnRef],
+  });
+  const remoteBasePanelRef = useClickOutside<HTMLDivElement>({
+    enabled: Boolean(selectedRemoteBase),
+    onClose: () => setSelectedRemoteBase(null),
+  });
+  const worldObjectPanelRef = useClickOutside<HTMLDivElement>({
+    enabled: Boolean(selectedWorldObject),
+    onClose: () => setSelectedWorldObject(null),
+  });
 
   // De-duplicate concurrent snapshot fetches: polling, actions and the manual
   // refresh button all share the same in-flight request.
@@ -456,6 +479,30 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               coordinateX: snapshot.base.coordinateX,
               coordinateZ: snapshot.base.coordinateZ,
               buildings: snapshot.buildings,
+              castleUpgradeCompletesAt: snapshot.base.castleUpgradeCompletesAt,
+              training: {
+                trainingType: snapshot.base.army.trainingType,
+                trainingCount: snapshot.base.army.trainingCount,
+                trainingCompletesAt: snapshot.base.army.trainingCompletesAt,
+              },
+              activeScout: activeScout ? { completesAt: activeScout.completesAt, targetName: activeScout.targetName } : null,
+              activeResearch: snapshot.base.activeResearch
+                ? {
+                    key: snapshot.base.activeResearch.key,
+                    name: WORLD_RESEARCH_DEFINITIONS[snapshot.base.activeResearch.key]?.name,
+                    completesAt: snapshot.base.activeResearch.completesAt,
+                  }
+                : null,
+              hospital: snapshot.base.hospital
+                ? {
+                    healingType: snapshot.base.hospital.healingType,
+                    healingCount: snapshot.base.hospital.healingCount,
+                    healingCompletesAt: snapshot.base.hospital.healingCompletesAt,
+                  }
+                : null,
+              onActivityComplete: () => {
+                void refresh().catch(() => {});
+              },
               army: {
                 infantry: snapshot.base.army.infantry,
                 archers: snapshot.base.army.archers,
@@ -509,7 +556,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       </div>
 
       {viewMode === "world" && selectedWorldObject && (
-        <div className="absolute left-3 top-28 z-20">
+        <div ref={worldObjectPanelRef} className="absolute left-3 top-28 z-20">
           {selectedWorldObjectState && (
             <WorldObjectPanel
               key={selectedWorldObject.id}
@@ -536,7 +583,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
       {/* ── Remote Player Castle Panel ── */}
       {viewMode === "world" && selectedRemoteBase && (
-        <div className="absolute left-3 top-28 z-20 w-80 rounded-2xl border border-orange-500/30 bg-black/80 p-4 text-white shadow-2xl backdrop-blur-md">
+        <div ref={remoteBasePanelRef} className="absolute left-3 top-28 z-20 w-80 rounded-2xl border border-orange-500/30 bg-black/80 p-4 text-white shadow-2xl backdrop-blur-md">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-orange-400">Căn cứ đối thủ</p>
@@ -842,6 +889,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
           {/* Toggle panel */}
           <button
+            ref={togglePanelBtnRef}
             type="button"
             onClick={() => setShowPanel(!showPanel)}
             className="rounded-xl border border-white/15 bg-black/65 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-md transition hover:bg-black/80 active:scale-95"
@@ -853,7 +901,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
       {/* ── Side panel overlay ── */}
       {showPanel && (
-        <div className="absolute right-0 top-12 bottom-0 z-10 w-full max-w-sm overflow-y-auto border-l border-white/10 bg-black/70 p-4 backdrop-blur-md sm:max-w-md">
+        <div ref={sidePanelRef} className="absolute right-0 top-12 bottom-0 z-10 w-full max-w-sm overflow-y-auto border-l border-white/10 bg-black/70 p-4 backdrop-blur-md sm:max-w-md">
           {/* Message */}
           {message && (
             <p className={`mb-3 rounded-lg border p-2.5 text-xs ${isError ? "border-rose-400/40 bg-rose-400/10 text-rose-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
@@ -871,10 +919,14 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
           {/* Tabs */}
           <div className="mb-3 flex flex-wrap gap-1">
-            {(["base", "army", "research", "events", "alliance", "build", "intel"] as const).map((tab) => {
+            {(["base", "army", "hospital", "research", "events", "alliance", "build", "intel"] as const).map((tab) => {
               const remTrainSec = snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt
                 ? Math.max(0, Math.ceil((new Date(snapshot.base.army.trainingCompletesAt).getTime() - nowMs) / 1000))
                 : 0;
+              const remHealSec = snapshot.base.hospital?.healingType && snapshot.base.hospital?.healingCompletesAt
+                ? Math.max(0, Math.ceil((new Date(snapshot.base.hospital.healingCompletesAt).getTime() - nowMs) / 1000))
+                : 0;
+              const totalWounded = snapshot.base.hospital?.totalWounded ?? 0;
               const remResearchSec = snapshot.base.activeResearch?.completesAt
                 ? Math.max(0, Math.ceil((new Date(snapshot.base.activeResearch.completesAt).getTime() - nowMs) / 1000))
                 : 0;
@@ -889,6 +941,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 label = remCastleSec > 0 ? `🏰 Căn cứ (${remCastleSec}s)` : "🏰 Căn cứ";
               } else if (tab === "army") {
                 label = remTrainSec > 0 ? `⚔️ Quân (${remTrainSec}s)` : "⚔️ Quân";
+              } else if (tab === "hospital") {
+                label = remHealSec > 0 ? `🩹 Viện (${remHealSec}s)` : totalWounded > 0 ? `🩹 Viện (${totalWounded})` : "🩹 Viện";
               } else if (tab === "research") {
                 label = remResearchSec > 0 ? `🔬 Nghiên cứu (${remResearchSec}s)` : "🔬 Nghiên cứu";
               } else if (tab === "events") {
@@ -1027,6 +1081,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   if (type === "BUILD" && !buildingType) return;
                   void buildingAction(type, plotIndex, buildingType);
                 }}
+                onOpenHospital={() => setActiveTab("hospital")}
               />
               {placementType && selectedPlotIndex !== null && !castleBuilding && (
                 <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs text-emerald-100">
@@ -1172,6 +1227,236 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             </div>
           )}
 
+          {/* ── Tab: Hospital (Quân y viện) ── */}
+          {activeTab === "hospital" && (() => {
+            const hospital = snapshot.base.hospital;
+            const hasHospital = hospital && hospital.level > 0;
+            const remHealSec = hospital?.healingType && hospital?.healingCompletesAt
+              ? Math.max(0, Math.ceil((new Date(hospital.healingCompletesAt).getTime() - nowMs) / 1000))
+              : 0;
+
+            if (!hasHospital) {
+              return (
+                <div className="space-y-4 rounded-xl border border-amber-500/20 bg-amber-950/20 p-4 text-amber-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🩹</span>
+                    <div>
+                      <h4 className="font-bold text-sm text-white">Chưa xây Quân y viện</h4>
+                      <p className="text-xs text-amber-200/60">Quân y viện tiếp nhận thương binh sau chiến đấu và cứu chữa họ.</p>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-amber-400/20 bg-black/40 p-3 text-xs leading-relaxed text-amber-200/80">
+                    💡 Hiện tại căn cứ chưa có Quân y viện (Sức chứa: 0). Mọi binh sĩ bị thương khi ra trận sẽ không có nơi điều trị và tử trận! Hãy sang tab <strong>Xây dựng</strong> để xây Quân y viện.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("build")}
+                    className="w-full rounded-lg bg-amber-600 py-2 text-center text-xs font-bold text-white shadow-md hover:bg-amber-500"
+                  >
+                    🏗️ Đến mục Xây dựng
+                  </button>
+                </div>
+              );
+            }
+
+            const capacityPercent = hospital.capacity > 0
+              ? Math.min(100, Math.round((hospital.totalWounded / hospital.capacity) * 100))
+              : 0;
+            const isFull = hospital.totalWounded >= hospital.capacity && hospital.capacity > 0;
+
+            const troopConfig = [
+              { type: "INFANTRY" as const, label: "🛡️ Bộ binh bị thương", count: hospital.woundedInfantry, woodPer: 3, stonePer: 2, secPer: 2 },
+              { type: "ARCHERS" as const, label: "🏹 Cung thủ bị thương", count: hospital.woundedArchers, woodPer: 5, stonePer: 2, secPer: 3 },
+              { type: "CAVALRY" as const, label: "🐎 Kỵ binh bị thương", count: hospital.woundedCavalry, woodPer: 6, stonePer: 3, secPer: 4 },
+            ];
+
+            const selectedTroopData = troopConfig.find((t) => t.type === healSelectedTroop) || troopConfig[0];
+            const maxHealable = Math.max(0, selectedTroopData.count);
+            const effectiveHealCount = Math.min(maxHealable, Math.max(1, healCount));
+            const totalWoodCost = selectedTroopData.woodPer * effectiveHealCount;
+            const totalStoneCost = selectedTroopData.stonePer * effectiveHealCount;
+            const totalEstSec = selectedTroopData.secPer * effectiveHealCount;
+
+            return (
+              <div className="space-y-3">
+                {/* Capacity Card */}
+                <div className={`rounded-xl border p-3.5 space-y-2 backdrop-blur-md ${
+                  isFull ? "border-rose-500/40 bg-rose-950/20 text-rose-200" : "border-emerald-500/30 bg-emerald-950/20 text-emerald-100"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Quân y viện (Cấp {hospital.level})</p>
+                      <h4 className="text-sm font-bold text-white">Sức chứa thương binh</h4>
+                    </div>
+                    <span className="font-mono text-sm font-black text-amber-300">
+                      {hospital.totalWounded} / {hospital.capacity}
+                    </span>
+                  </div>
+
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-black/60 border border-white/10">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        isFull ? "bg-rose-500" : capacityPercent > 70 ? "bg-amber-400" : "bg-emerald-400"
+                      }`}
+                      style={{ width: `${capacityPercent}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-white/60">
+                    <span>Còn trống: <strong className="text-white">{hospital.availableSpace}</strong> chỗ</span>
+                    <span>{capacityPercent}% sức chứa</span>
+                  </div>
+
+                  {isFull && (
+                    <p className="text-[10px] text-rose-300 bg-rose-900/30 p-2 rounded border border-rose-500/30">
+                      ⚠️ Quân y viện đã đầy sức chứa! Thương binh mới ngoài sức chứa sẽ tử trận nếu không được nâng cấp viện hoặc điều trị kịp thời.
+                    </p>
+                  )}
+                </div>
+
+                {/* Healing in progress countdown */}
+                {hospital.healingType && hospital.healingCompletesAt && (() => {
+                  const targetMs = new Date(hospital.healingCompletesAt).getTime();
+                  const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+                  const min = Math.floor(remSec / 60);
+                  const sec = remSec % 60;
+                  const label =
+                    hospital.healingType === "INFANTRY"
+                      ? "Bộ binh"
+                      : hospital.healingType === "ARCHERS"
+                        ? "Cung thủ"
+                        : "Kỵ binh";
+                  return (
+                    <div className="rounded-xl border border-teal-500/40 bg-gradient-to-br from-teal-950/60 to-black/60 p-3 text-xs text-teal-100 space-y-2 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="animate-pulse text-base">🩹</span>
+                          <div>
+                            <p className="font-bold text-white text-sm">Đang điều trị thương binh</p>
+                            <p className="text-[10px] text-teal-300/80">+{hospital.healingCount} {label} đang hồi phục</p>
+                          </div>
+                        </div>
+                        <span className="font-mono text-xs font-bold text-amber-300 bg-black/50 px-2 py-0.5 rounded border border-amber-400/30">
+                          {remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Hoàn thành!"}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/50">
+                        Quân sau khi hồi phục sẽ tự động trở về quân số sẵn sàng mà không cần thao tác thêm.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Wounded Troops List */}
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-teal-400">Danh sách thương binh cần điều trị</p>
+                  {troopConfig.map((troop) => {
+                    const isSelected = healSelectedTroop === troop.type;
+                    return (
+                      <div
+                        key={troop.type}
+                        onClick={() => {
+                          setHealSelectedTroop(troop.type);
+                          if (troop.count > 0) {
+                            setHealCount(troop.count);
+                          }
+                        }}
+                        className={`cursor-pointer rounded-lg border p-3 transition ${
+                          isSelected
+                            ? "border-amber-400/60 bg-amber-950/30 text-white"
+                            : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-white">{troop.label}</p>
+                            <p className="text-[11px] text-white/50">
+                              Chi phí: {troop.woodPer} gỗ · {troop.stonePer} đá / lính · {troop.secPer}s
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className={`font-mono text-base font-black ${troop.count > 0 ? "text-amber-300" : "text-white/30"}`}>
+                              {troop.count}
+                            </span>
+                            <p className="text-[9px] text-white/40">thương binh</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Treatment dispatch controller */}
+                {hospital.totalWounded > 0 ? (
+                  <div className="rounded-xl border border-amber-200/10 bg-white/5 p-3.5 space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-amber-200">Điều trị: {selectedTroopData.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          max={maxHealable || 1}
+                          value={effectiveHealCount}
+                          disabled={maxHealable === 0 || Boolean(hospital.healingType)}
+                          onChange={(e) => setHealCount(Math.min(maxHealable, Math.max(1, Number(e.target.value) || 1)))}
+                          className="w-16 rounded border border-white/20 bg-black/40 px-2 py-0.5 text-right font-mono text-xs text-white"
+                        />
+                        <button
+                          type="button"
+                          disabled={maxHealable === 0 || Boolean(hospital.healingType)}
+                          onClick={() => setHealCount(maxHealable)}
+                          className="rounded bg-white/10 px-2 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-white/20 disabled:opacity-40"
+                        >
+                          Tất cả
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-white/60 bg-black/30 p-2 rounded">
+                      <span>Chi phí: <strong className="text-amber-300">{totalWoodCost}🪵 {totalStoneCost}🪨</strong></span>
+                      <span>Dự kiến: <strong className="text-sky-300">{totalEstSec}s</strong></span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={
+                        Boolean(busy) ||
+                        Boolean(hospital.healingType) ||
+                        maxHealable === 0 ||
+                        displayWood < totalWoodCost ||
+                        displayStone < totalStoneCost
+                      }
+                      onClick={() =>
+                        void act("heal", {
+                          type: "heal",
+                          troopType: healSelectedTroop,
+                          count: effectiveHealCount,
+                        })
+                      }
+                      className="w-full rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 py-2.5 text-center text-xs font-bold text-white shadow-lg transition hover:brightness-110 disabled:opacity-40"
+                    >
+                      {busy === "heal"
+                        ? "Đang bắt đầu..."
+                        : hospital.healingType
+                          ? "Đang có đợt điều trị"
+                          : maxHealable === 0
+                            ? "Không có thương binh loại này"
+                            : displayWood < totalWoodCost || displayStone < totalStoneCost
+                              ? "Không đủ tài nguyên điều trị"
+                              : `🩹 Bắt đầu điều trị (${effectiveHealCount} lính)`}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-xs text-white/60 space-y-1">
+                    <span className="text-2xl">✨</span>
+                    <p className="font-bold text-white">Không có thương binh</p>
+                    <p className="text-[11px] text-white/40">Quân đoàn của bạn đang khỏe mạnh và sẵn sàng chiến đấu!</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* ── Tab: Events ── */}
           {activeTab === "events" && (
             <div className="space-y-3">
@@ -1276,7 +1561,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                       </div>
                       <button
                         type="button"
-                        disabled={Boolean(busy) || Boolean(snapshot.base.army.trainingType) || Object.values(marchArmy).reduce((s, c) => s + c, 0) === 0}
+                        disabled={Boolean(busy) || Object.values(marchArmy).reduce((s, c) => s + c, 0) === 0}
                         onClick={() => void act(`march-${event.id}`, { type: "dispatch", eventId: event.id, ...marchArmy })}
                         className="mt-2 w-full rounded-md bg-rose-600 px-2 py-1.5 text-xs font-bold text-white disabled:opacity-40"
                       >
