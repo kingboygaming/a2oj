@@ -20,6 +20,7 @@ import {
   type WorldEntityPayload,
   type WorldRealtimeChange,
 } from "@/lib/world-realtime";
+import { VIEW_RADIUS_METERS } from "@/lib/world-coordinates";
 
 export type WorldRealtimeStatus = "connecting" | "live" | "polling" | "offline";
 
@@ -66,13 +67,17 @@ export function useWorldRealtime({
   userId,
   coordinateX,
   coordinateZ,
+  viewRadiusMeters = VIEW_RADIUS_METERS,
   onEntities,
   onBaseHint,
+  onSyncBase,
 }: {
   enabled?: boolean;
   userId: string;
   coordinateX: number;
   coordinateZ: number;
+  /** View radius in metres; grows with a completed scout camp. */
+  viewRadiusMeters?: number;
   onEntities: (payload: WorldEntityPayload) => void;
   /**
    * BASE hints cannot be resolved by the entity endpoint: a player's own base
@@ -80,6 +85,10 @@ export function useWorldRealtime({
    * snapshot instead, which already carries `baseAttacks`/`nearbyBases`.
    */
   onBaseHint?: (ids: string[]) => void;
+  /**
+   * Periodic or visibility sync for the player's own base (resources, training, research).
+   */
+  onSyncBase?: () => Promise<void> | void;
 }) {
   const [status, setStatus] = useState<WorldRealtimeStatus>(
     HAS_REALTIME ? "connecting" : "polling",
@@ -87,6 +96,7 @@ export function useWorldRealtime({
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const onEntitiesRef = useRef(onEntities);
   const onBaseHintRef = useRef(onBaseHint);
+  const onSyncBaseRef = useRef(onSyncBase);
 
   useEffect(() => {
     onEntitiesRef.current = onEntities;
@@ -95,6 +105,10 @@ export function useWorldRealtime({
   useEffect(() => {
     onBaseHintRef.current = onBaseHint;
   }, [onBaseHint]);
+
+  useEffect(() => {
+    onSyncBaseRef.current = onSyncBase;
+  }, [onSyncBase]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -195,6 +209,13 @@ export function useWorldRealtime({
       }
       const ok = await fetchEntities([], true);
       if (disposed) return;
+      if (onSyncBaseRef.current) {
+        try {
+          await onSyncBaseRef.current();
+        } catch {
+          // Sync base error is handled gracefully
+        }
+      }
       if (live) return; // realtime took over while this poll was in flight
       if (ok) {
         // Recover to live mode when the channels are still subscribed and only
@@ -231,6 +252,11 @@ export function useWorldRealtime({
       }
       const ok = await fetchEntities([], true);
       if (disposed) return;
+      if (onSyncBaseRef.current) {
+        try {
+          await onSyncBaseRef.current();
+        } catch {}
+      }
       // Realtime is connected but authoritative reads keep failing: fall back.
       if (!ok && failures >= 2) {
         live = false;
@@ -356,7 +382,7 @@ export function useWorldRealtime({
       supabase = createClient(SUPABASE_URL!, SUPABASE_KEY!, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      const topics = worldRegionsForView(coordinateX, coordinateZ).map(worldRealtimeTopic);
+      const topics = worldRegionsForView(coordinateX, coordinateZ, viewRadiusMeters).map(worldRealtimeTopic);
       channelCount = topics.length;
       topics.forEach((topic, index) => {
         const channel = supabase!.channel(topic, {
@@ -392,6 +418,7 @@ export function useWorldRealtime({
       if (live) {
         if (Date.now() - lastSync >= WORLD_REALTIME_POLL_MS) {
           void fetchEntities([], true);
+          void onSyncBaseRef.current?.();
         }
       } else {
         schedulePoll(0);
@@ -404,6 +431,7 @@ export function useWorldRealtime({
       setStatusSafe(live ? "live" : "polling");
       if (live) {
         void fetchEntities([], true);
+        void onSyncBaseRef.current?.();
         scheduleResync();
       } else {
         schedulePoll(0);
@@ -437,7 +465,8 @@ export function useWorldRealtime({
     };
     // `userId`/coordinates are stable for the lifetime of a base; the callback
     // is read through a ref so identity changes do not resubscribe channels.
-  }, [enabled, userId, coordinateX, coordinateZ]);
+    // A scout camp completion changes the view radius and resubscribes once.
+  }, [enabled, userId, coordinateX, coordinateZ, viewRadiusMeters]);
 
   return { status, lastSyncedAt };
 }

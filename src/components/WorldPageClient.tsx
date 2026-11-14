@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { WorldAlliancePanel } from "@/components/WorldAlliancePanel";
 import type { WorldSnapshot } from "@/lib/world";
 
@@ -33,21 +33,106 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
 
-  async function refresh() {
-    const response = await fetch("/api/world", { cache: "no-store" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
-    const nextSnapshot = result as WorldSnapshot;
-    setSnapshot(nextSnapshot);
-    setAttackArmy((current) => ({
-      infantry: Math.min(current.infantry, nextSnapshot.base.army.infantry, 500),
-      archers: Math.min(current.archers, nextSnapshot.base.army.archers, 500),
-      cavalry: Math.min(current.cavalry, nextSnapshot.base.army.cavalry, 500),
-    }));
-    setAttackTargetId((current) =>
-      nextSnapshot.nearbyBases.some((base) => base.userId === current) ? current : "",
-    );
-  }
+  const lastSyncedServerTimeRef = useRef(Date.now());
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const elapsedHours = Math.max(0, nowMs - lastSyncedServerTimeRef.current) / 3_600_000;
+  const displayWood = Math.min(
+    snapshot.base.capacity,
+    Math.floor(snapshot.base.wood + elapsedHours * snapshot.base.woodPerHour),
+  );
+  const displayStone = Math.min(
+    snapshot.base.capacity,
+    Math.floor(snapshot.base.stone + elapsedHours * snapshot.base.stonePerHour),
+  );
+  const displayFood = Math.min(
+    snapshot.base.capacity,
+    Math.floor(snapshot.base.food + elapsedHours * snapshot.base.foodPerHour),
+  );
+
+  const refreshInFlight = useRef<Promise<void> | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    const task = (async () => {
+      const response = await fetch("/api/world", { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
+      lastSyncedServerTimeRef.current = Date.now();
+      const nextSnapshot = result as WorldSnapshot;
+      setSnapshot(nextSnapshot);
+      setAttackArmy((current) => ({
+        infantry: Math.min(current.infantry, nextSnapshot.base.army.infantry, 500),
+        archers: Math.min(current.archers, nextSnapshot.base.army.archers, 500),
+        cavalry: Math.min(current.cavalry, nextSnapshot.base.army.cavalry, 500),
+      }));
+      setAttackTargetId((current) =>
+        nextSnapshot.nearbyBases.some((base) => base.userId === current) ? current : "",
+      );
+    })();
+    refreshInFlight.current = task;
+    try {
+      await task;
+    } finally {
+      refreshInFlight.current = null;
+    }
+  }, []);
+
+  // Periodic 12-second auto-sync when tab is visible
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refresh().catch(() => {});
+      }
+    }, 12_000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  // Auto-refresh when troop training or any other timer finishes
+  useEffect(() => {
+    const timestamps: number[] = [];
+
+    if (snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt) {
+      timestamps.push(new Date(snapshot.base.army.trainingCompletesAt).getTime());
+    }
+    if (snapshot.base.castlePendingLevel !== null && snapshot.base.castleUpgradeCompletesAt) {
+      timestamps.push(new Date(snapshot.base.castleUpgradeCompletesAt).getTime());
+    }
+    if (snapshot.base.upgradeType !== null && snapshot.base.upgradeCompletesAt) {
+      timestamps.push(new Date(snapshot.base.upgradeCompletesAt).getTime());
+    }
+    if (snapshot.base.activeResearch?.completesAt) {
+      timestamps.push(new Date(snapshot.base.activeResearch.completesAt).getTime());
+    }
+
+    if (timestamps.length === 0) return;
+
+    const currentTime = Date.now();
+    const nextTimestamp = Math.min(...timestamps);
+    const delay = Math.max(500, nextTimestamp - currentTime + 600);
+
+    const timer = setTimeout(() => {
+      void refresh().catch(() => {});
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [
+    snapshot.base.army.trainingType,
+    snapshot.base.army.trainingCompletesAt,
+    snapshot.base.castlePendingLevel,
+    snapshot.base.castleUpgradeCompletesAt,
+    snapshot.base.upgradeType,
+    snapshot.base.upgradeCompletesAt,
+    snapshot.base.activeResearch?.completesAt,
+    refresh,
+  ]);
 
   async function act(key: string, action: ActionRequest) {
     setBusy(key);
@@ -120,16 +205,21 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
         </section>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2">
+      <section className="grid gap-3 sm:grid-cols-3">
         <article className="rounded-2xl border border-amber-500/20 bg-[var(--paper)] p-5">
           <p className="text-sm font-semibold text-[var(--muted)]">🪵 Gỗ</p>
-          <p className="mt-1 text-3xl font-black text-[var(--navy)]">{snapshot.base.wood.toLocaleString("vi-VN")}</p>
+          <p className="mt-1 text-3xl font-black text-[var(--navy)]">{displayWood.toLocaleString("vi-VN")}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">+{snapshot.base.woodPerHour}/giờ · kho tối đa {snapshot.base.capacity.toLocaleString("vi-VN")}</p>
         </article>
         <article className="rounded-2xl border border-slate-400/30 bg-[var(--paper)] p-5">
           <p className="text-sm font-semibold text-[var(--muted)]">🪨 Đá</p>
-          <p className="mt-1 text-3xl font-black text-[var(--navy)]">{snapshot.base.stone.toLocaleString("vi-VN")}</p>
+          <p className="mt-1 text-3xl font-black text-[var(--navy)]">{displayStone.toLocaleString("vi-VN")}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">+{snapshot.base.stonePerHour}/giờ · kho tối đa {snapshot.base.capacity.toLocaleString("vi-VN")}</p>
+        </article>
+        <article className="rounded-2xl border border-lime-500/30 bg-[var(--paper)] p-5">
+          <p className="text-sm font-semibold text-[var(--muted)]">🌾 Lương thực</p>
+          <p className="mt-1 text-3xl font-black text-[var(--navy)]">{displayFood.toLocaleString("vi-VN")}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">+{snapshot.base.foodPerHour}/giờ · kho tối đa {snapshot.base.capacity.toLocaleString("vi-VN")}</p>
         </article>
       </section>
 
@@ -355,11 +445,26 @@ export function WorldPageClient({ initialSnapshot }: { initialSnapshot: WorldSna
             </article>
           ))}
         </div>
-        {snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt && (
-          <p className="mt-3 rounded-lg bg-[var(--teal)]/5 px-3 py-2 text-sm text-[var(--navy)]">
-            Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"}; hoàn tất lúc {utcLabel(snapshot.base.army.trainingCompletesAt)}.
-          </p>
-        )}
+        {snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt && (() => {
+          const targetMs = new Date(snapshot.base.army.trainingCompletesAt).getTime();
+          const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+          const min = Math.floor(remSec / 60);
+          const sec = remSec % 60;
+          const countdownStr = remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…";
+          return (
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-[var(--teal)]/10 border border-[var(--teal)]/20 px-4 py-2.5 text-sm text-[var(--navy)]">
+              <div>
+                <p className="font-semibold">
+                  ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"}
+                </p>
+                <p className="text-xs text-[var(--muted)]">Hoàn tất lúc {utcLabel(snapshot.base.army.trainingCompletesAt)}</p>
+              </div>
+              <span className="font-mono text-sm font-bold text-[var(--teal)] bg-white/70 px-2.5 py-1 rounded border border-[var(--teal)]/30">
+                {countdownStr}
+              </span>
+            </div>
+          );
+        })()}
         {activeMarch && (
           <p className="mt-3 rounded-lg bg-rose-400/5 px-3 py-2 text-sm text-[var(--navy)]">
             {activeMarch.status === "RETURNING" ? "Quân đang trở về từ" : "Quân đang hành quân tới"} {activeMarch.eventTitle}.

@@ -6,6 +6,9 @@ import {
   WORLD_BUILDING_PLOT_COUNT,
   WORLD_TRAINING_BUILDINGS,
   isWorldBuildingType,
+  worldBuildingMaxLevel,
+  worldScoutCampLevel,
+  worldViewRadiusMeters,
   type WorldBuildingType,
   type WorldBuildingView,
 } from "@/lib/world-buildings";
@@ -27,7 +30,7 @@ import {
   worldMilitaryTierName,
   type WorldResearchKey,
 } from "@/lib/world-research";
-import { getVisibleChunksAroundPosition, VIEW_RADIUS_METERS } from "@/lib/world-coordinates";
+import { getVisibleChunksAroundPosition } from "@/lib/world-coordinates";
 import {
   DEFAULT_WORLD_SEED,
   generateChunkObjects,
@@ -2273,6 +2276,32 @@ export async function processScheduledWorldJobs(now = new Date()) {
 
   return { processed, retried, failed, trained, marches, baseAttacks, mapOperations, research, changes };
 }
+/**
+ * Effective scout camp level from raw WorldBuilding rows.
+ *
+ * Mirrors the completion rule used by `loadWorldSnapshot` (a row whose
+ * `completesAt` has passed exposes `pendingLevel`) so the lightweight entity
+ * endpoint can derive the same view radius without running scheduled jobs.
+ */
+function scoutCampLevelFromRows(
+  buildings: ReadonlyArray<{
+    buildingType: string;
+    level: number;
+    pendingLevel: number | null;
+    completesAt: Date;
+  }>,
+  now: Date,
+): number {
+  return worldScoutCampLevel(
+    buildings.map((building) => ({
+      type: building.buildingType,
+      level: building.completesAt <= now
+        ? building.pendingLevel ?? building.level
+        : building.level,
+    })),
+  );
+}
+
 export async function loadWorldSnapshot(userId: string, now = new Date()): Promise<WorldSnapshot> {
   await ensureDailyWorldEvents(now);
   await processScheduledWorldJobs(now);
@@ -2291,6 +2320,8 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   if (base.coordinateX === null || base.coordinateZ === null) {
     throw new Error(`World base for user ${userId} is missing coordinates after initialization.`);
   }
+  // A completed scout camp widens what this player can see (and attack).
+  const viewRadiusMeters = worldViewRadiusMeters(scoutCampLevelFromRows(baseBuildings, now));
   const [events, pending, activeMarch, otherBases, baseAttacks, occupations, mapNodes, mapCamps, mapMissions, items, researchRows] = await Promise.all([
     prisma.worldEvent.findMany({
       where: { endsAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
@@ -2330,13 +2361,13 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
         // area instead of loading every base in the world.
         coordinateX: {
           not: null,
-          gte: base.coordinateX - VIEW_RADIUS_METERS,
-          lte: base.coordinateX + VIEW_RADIUS_METERS,
+          gte: base.coordinateX - viewRadiusMeters,
+          lte: base.coordinateX + viewRadiusMeters,
         },
         coordinateZ: {
           not: null,
-          gte: base.coordinateZ - VIEW_RADIUS_METERS,
-          lte: base.coordinateZ + VIEW_RADIUS_METERS,
+          gte: base.coordinateZ - viewRadiusMeters,
+          lte: base.coordinateZ + viewRadiusMeters,
         },
       },
       select: {
@@ -2421,7 +2452,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
     .filter((otherBase): otherBase is NonNullable<typeof otherBase> => otherBase !== null)
     // The bounding box includes the square's corners; drop bases outside the
     // circular render/view radius before ranking them.
-    .filter((otherBase) => otherBase.distanceMeters <= VIEW_RADIUS_METERS)
+    .filter((otherBase) => otherBase.distanceMeters <= viewRadiusMeters)
     .sort((left, right) => left.distanceMeters - right.distanceMeters)
     .slice(0, WORLD_NEARBY_BASE_LIMIT);
 
@@ -2429,7 +2460,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   const visibleChunks = getVisibleChunksAroundPosition(
     base.coordinateX,
     base.coordinateZ,
-    VIEW_RADIUS_METERS,
+    viewRadiusMeters,
   );
   const proceduralObjects = visibleChunks.flatMap((c) =>
     generateChunkObjects(c.chunkX, c.chunkZ, DEFAULT_WORLD_SEED)
@@ -2687,22 +2718,34 @@ export async function loadWorldEntities(
 ): Promise<WorldEntitiesPayload> {
   const viewer = await prisma.worldBase.findUnique({
     where: { userId },
-    select: { coordinateX: true, coordinateZ: true },
+    select: {
+      coordinateX: true,
+      coordinateZ: true,
+      buildings: {
+        select: {
+          buildingType: true,
+          level: true,
+          pendingLevel: true,
+          completesAt: true,
+        },
+      },
+    },
   });
   if (!viewer || viewer.coordinateX === null || viewer.coordinateZ === null) {
     throw new WorldActionError("Chưa khởi tạo căn cứ.", 404);
   }
   const originX = viewer.coordinateX;
   const originZ = viewer.coordinateZ;
+  const viewRadiusMeters = worldViewRadiusMeters(scoutCampLevelFromRows(viewer.buildings, now));
   const inView = (definition: WorldMapObject) =>
-    Math.hypot(definition.x - originX, definition.z - originZ) <= VIEW_RADIUS_METERS;
+    Math.hypot(definition.x - originX, definition.z - originZ) <= viewRadiusMeters;
 
   let definitions: WorldMapObject[];
   if (options.all) {
     const byId = new Map<string, WorldMapObject>();
     for (const definition of RESOURCE_NODES) byId.set(definition.id, definition);
     for (const definition of ROGUE_CAMPS) byId.set(definition.id, definition);
-    for (const chunk of getVisibleChunksAroundPosition(originX, originZ, VIEW_RADIUS_METERS)) {
+    for (const chunk of getVisibleChunksAroundPosition(originX, originZ, viewRadiusMeters)) {
       for (const definition of generateChunkObjects(chunk.chunkX, chunk.chunkZ, DEFAULT_WORLD_SEED)) {
         byId.set(definition.id, definition);
       }
@@ -2733,13 +2776,13 @@ export async function loadWorldEntities(
         userId: { not: userId },
         coordinateX: {
           not: null,
-          gte: originX - VIEW_RADIUS_METERS,
-          lte: originX + VIEW_RADIUS_METERS,
+          gte: originX - viewRadiusMeters,
+          lte: originX + viewRadiusMeters,
         },
         coordinateZ: {
           not: null,
-          gte: originZ - VIEW_RADIUS_METERS,
-          lte: originZ + VIEW_RADIUS_METERS,
+          gte: originZ - viewRadiusMeters,
+          lte: originZ + viewRadiusMeters,
         },
       },
       select: {
@@ -2763,7 +2806,7 @@ export async function loadWorldEntities(
     bases: otherBases
       .map((otherBase) => buildNearbyBaseState(otherBase, originX, originZ))
       .filter((otherBase): otherBase is NonNullable<typeof otherBase> => otherBase !== null)
-      .filter((otherBase) => otherBase.distanceMeters <= VIEW_RADIUS_METERS)
+      .filter((otherBase) => otherBase.distanceMeters <= viewRadiusMeters)
       .sort((left, right) => left.distanceMeters - right.distanceMeters)
       .slice(0, WORLD_NEARBY_BASE_LIMIT),
     mapObjects: definitions.map((definition) => ({
@@ -3167,8 +3210,14 @@ export async function performWorldBuildingAction(
     const definition = WORLD_BUILDING_DEFINITIONS[existing.buildingType];
 
     if (action.type === "UPGRADE") {
-      if (currentLevel >= MAX_BUILDING_LEVEL) {
-        throw new WorldActionError("Công trình đã đạt cấp tối đa.", 409);
+      const maxLevel = worldBuildingMaxLevel(existing.buildingType);
+      if (currentLevel >= maxLevel) {
+        throw new WorldActionError(
+          maxLevel === MAX_BUILDING_LEVEL
+            ? "Công trình đã đạt cấp tối đa."
+            : `${definition.name} chỉ có thể nâng tới cấp ${maxLevel}.`,
+          409,
+        );
       }
       const nextLevel = currentLevel + 1;
       const woodCost = definition.woodCost * nextLevel;

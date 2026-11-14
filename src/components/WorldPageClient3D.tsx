@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { WorldAlliancePanel } from "@/components/WorldAlliancePanel";
 import { useGraphicsStore } from "@/components/world3d/engine/useGraphicsStore";
 import { useCameraStore } from "@/components/world3d/engine/useCameraStore";
+import { useViewStore } from "@/components/world3d/engine/useViewStore";
 import { useHeaderHeight } from "@/components/world3d/engine/useHeaderHeight";
 import { useWorldRealtime } from "@/components/world3d/realtime/useWorldRealtime";
 import type { GraphicsQuality } from "@/components/world3d/engine/GraphicsSettings";
@@ -20,6 +21,8 @@ import { WorldResearchPanel } from "@/components/world3d/city/WorldResearchPanel
 import {
   WORLD_BUILDING_DEFINITIONS,
   WORLD_TRAINING_BUILDINGS,
+  worldScoutCampLevel,
+  worldViewRadiusMeters,
   type WorldBuildingType,
 } from "@/lib/world-buildings";
 import type { WorldResearchKey } from "@/lib/world-research";
@@ -86,6 +89,29 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   // De-duplicate concurrent snapshot fetches: polling, actions and the manual
   // refresh button all share the same in-flight request.
   const refreshInFlight = useRef<Promise<void> | null>(null);
+  const lastSyncedServerTimeRef = useRef(Date.now());
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const elapsedHours = Math.max(0, nowMs - lastSyncedServerTimeRef.current) / 3_600_000;
+  const displayWood = Math.min(
+    snapshot.base.capacity,
+    Math.floor(snapshot.base.wood + elapsedHours * snapshot.base.woodPerHour),
+  );
+  const displayStone = Math.min(
+    snapshot.base.capacity,
+    Math.floor(snapshot.base.stone + elapsedHours * snapshot.base.stonePerHour),
+  );
+  const displayFood = Math.min(
+    snapshot.base.capacity,
+    Math.floor(snapshot.base.food + elapsedHours * snapshot.base.foodPerHour),
+  );
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) return refreshInFlight.current;
@@ -93,6 +119,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       const response = await fetch("/api/world", { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Không thể tải trạng thái thế giới.");
+      lastSyncedServerTimeRef.current = Date.now();
       // A realtime merge may have applied a newer row while this request was in
       // flight; keep the newer entity versions instead of overwriting them.
       setSnapshot((current) => mergeWorldSnapshot(current, result as WorldSnapshot));
@@ -125,7 +152,71 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     coordinateZ: snapshot.base.coordinateZ,
     onEntities: applyRealtimeEntities,
     onBaseHint: refreshFromBaseHint,
+    onSyncBase: refresh,
   });
+
+  // Auto-refresh when any timer completes (Troop training, building construction, research, castle upgrade, march)
+  useEffect(() => {
+    const timestamps: number[] = [];
+
+    // Troop training queue
+    if (snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt) {
+      timestamps.push(new Date(snapshot.base.army.trainingCompletesAt).getTime());
+    }
+
+    // Castle upgrade
+    if (snapshot.base.castlePendingLevel !== null && snapshot.base.castleUpgradeCompletesAt) {
+      timestamps.push(new Date(snapshot.base.castleUpgradeCompletesAt).getTime());
+    }
+
+    // Warehouse / Factory upgrade
+    if (snapshot.base.upgradeType !== null && snapshot.base.upgradeCompletesAt) {
+      timestamps.push(new Date(snapshot.base.upgradeCompletesAt).getTime());
+    }
+
+    // Research
+    if (snapshot.base.activeResearch?.completesAt) {
+      timestamps.push(new Date(snapshot.base.activeResearch.completesAt).getTime());
+    }
+
+    // Buildings
+    for (const b of snapshot.buildings) {
+      if (b.status !== "COMPLETED" && b.completesAt) {
+        timestamps.push(new Date(b.completesAt).getTime());
+      }
+    }
+
+    // Active march
+    const march = snapshot.events.find((event) => event.activeMarch)?.activeMarch;
+    const marchTargetTime = march?.status === "RETURNING" ? march.returnsAt : march?.arrivesAt;
+    if (marchTargetTime) {
+      timestamps.push(new Date(marchTargetTime).getTime());
+    }
+
+    if (timestamps.length === 0) return;
+
+    const currentTime = Date.now();
+    const nextTimestamp = Math.min(...timestamps);
+    // Buffer 600ms so server clock is >= completion time
+    const delay = Math.max(500, nextTimestamp - currentTime + 600);
+
+    const timer = setTimeout(() => {
+      void refresh().catch(() => {});
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [
+    snapshot.base.army.trainingType,
+    snapshot.base.army.trainingCompletesAt,
+    snapshot.base.castlePendingLevel,
+    snapshot.base.castleUpgradeCompletesAt,
+    snapshot.base.upgradeType,
+    snapshot.base.upgradeCompletesAt,
+    snapshot.base.activeResearch?.completesAt,
+    snapshot.buildings,
+    snapshot.events,
+    refresh,
+  ]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -422,7 +513,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           <div className="flex items-center gap-2 rounded-xl border border-amber-500/25 bg-black/65 px-3 py-1.5 backdrop-blur-md">
             <span className="text-base">🪵</span>
             <div>
-              <p className="text-xs font-bold leading-none text-white">{snapshot.base.wood.toLocaleString("vi-VN")}</p>
+              <p className="text-xs font-bold leading-none text-white">{displayWood.toLocaleString("vi-VN")}</p>
               <p className="mt-0.5 text-[10px] leading-none text-amber-300/60">+{snapshot.base.woodPerHour}/h</p>
             </div>
           </div>
@@ -430,7 +521,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           <div className="flex items-center gap-2 rounded-xl border border-slate-400/25 bg-black/65 px-3 py-1.5 backdrop-blur-md">
             <span className="text-base">🪨</span>
             <div>
-              <p className="text-xs font-bold leading-none text-white">{snapshot.base.stone.toLocaleString("vi-VN")}</p>
+              <p className="text-xs font-bold leading-none text-white">{displayStone.toLocaleString("vi-VN")}</p>
               <p className="mt-0.5 text-[10px] leading-none text-slate-400/60">+{snapshot.base.stonePerHour}/h</p>
             </div>
           </div>
@@ -438,7 +529,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             <span className="text-base">🌾</span>
             <div>
               <p className="text-xs font-bold leading-none text-white">
-                {snapshot.base.food.toLocaleString("vi-VN")} / {snapshot.base.capacity.toLocaleString("vi-VN")}
+                {displayFood.toLocaleString("vi-VN")} / {snapshot.base.capacity.toLocaleString("vi-VN")}
               </p>
               <p className="mt-0.5 text-[10px] leading-none text-lime-300/60">+{snapshot.base.foodPerHour}/h · lương thực</p>
             </div>
@@ -635,8 +726,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 plotIndex={selectedPlotIndex}
                 building={castleBuilding}
                 castleLevel={snapshot.base.castleLevel}
-                wood={snapshot.base.wood}
-                stone={snapshot.base.stone}
+                wood={displayWood}
+                stone={displayStone}
                 busy={Boolean(busy)}
                 onChoose={(type) => setPlacementType(type)}
                 onAction={(type, plotIndex, buildingType) => {
@@ -678,10 +769,10 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               researchSpeedLevel={snapshot.base.researchSpeedLevel}
               castleLevel={snapshot.base.castleLevel}
               resources={{
-                wood: snapshot.base.wood,
-                stone: snapshot.base.stone,
+                wood: displayWood,
+                stone: displayStone,
                 iron: snapshot.base.iron,
-                food: snapshot.base.food,
+                food: displayFood,
                 rare: snapshot.base.rare,
               }}
               busy={busy === "research"}
@@ -731,11 +822,26 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   </div>
                 );
               })}
-              {snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt && (
-                <p className="rounded-md bg-teal-500/10 px-2.5 py-1.5 text-xs text-teal-300">
-                  ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"} · {utcLabel(snapshot.base.army.trainingCompletesAt)}
-                </p>
-              )}
+              {snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt && (() => {
+                const targetMs = new Date(snapshot.base.army.trainingCompletesAt).getTime();
+                const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+                const min = Math.floor(remSec / 60);
+                const sec = remSec % 60;
+                const countdownStr = remSec > 0 ? `${min}:${sec.toString().padStart(2, "0")}` : "Đang hoàn tất…";
+                return (
+                  <div className="flex items-center justify-between rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-xs text-teal-300">
+                    <div>
+                      <p className="font-semibold text-white">
+                        ⏳ Đang huấn luyện {snapshot.base.army.trainingCount} {snapshot.base.army.trainingType === "INFANTRY" ? "bộ binh" : snapshot.base.army.trainingType === "ARCHERS" ? "cung thủ" : "kỵ binh"}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-teal-300/60">Hoàn tất lúc {utcLabel(snapshot.base.army.trainingCompletesAt)}</p>
+                    </div>
+                    <span className="font-mono text-xs font-bold text-teal-200 bg-teal-950/60 px-2 py-1 rounded border border-teal-400/30">
+                      {countdownStr}
+                    </span>
+                  </div>
+                );
+              })()}
               {activeMarch && (
                 <p className="rounded-md bg-rose-400/10 px-2.5 py-1.5 text-xs text-rose-300">
                   ⚔️ {activeMarch.status === "RETURNING" ? "Quân đang trở về" : "Quân đang hành quân"} · {activeMarch.eventTitle}

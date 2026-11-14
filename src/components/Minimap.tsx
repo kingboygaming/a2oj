@@ -6,11 +6,13 @@
 
 import { useEffect, useRef } from "react";
 import { getBiomeAtWorld } from "./world3d/terrain/BiomeManager";
-import { VIEW_RADIUS_METERS, VIEW_RADIUS_UNITS, worldToRender } from "@/lib/world-coordinates";
+import {
+  METERS_PER_RENDER_UNIT,
+  VIEW_RADIUS_METERS,
+  worldToRender,
+} from "@/lib/world-coordinates";
 
 const CANVAS = 80;
-/** Half-width of the area shown, in world metres (matches the 3D view radius). */
-const WORLD_RANGE_METERS = VIEW_RADIUS_METERS;
 
 function biomeToRgb(type: string): [number, number, number] {
   switch (type) {
@@ -28,6 +30,8 @@ interface MinimapProps {
   /** Player's stored world coordinates in metres. */
   cityX?: number;
   cityZ?: number;
+  /** Half-width of the map in metres (grows with the scout camp). */
+  viewRadiusMeters?: number;
   nearbyBases?: Array<{
     coordinateX: number;
     coordinateZ: number;
@@ -36,22 +40,29 @@ interface MinimapProps {
   }>;
 }
 
-export function Minimap({ cityX = 0, cityZ = 0, nearbyBases = [] }: MinimapProps) {
+export function Minimap({
+  cityX = 0,
+  cityZ = 0,
+  viewRadiusMeters = VIEW_RADIUS_METERS,
+  nearbyBases = [],
+}: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const viewRadiusUnits = viewRadiusMeters / METERS_PER_RENDER_UNIT;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const rangeMeters = Math.max(1_000, viewRadiusMeters);
 
     // Schedule off-main-thread to avoid blocking paint
     const id = requestAnimationFrame(() => {
       const img = ctx.createImageData(CANVAS, CANVAS);
       for (let py = 0; py < CANVAS; py++) {
         for (let px = 0; px < CANVAS; px++) {
-          const offsetX = ((px / CANVAS) * 2 - 1) * WORLD_RANGE_METERS;
-          const offsetZ = ((py / CANVAS) * 2 - 1) * WORLD_RANGE_METERS;
+          const offsetX = ((px / CANVAS) * 2 - 1) * rangeMeters;
+          const offsetZ = ((py / CANVAS) * 2 - 1) * rangeMeters;
           const biome = getBiomeAtWorld(cityX + offsetX, cityZ + offsetZ);
           const [r, g, b] = biomeToRgb(biome.type);
           const idx = (py * CANVAS + px) * 4;
@@ -72,9 +83,9 @@ export function Minimap({ cityX = 0, cityZ = 0, nearbyBases = [] }: MinimapProps
           cityX,
           cityZ,
         );
-        if (Math.abs(relX) <= VIEW_RADIUS_UNITS && Math.abs(relZ) <= VIEW_RADIUS_UNITS) {
-          const bx = Math.round(((relX / VIEW_RADIUS_UNITS + 1) / 2) * CANVAS);
-          const by = Math.round(((relZ / VIEW_RADIUS_UNITS + 1) / 2) * CANVAS);
+        if (Math.abs(relX) <= viewRadiusUnits && Math.abs(relZ) <= viewRadiusUnits) {
+          const bx = Math.round(((relX / viewRadiusUnits + 1) / 2) * CANVAS);
+          const by = Math.round(((relZ / viewRadiusUnits + 1) / 2) * CANVAS);
           const shielded =
             base.pvpShieldUntil !== null &&
             base.pvpShieldUntil !== undefined &&
@@ -107,7 +118,7 @@ export function Minimap({ cityX = 0, cityZ = 0, nearbyBases = [] }: MinimapProps
     });
 
     return () => cancelAnimationFrame(id);
-  }, [cityX, cityZ, nearbyBases]);
+  }, [cityX, cityZ, nearbyBases, viewRadiusMeters]);
 
   return (
     <div
@@ -115,7 +126,9 @@ export function Minimap({ cityX = 0, cityZ = 0, nearbyBases = [] }: MinimapProps
       className="rounded overflow-hidden border border-white/20 shadow-lg"
     >
       <div className="bg-black/80 h-4 flex items-center px-1.5">
-        <span className="text-[8px] font-bold uppercase tracking-widest text-white/50">Minimap</span>
+        <span className="text-[8px] font-bold uppercase tracking-widest text-white/50">
+          Minimap · {Math.round(viewRadiusMeters / 1_000)} km
+        </span>
       </div>
       <canvas
         ref={canvasRef}

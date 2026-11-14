@@ -1,4 +1,4 @@
-import { VIEW_RADIUS_METERS, worldToChunk } from "./world-coordinates";
+import { CHUNK_SIZE, VIEW_RADIUS_METERS, worldToChunk } from "./world-coordinates";
 import type { WorldEntitiesPayload } from "./world";
 
 export type { WorldEntitiesPayload } from "./world";
@@ -12,9 +12,12 @@ export type { WorldEntitiesPayload } from "./world";
  * published.
  */
 
-/** One realtime region covers 5 chunks (100 km) so a 44 km view radius touches
- * at most 2 regions per axis (usually exactly 1). */
+/** One realtime region covers 5 chunks (100 km). A base view (44 km) touches
+ * 1–2 regions per axis; a level 3 scout camp view (89 km) can touch 3, so the
+ * client subscribes to every region intersecting its view box (max 9). */
 export const WORLD_REALTIME_REGION_CHUNKS = 5;
+/** Hard cap on broadcast channels per client (3×3 regions). */
+export const WORLD_REALTIME_MAX_REGIONS = 9;
 export const WORLD_REALTIME_CHANNEL_PREFIX = "world:region:";
 export const WORLD_REALTIME_EVENT = "world-change";
 
@@ -62,13 +65,20 @@ export function worldRegionsForView(
   z: number,
   radiusMeters = VIEW_RADIUS_METERS,
 ): string[] {
-  const regions = new Set<string>();
-  for (const offsetX of [-radiusMeters, radiusMeters]) {
-    for (const offsetZ of [-radiusMeters, radiusMeters]) {
-      regions.add(worldRegionKey(x + offsetX, z + offsetZ));
+  const regionSizeMeters = CHUNK_SIZE * WORLD_REALTIME_REGION_CHUNKS;
+  const minRegionX = Math.floor((x - radiusMeters) / regionSizeMeters);
+  const maxRegionX = Math.floor((x + radiusMeters) / regionSizeMeters);
+  const minRegionZ = Math.floor((z - radiusMeters) / regionSizeMeters);
+  const maxRegionZ = Math.floor((z + radiusMeters) / regionSizeMeters);
+
+  const regions: string[] = [];
+  for (let regionX = minRegionX; regionX <= maxRegionX; regionX += 1) {
+    for (let regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ += 1) {
+      regions.push(`${regionX}:${regionZ}`);
+      if (regions.length >= WORLD_REALTIME_MAX_REGIONS) return regions;
     }
   }
-  return [...regions];
+  return regions;
 }
 
 export function worldRealtimeTopic(regionKey: string) {
