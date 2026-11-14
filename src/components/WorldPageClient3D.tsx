@@ -15,6 +15,7 @@ import { mergeWorldEntities, mergeWorldSnapshot } from "@/lib/world-merge";
 import { Minimap } from "@/components/Minimap";
 import { FPSCounter } from "@/components/FPSCounter";
 import { WorldObjectPanel } from "@/components/world3d/interaction/WorldObjectPanel";
+import { TroopDispatchStatus, ActiveMarchesHud } from "@/components/world3d/army/TroopDispatchStatus";
 import type { WorldMapObject } from "@/lib/world-map-objects";
 import { worldToRender } from "@/lib/world-coordinates";
 import { useClickOutside } from "@/hooks/useClickOutside";
@@ -285,11 +286,28 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       }
     }
 
-    // Active march
+    // Active march (World Event)
     const march = snapshot.events.find((event) => event.activeMarch)?.activeMarch;
     const marchTargetTime = march?.status === "RETURNING" ? march.returnsAt : march?.arrivesAt;
     if (marchTargetTime) {
       timestamps.push(new Date(marchTargetTime).getTime());
+    }
+
+    // Active map missions (quân lâu la / khai thác tài nguyên)
+    for (const mission of snapshot.mapMissions) {
+      if (mission.status === "IN_TRANSIT" && mission.arrivesAt) {
+        timestamps.push(new Date(mission.arrivesAt).getTime());
+      }
+      if (mission.status === "RETURNING" && mission.returnsAt) {
+        timestamps.push(new Date(mission.returnsAt).getTime());
+      }
+    }
+
+    // Active base attacks (công thành / bị tấn công)
+    for (const attack of snapshot.baseAttacks) {
+      if (attack.status === "IN_TRANSIT" && attack.arrivesAt) {
+        timestamps.push(new Date(attack.arrivesAt).getTime());
+      }
     }
 
     if (timestamps.length === 0) return;
@@ -314,8 +332,36 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     snapshot.base.activeResearch?.completesAt,
     snapshot.buildings,
     snapshot.events,
+    snapshot.mapMissions,
+    snapshot.baseAttacks,
     refresh,
   ]);
+
+  const handleLocateTarget = useCallback(
+    (worldX: number, worldZ: number, targetId?: string, isBase?: boolean) => {
+      if (viewMode !== "world") {
+        setViewMode("world");
+      }
+      const playerX = snapshot.base.coordinateX ?? 0;
+      const playerZ = snapshot.base.coordinateZ ?? 0;
+      const { x: renderX, z: renderZ } = worldToRender(worldX, worldZ, playerX, playerZ);
+      focusOn([renderX, 5, renderZ]);
+      if (isBase && targetId) {
+        const base = snapshot.nearbyBases.find((b) => b.userId === targetId);
+        if (base) {
+          setSelectedRemoteBase(base);
+          setSelectedWorldObject(null);
+        }
+      } else if (targetId) {
+        const obj = snapshot.mapObjectDefinitions.find((d) => d.id === targetId);
+        if (obj) {
+          setSelectedWorldObject(obj);
+          setSelectedRemoteBase(null);
+        }
+      }
+    },
+    [viewMode, setViewMode, snapshot.base.coordinateX, snapshot.base.coordinateZ, snapshot.nearbyBases, snapshot.mapObjectDefinitions, focusOn],
+  );
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -849,6 +895,19 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               </div>
             );
           })()}
+
+          {/* Active Marches & Operations Floating HUD */}
+          <ActiveMarchesHud
+            userId={snapshot.userId}
+            mapMissions={snapshot.mapMissions}
+            baseAttacks={snapshot.baseAttacks}
+            mapObjectDefinitions={snapshot.mapObjectDefinitions}
+            nowMs={nowMs}
+            onOpenMarches={() => {
+              setActiveTab("army");
+              setShowPanel(true);
+            }}
+          />
         </div>
 
         {/* Controls — right */}
@@ -935,12 +994,35 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 : 0;
               const inProgressBuildingsCount = snapshot.buildings.filter((b) => b.status !== "COMPLETED").length;
               const remScoutSec = activeScout ? Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000)) : 0;
+              const activeMarchesCount =
+                snapshot.mapMissions.filter(
+                  (m) =>
+                    m.status === "IN_TRANSIT" ||
+                    m.status === "RESOLVING" ||
+                    m.status === "RETURNING" ||
+                    m.status === "GARRISONED" ||
+                    m.status === "OCCUPYING",
+                ).length +
+                snapshot.baseAttacks.filter(
+                  (a) => a.status === "IN_TRANSIT" || a.status === "RESOLVING",
+                ).length;
+              const hasIncomingAttack = snapshot.baseAttacks.some(
+                (a) =>
+                  a.defenderUserId === snapshot.userId &&
+                  (a.status === "IN_TRANSIT" || a.status === "RESOLVING"),
+              );
 
               let label = "";
               if (tab === "base") {
                 label = remCastleSec > 0 ? `🏰 Căn cứ (${remCastleSec}s)` : "🏰 Căn cứ";
               } else if (tab === "army") {
-                label = remTrainSec > 0 ? `⚔️ Quân (${remTrainSec}s)` : "⚔️ Quân";
+                label = hasIncomingAttack
+                  ? "🚨 Quân (BỊ ĐÁNH!)"
+                  : remTrainSec > 0
+                  ? `⚔️ Quân (${remTrainSec}s)`
+                  : activeMarchesCount > 0
+                  ? `⚔️ Quân (${activeMarchesCount})`
+                  : "⚔️ Quân";
               } else if (tab === "hospital") {
                 label = remHealSec > 0 ? `🩹 Viện (${remHealSec}s)` : totalWounded > 0 ? `🩹 Viện (${totalWounded})` : "🩹 Viện";
               } else if (tab === "research") {
@@ -1131,18 +1213,31 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
           {/* ── Tab: Army ── */}
           {activeTab === "army" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-teal-400">Huấn luyện binh sĩ</p>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={trainingCount}
-                  onChange={(e) => setTrainingCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
-                  className="w-16 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
-                />
-              </div>
+            <div className="space-y-4">
+              {/* ── Status of troop dispatches: rogue camps, base attacks, resource gathering ── */}
+              <TroopDispatchStatus
+                userId={snapshot.userId}
+                playerCoordinateX={snapshot.base.coordinateX}
+                playerCoordinateZ={snapshot.base.coordinateZ}
+                mapMissions={snapshot.mapMissions}
+                baseAttacks={snapshot.baseAttacks}
+                mapObjectDefinitions={snapshot.mapObjectDefinitions}
+                nowMs={nowMs}
+                onLocate={handleLocateTarget}
+              />
+
+              <div className="border-t border-white/10 pt-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-teal-400">Huấn luyện binh sĩ</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={trainingCount}
+                    onChange={(e) => setTrainingCount(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                    className="w-16 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
+                  />
+                </div>
               {([
                 { type: "INFANTRY" as const, label: "🛡️ Bộ binh", count: snapshot.base.army.infantry, cost: "10 gỗ · 5 đá" },
                 { type: "ARCHERS" as const, label: "🏹 Cung thủ", count: snapshot.base.army.archers, cost: "15 gỗ · 5 đá" },
@@ -1224,6 +1319,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   ⚔️ {activeMarch.status === "RETURNING" ? "Quân đang trở về" : "Quân đang hành quân"} · {activeMarch.eventTitle}
                 </p>
               )}
+              </div>
             </div>
           )}
 

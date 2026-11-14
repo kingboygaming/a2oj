@@ -161,6 +161,7 @@ export type WorldMapMissionView = {
   archers: number;
   cavalry: number;
   troopTier: number;
+  dispatchedAt?: string;
   arrivesAt: string;
   returnsAt: string | null;
   completedAt: string | null;
@@ -173,6 +174,9 @@ export type WorldMapMissionView = {
   rewardExperience: number;
   rewardItemKey: string | null;
   rewardItemCount: number;
+  casualtiesInfantry?: number;
+  casualtiesArchers?: number;
+  casualtiesCavalry?: number;
 };
 
 export interface WorldScoutReport {
@@ -337,6 +341,7 @@ export type WorldSnapshot = {
     infantry: number;
     archers: number;
     cavalry: number;
+    dispatchedAt?: string;
     arrivesAt: string;
     resolvedAt: string | null;
     winnerUserId: string | null;
@@ -2783,6 +2788,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       archers: march.archers,
       cavalry: march.cavalry,
       troopTier: march.troopTier,
+      dispatchedAt: march.dispatchedAt.toISOString(),
       arrivesAt: march.arrivesAt.toISOString(),
       returnsAt: march.returnsAt?.toISOString() ?? null,
       completedAt: march.completedAt?.toISOString() ?? null,
@@ -2795,6 +2801,9 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       rewardExperience: march.rewardExperience,
       rewardItemKey: march.rewardItemKey,
       rewardItemCount: march.rewardItemCount,
+      casualtiesInfantry: march.casualtiesInfantry,
+      casualtiesArchers: march.casualtiesArchers,
+      casualtiesCavalry: march.casualtiesCavalry,
     })),
     base: {
       playerName: player.displayName || player.username,
@@ -2961,6 +2970,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       infantry: attack.infantry,
       archers: attack.archers,
       cavalry: attack.cavalry,
+      dispatchedAt: attack.dispatchedAt.toISOString(),
       arrivesAt: attack.arrivesAt.toISOString(),
       resolvedAt: attack.resolvedAt?.toISOString() ?? null,
       winnerUserId: attack.winnerUserId,
