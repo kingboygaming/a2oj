@@ -671,14 +671,6 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               setSelectedWorldObject(null);
               setShowPanel(false);
             }}
-            onSelectPlot={(plotIndex) => {
-              setSelectedWorldObject(null);
-              setSelectedRemoteBase(null);
-              setSelectedPlotIndex(plotIndex);
-              setPlacementType(null);
-              setActiveTab("build");
-              setShowPanel(true);
-            }}
             onSelectCastle={() => {
               setSelectedPlotIndex(null);
               setSelectedRemoteBase(null);
@@ -1394,8 +1386,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                     {WORLD_BUILDING_DEFINITIONS[placementType].stoneCost}🪨
                   </p>
                   <p className="mt-1 text-emerald-200/75">
-                    Bấm vào <strong className="text-emerald-300">ô XANH</strong> trong City View để đặt công trình ngay.
-                    Ô <strong className="text-rose-300">ĐỎ</strong> là ô đã có công trình nên không đặt được. Chi phí tăng 10% cho mỗi công trình đã có.
+                    Di chuột trong thành: ghost tự snap vào ô gần nhất; bấm để đặt xuống.{" "}
+                    Ô <strong className="text-rose-300">đỏ</strong> đã có công trình thì không đặt được. Chi phí tăng 10% cho mỗi công trình đã có.
                   </p>
                   <button
                     type="button"

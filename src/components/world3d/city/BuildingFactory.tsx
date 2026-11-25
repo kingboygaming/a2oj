@@ -108,11 +108,13 @@ export function WorldBuildingModel({
   level,
   position,
   ghost = false,
+  ghostColor = "#34d399",
 }: {
   type: WorldBuildingType;
   level: number;
   position: [number, number, number];
   ghost?: boolean;
+  ghostColor?: string;
 }) {
   const model = useMemo(() => {
     const building =
@@ -134,7 +136,7 @@ export function WorldBuildingModel({
       building.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.material = new THREE.MeshStandardMaterial({
-            color: 0x55e6a5,
+            color: new THREE.Color(ghostColor),
             transparent: true,
             opacity: 0.48,
             depthWrite: false,
@@ -143,7 +145,7 @@ export function WorldBuildingModel({
       });
     }
     return building;
-  }, [ghost, level, type]);
+  }, [ghost, ghostColor, level, type]);
 
   return (
     <group position={position}>

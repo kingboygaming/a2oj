@@ -52,7 +52,6 @@ interface CastleSystemProps {
     healingCompletesAt: string | null;
   } | null;
   onActivityComplete?: () => void;
-  onSelectPlot: (plotIndex: number) => void;
   onSelectCastle: () => void;
   onSelectBuilding: (plotIndex: number) => void;
 }
@@ -76,21 +75,28 @@ export function CastleSystem({
   activeResearch,
   healing,
   onActivityComplete,
-  onSelectPlot,
   onSelectCastle,
   onSelectBuilding,
 }: CastleSystemProps) {
   const [cx, , cz] = position;
   const wallHeightScale = 1 + Math.min(20, Math.max(0, wallLevel - 1)) * 0.05;
-  const [hoveredPlot, setHoveredPlot] = useState<number | null>(null);
-  // Render used plots plus a buffer of fresh green boxes. Capped only for GPU
-  // safety — gameplay itself has no plot limit.
+  const [snapped, setSnapped] = useState<{ index: number; x: number; z: number } | null>(null);
+  // Render used plots plus a buffer of fresh cells. Capped only for GPU safety.
   const plotCount = Math.min(
     WORLD_PLOT_LIMIT,
     Math.max(24, ...buildings.map((building) => building.plotIndex + 12)),
   );
+  const plots = useMemo<Array<[number, number]>>(
+    () => Array.from({ length: plotCount }, (_, index) => worldPlotPosition(index)),
+    [plotCount],
+  );
+  // The wall grows with the city so every placeable cell stays *inside* it.
+  const wallRadius = Math.max(
+    23,
+    ...plots.map(([x, z]) => Math.hypot(x, z) + 7),
+  );
   const layout = useMemo(() => {
-    const radius = 23;
+    const radius = wallRadius;
     const walls: Array<{ pos: [number, number, number]; rot: number; len: number }> = [];
     for (let index = 0; index < 8; index++) {
       if (index === 4) continue;
@@ -124,9 +130,22 @@ export function CastleSystem({
         gateZ,
       ] as [number, number, number],
     };
-  }, [cx, cz, anchorWorldX, anchorWorldZ]);
+  }, [cx, cz, anchorWorldX, anchorWorldZ, wallRadius]);
 
   const plotBuildings = new Map(buildings.map((building) => [building.plotIndex, building]));
+
+  /** Snap a render-space XZ point to the closest grid cell inside the wall. */
+  function findNearestCell(renderX: number, renderZ: number) {
+    let nearest: { index: number; x: number; z: number; distance: number } | null = null;
+    for (let index = 0; index < plots.length; index += 1) {
+      const [px, pz] = plots[index];
+      const distance = Math.hypot(renderX - px, renderZ - pz);
+      if (!nearest || distance < nearest.distance) {
+        nearest = { index, x: px, z: pz, distance };
+      }
+    }
+    return nearest && nearest.distance <= 4.2 ? nearest : null;
+  }
 
   return (
     <group>
@@ -173,15 +192,13 @@ export function CastleSystem({
       ))}
       <Gate position={layout.gatePosition} rotation={-layout.gateAngle + Math.PI / 2} />
 
-      {cityView && Array.from({ length: plotCount }, (_, index): [number, number] => worldPlotPosition(index)).map(([offsetX, offsetZ], index) => {
+      {cityView && plots.map(([offsetX, offsetZ], index) => {
         const x = cx + offsetX;
         const z = cz + offsetZ;
         const groundY = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
         const building = plotBuildings.get(index);
-        // Every plot is unlocked now. Green = empty and placeable; red =
-        // occupied or temporarily disabled (e.g. another action in flight).
         const placeable = !building && !placementDisabled;
-        const isHovered = hoveredPlot === index && placeable;
+        const isSnapped = snapped?.index === index;
         const color = placeable
           ? "#34d399"
           : building
@@ -191,33 +208,13 @@ export function CastleSystem({
 
         return (
           <group key={`plot-${index}`} position={[x, groundY + 0.08, z]}>
-            <mesh
-              position={[0, 0, 0]}
-              onPointerOver={(event) => {
-                event.stopPropagation();
-                if (placeable) setHoveredPlot(index);
-              }}
-              onPointerOut={() => setHoveredPlot((current) => (current === index ? null : current))}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (placeable && placementType && onPlacePlot) {
-                  onPlacePlot(index, placementType);
-                  return;
-                }
-                if (building) {
-                  // Red plots still open the management panel for the existing
-                  // building; they just cannot receive a new building.
-                  onSelectBuilding(index);
-                  return;
-                }
-                if (placeable) onSelectPlot(index);
-              }}
-            >
+            {/* Grid cell marker — a click target is the plane below, not this box. */}
+            <mesh position={[0, 0, 0]}>
               <boxGeometry args={[5.6, 0.16, 5.6]} />
               <meshBasicMaterial
                 color={color}
                 transparent
-                opacity={isHovered ? 0.3 : placeable ? 0.14 : 0.1}
+                opacity={isSnapped ? 0.32 : placeable ? 0.14 : 0.1}
                 depthWrite={false}
               />
             </mesh>
@@ -240,8 +237,6 @@ export function CastleSystem({
                   ghost={building.status !== "COMPLETED"}
                 />
               </group>
-            ) : placementType && isHovered ? (
-              <WorldBuildingModel type={placementType} level={1} position={[0, -0.08, 0]} ghost />
             ) : null}
 
             {building && (() => {
@@ -347,6 +342,82 @@ export function CastleSystem({
           </group>
         );
       })}
+
+      {cityView && (
+        <>
+          {/* Invisible build plane: raycast → nearest grid cell → snap. */}
+          <mesh
+            position={[cx, position[1] + 0.06, cz]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            onPointerMove={(event) => {
+              event.stopPropagation();
+              const cell = findNearestCell(event.point.x, event.point.z);
+              setSnapped(cell ? { index: cell.index, x: cell.x, z: cell.z } : null);
+            }}
+            onPointerOut={() => setSnapped(null)}
+            onClick={(event) => {
+              event.stopPropagation();
+              const cell = findNearestCell(event.point.x, event.point.z);
+              if (!cell || !placementType) return;
+              if (!plotBuildings.has(cell.index) && onPlacePlot) {
+                onPlacePlot(cell.index, placementType);
+              } else if (plotBuildings.has(cell.index)) {
+                onSelectBuilding(cell.index);
+              }
+            }}
+          >
+            <planeGeometry args={[wallRadius * 2.4, wallRadius * 2.4]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
+          </mesh>
+
+          {snapped && placementType && (() => {
+            const y = heightAtRender(snapped.x, snapped.z, anchorWorldX, anchorWorldZ) + 0.12;
+            const occupied = plotBuildings.has(snapped.index);
+            const valid = !occupied && !placementDisabled;
+            return (
+              <group position={[snapped.x, y, snapped.z]}>
+                <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                  <boxGeometry args={[5.9, 0.22, 5.9]} />
+                  <meshBasicMaterial
+                    color={valid ? "#34d399" : "#f87171"}
+                    transparent
+                    opacity={0.55}
+                    wireframe
+                    depthWrite={false}
+                  />
+                </mesh>
+                <WorldBuildingModel
+                  type={placementType}
+                  level={1}
+                  position={[0, 0, 0]}
+                  ghost
+                  ghostColor={valid ? "#34d399" : "#f87171"}
+                />
+              </group>
+            );
+          })()}
+
+          {snapped && (
+            <Text
+              position={[
+                snapped.x,
+                heightAtRender(snapped.x, snapped.z, anchorWorldX, anchorWorldZ) + 7.5,
+                snapped.z,
+              ]}
+              fontSize={1.1}
+              color={plotBuildings.has(snapped.index) ? "#fca5a5" : "#6ee7b7"}
+              outlineColor="#000000"
+              outlineWidth={0.04}
+            >
+              {plotBuildings.has(snapped.index)
+                ? "Đã có công trình"
+                : placementType
+                  ? "Bấm để xây"
+                  : "Chọn công trình trong tab Xây"}
+            </Text>
+          )}
+        </>
+      )}
 
       <group position={[cx, position[1], cz]}>
         <mesh position={[0, 0.05, 0]}>

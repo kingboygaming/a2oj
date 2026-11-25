@@ -71,7 +71,6 @@ interface WorldSceneProps {
   onPlacePlot?: (plotIndex: number, type: WorldBuildingType) => void;
   onSelectWorldObject: (object: WorldMapObject) => void;
   onSelectBase?: (base: RemoteBaseInfo) => void;
-  onSelectPlot: (plotIndex: number) => void;
   onSelectCastle: () => void;
   onSelectBuilding: (plotIndex: number) => void;
 }
@@ -101,7 +100,6 @@ export function WorldScene({
   onPlacePlot,
   onSelectWorldObject,
   onSelectBase = () => {},
-  onSelectPlot,
   onSelectCastle,
   onSelectBuilding,
 }: WorldSceneProps) {
@@ -158,7 +156,6 @@ export function WorldScene({
           activeResearch={baseData.activeResearch}
           healing={baseData.hospital}
           onActivityComplete={baseData.onActivityComplete}
-          onSelectPlot={onSelectPlot}
           onSelectCastle={onSelectCastle}
           onSelectBuilding={onSelectBuilding}
         />

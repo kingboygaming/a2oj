@@ -159,8 +159,9 @@ export function CityBuildingPanel({
       </p>
       <h3 className="mt-1 text-lg font-bold">Chọn công trình để xây</h3>
       <p className="mt-1 text-xs text-white/50">
-        Chọn loại công trình rồi bấm vào <strong className="text-emerald-300">ô XANH</strong> trong City View để đặt ngay.{" "}
-        Ô <strong className="text-rose-300">ĐỎ</strong> (đã có công trình / chưa mở / hàng đợi bận) không đặt được.
+        Chọn loại công trình, di chuột trong thành để ghost tự snap vào ô gần nhất, rồi{" "}
+        <strong className="text-emerald-300">bấm để đặt xuống</strong>. Ô{" "}
+        <strong className="text-rose-300">đỏ</strong> đã có công trình thì không đặt được.
       </p>
       <p className="mt-1 text-[10px] text-emerald-200/60">
         {placedCount} công trình đã xây · chi phí +10% cho mỗi công trình. Ô đỏ có công trình vẫn bấm được để nâng cấp hoặc phá dỡ.
