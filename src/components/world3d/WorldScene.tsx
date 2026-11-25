@@ -15,7 +15,13 @@ import { WorldMapSystem } from "./interaction/WorldMapSystem";
 import { RemoteCastlesSystem, type RemoteBaseInfo } from "./interaction/RemoteCastlesSystem";
 import type { WorldMapObject } from "@/lib/world-map-objects";
 import type { WorldBuildingType, WorldBuildingView } from "@/lib/world-buildings";
-import type { WorldMapObjectState } from "@/lib/world";
+import type {
+  WorldExplorationRegionView,
+  WorldMapObjectState,
+  WorldScoutMissionView,
+} from "@/lib/world";
+import { FogOfWarSystem } from "./FogOfWarSystem";
+import { ScoutMissionMarkers } from "./ScoutMissionMarkers";
 import { useCameraStore } from "./engine/useCameraStore";
 import { useViewStore } from "./engine/useViewStore";
 import { METERS_PER_RENDER_UNIT } from "@/lib/world-coordinates";
@@ -25,6 +31,7 @@ interface WorldSceneProps {
     factoryLevel: number;
     warehouseLevel: number;
     castleLevel: number;
+    wallLevel?: number;
     playerName: string;
     coordinateX: number;
     coordinateZ: number;
@@ -54,6 +61,8 @@ interface WorldSceneProps {
   mapObjectStates: WorldMapObjectState[];
   mapObjects?: WorldMapObject[];
   nearbyBases?: RemoteBaseInfo[];
+  explorationRegions?: WorldExplorationRegionView[];
+  scoutMissions?: WorldScoutMissionView[];
   selectedBaseUserId?: string | null;
   currentUserId: string;
   selectedPlotIndex: number | null;
@@ -80,6 +89,8 @@ export function WorldScene({
   mapObjectStates,
   mapObjects,
   nearbyBases = [],
+  explorationRegions = [],
+  scoutMissions = [],
   selectedBaseUserId = null,
   currentUserId,
   selectedPlotIndex,
@@ -129,6 +140,7 @@ export function WorldScene({
           anchorWorldX={baseData.coordinateX}
           anchorWorldZ={baseData.coordinateZ}
           castleLevel={baseData.castleLevel}
+          wallLevel={baseData.wallLevel}
           playerName={baseData.playerName}
           buildings={baseData.buildings}
           cityView={viewMode === "city"}
@@ -184,6 +196,18 @@ export function WorldScene({
               maxRenderDistance={viewRadiusUnits}
               currentUserId={currentUserId}
               onSelect={onSelectWorldObject}
+            />
+            {/* Fog boundary + active region scouts (server-filtered data only) */}
+            <FogOfWarSystem
+              anchorWorldX={baseData.coordinateX}
+              anchorWorldZ={baseData.coordinateZ}
+              viewRadiusMeters={viewRadiusMeters}
+              explorationRegions={explorationRegions}
+            />
+            <ScoutMissionMarkers
+              anchorWorldX={baseData.coordinateX}
+              anchorWorldZ={baseData.coordinateZ}
+              missions={scoutMissions}
             />
           </Suspense>
           <GroundDecals

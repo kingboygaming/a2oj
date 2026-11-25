@@ -8,6 +8,8 @@ export const WORLD_BUILDING_TYPES = [
   "MILITARY_ACADEMY",
   "HOSPITAL",
   "SCOUT_CAMP",
+  "WATCHTOWER",
+  "GATEHOUSE",
   "LUMBER_MILL",
   "IRON_MINE",
   "STONE_QUARRY",
@@ -16,6 +18,8 @@ export const WORLD_BUILDING_TYPES = [
 ] as const;
 
 export type WorldBuildingType = (typeof WORLD_BUILDING_TYPES)[number];
+
+export type WorldBuildingGroup = "Quân sự" | "Kinh tế" | "Phòng thủ";
 
 export interface WorldBuildingView {
   id: string;
@@ -33,7 +37,7 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   WorldBuildingType,
   {
     name: string;
-    group: "Quân sự" | "Kinh tế";
+    group: WorldBuildingGroup;
     description: string;
     woodCost: number;
     stoneCost: number;
@@ -50,6 +54,8 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   MILITARY_ACADEMY: { name: "Học viện quân sự", group: "Quân sự", description: "Công trình quân sự nâng cao.", woodCost: 500, stoneCost: 400, constructionSeconds: 300, requiredCastleLevel: 10 },
   HOSPITAL: { name: "Quân y viện", group: "Quân sự", description: "Tiếp nhận và cứu chữa thương binh. Mỗi cấp tăng 150 sức chứa.", woodCost: 160, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
   SCOUT_CAMP: { name: "Trại trinh sát", group: "Quân sự", description: "Mỗi cấp mở rộng tầm nhìn bản đồ thêm 15 km, tối đa 89 km.", woodCost: 180, stoneCost: 100, constructionSeconds: 90, requiredCastleLevel: 1, maxLevel: 3 },
+  WATCHTOWER: { name: "Tháp canh", group: "Phòng thủ", description: "Tăng phòng thủ căn cứ và mở rộng tầm quan sát mỗi cấp.", woodCost: 170, stoneCost: 120, constructionSeconds: 100, requiredCastleLevel: 2, maxLevel: 10 },
+  GATEHOUSE: { name: "Cổng thành", group: "Phòng thủ", description: "Củng cố cổng thành, giảm tỉ lệ tài nguyên bị cướp khi bị tấn công.", woodCost: 200, stoneCost: 160, constructionSeconds: 120, requiredCastleLevel: 3, maxLevel: 10 },
   LUMBER_MILL: { name: "Xưởng gỗ", group: "Kinh tế", description: "Tăng năng lực khai thác gỗ.", woodCost: 100, stoneCost: 45, constructionSeconds: 60, requiredCastleLevel: 1 },
   IRON_MINE: { name: "Mỏ sắt", group: "Kinh tế", description: "Khai thác quặng sắt; sản lượng mỏ chưa được tích hợp.", woodCost: 150, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
   STONE_QUARRY: { name: "Mỏ đá", group: "Kinh tế", description: "Tăng năng lực khai thác đá.", woodCost: 100, stoneCost: 60, constructionSeconds: 60, requiredCastleLevel: 1 },

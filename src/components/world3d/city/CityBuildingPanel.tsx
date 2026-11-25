@@ -8,6 +8,13 @@ import {
   type WorldBuildingType,
   type WorldBuildingView,
 } from "@/lib/world-buildings";
+import {
+  WORLD_BUILD_QUEUE_LIMIT,
+  formatWorldDuration,
+  isWorldPlotUnlocked,
+  worldBuildingUpgradeCost,
+  worldBuildingUpgradeSeconds,
+} from "@/lib/world-progression";
 
 export function CityBuildingPanel({
   plotIndex,
@@ -17,6 +24,9 @@ export function CityBuildingPanel({
   stone,
   busy,
   nowMs = Date.now(),
+  unlockedSlots,
+  buildQueueActive = 0,
+  buildQueueLimit = WORLD_BUILD_QUEUE_LIMIT,
   onChoose,
   onAction,
   onOpenHospital,
@@ -28,11 +38,15 @@ export function CityBuildingPanel({
   stone: number;
   busy: boolean;
   nowMs?: number;
+  unlockedSlots?: number;
+  buildQueueActive?: number;
+  buildQueueLimit?: number;
   onChoose: (type: WorldBuildingType) => void;
   onAction: (action: "BUILD" | "UPGRADE" | "DEMOLISH", plotIndex: number, type?: WorldBuildingType) => void;
   onOpenHospital?: () => void;
 }) {
   const [confirmDemolish, setConfirmDemolish] = useState(false);
+  const queueBusy = buildQueueActive >= buildQueueLimit;
 
   if (plotIndex === null) {
     return (
@@ -49,9 +63,12 @@ export function CityBuildingPanel({
     const effectiveLevel = building.pendingLevel ?? building.level;
     const isMax = effectiveLevel >= maxLevel;
     const nextLevel = effectiveLevel + 1;
-    const woodCost = definition.woodCost * nextLevel;
-    const stoneCost = definition.stoneCost * nextLevel;
+    const upgradeCost = worldBuildingUpgradeCost(building.type, nextLevel);
+    const upgradeSeconds = worldBuildingUpgradeSeconds(building.type, nextLevel);
+    const woodCost = upgradeCost.wood;
+    const stoneCost = upgradeCost.stone;
     const inProgress = building.status !== "COMPLETED";
+    const plotUnlocked = isWorldPlotUnlocked(plotIndex, castleLevel);
     return (
       <div className="rounded-xl border border-amber-100/15 bg-[#211f1a]/80 p-4 text-amber-50">
         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300/70">Ô đất {plotIndex + 1}</p>
@@ -100,11 +117,20 @@ export function CityBuildingPanel({
             ) : (
               <button
                 type="button"
-                disabled={busy || nextLevel > maxLevel || wood < woodCost || stone < stoneCost}
+                disabled={
+                  busy ||
+                  queueBusy ||
+                  !plotUnlocked ||
+                  nextLevel > maxLevel ||
+                  wood < woodCost ||
+                  stone < stoneCost
+                }
                 onClick={() => onAction("UPGRADE", plotIndex)}
                 className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
               >
-                Nâng cấp · {woodCost} gỗ / {stoneCost} đá
+                {queueBusy
+                  ? `Hàng đợi đang bận (${buildQueueActive}/${buildQueueLimit})`
+                  : `Nâng cấp · ${woodCost} gỗ / ${stoneCost} đá · ${formatWorldDuration(upgradeSeconds)}`}
               </button>
             )}
             {building.type === "HOSPITAL" && onOpenHospital && (
@@ -156,7 +182,17 @@ export function CityBuildingPanel({
       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/75">Ô đất trống · {plotIndex + 1}</p>
       <h3 className="mt-1 text-lg font-bold">Chọn công trình</h3>
       <p className="mt-1 text-xs text-white/50">Chọn công trình để đặt ghost preview, sau đó xác nhận xây dựng.</p>
-      {(["Quân sự", "Kinh tế"] as const).map((group) => (
+      {!isWorldPlotUnlocked(plotIndex, castleLevel) && (
+        <p className="mt-2 rounded-lg border border-rose-300/25 bg-rose-500/10 p-2 text-[11px] text-rose-200">
+          🔒 Ô đất này chưa mở. Nâng lâu đài để mở thêm ô (hiện có {unlockedSlots ?? 0} ô).
+        </p>
+      )}
+      {queueBusy && (
+        <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-500/10 p-2 text-[11px] text-amber-200">
+          🏗️ Hàng đợi xây dựng đang bận ({buildQueueActive}/{buildQueueLimit}). Hoàn tất công trình hiện tại trước khi xây tiếp.
+        </p>
+      )}
+      {(["Quân sự", "Kinh tế", "Phòng thủ"] as const).map((group) => (
         <div key={group} className="mt-4">
           <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-amber-200/70">{group}</h4>
           <div className="space-y-1.5">
@@ -168,7 +204,7 @@ export function CityBuildingPanel({
                 <button
                   key={type}
                   type="button"
-                  disabled={busy || !unlocked || !affordable}
+                  disabled={busy || queueBusy || !unlocked || !affordable || !isWorldPlotUnlocked(plotIndex, castleLevel)}
                   onClick={() => onChoose(type)}
                   className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/8 bg-white/[0.035] px-3 py-2 text-left hover:border-emerald-300/30 hover:bg-emerald-300/5 disabled:cursor-not-allowed disabled:opacity-35"
                 >

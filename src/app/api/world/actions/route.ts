@@ -47,6 +47,14 @@ const requestSchema = z.discriminatedUnion("type", [
     type: z.literal("scoutBase"),
     targetUserId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal("scoutRegion"),
+    targetRegionX: z.number().int().min(-200).max(200),
+    targetRegionZ: z.number().int().min(-200).max(200),
+    infantry: z.number().int().min(0).max(200),
+    archers: z.number().int().min(0).max(200),
+    cavalry: z.number().int().min(0).max(200),
+  }),
 ]);
 
 export async function POST(request: Request) {

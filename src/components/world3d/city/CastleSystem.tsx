@@ -33,6 +33,8 @@ interface CastleSystemProps {
   anchorWorldX: number;
   anchorWorldZ: number;
   castleLevel: number;
+  /** Base wall level; higher levels render taller stone walls. */
+  wallLevel?: number;
   playerName: string;
   buildings: WorldBuildingView[];
   cityView: boolean;
@@ -62,6 +64,7 @@ export function CastleSystem({
   anchorWorldX,
   anchorWorldZ,
   castleLevel,
+  wallLevel = 1,
   playerName,
   buildings,
   cityView,
@@ -78,6 +81,7 @@ export function CastleSystem({
   onSelectBuilding,
 }: CastleSystemProps) {
   const [cx, , cz] = position;
+  const wallHeightScale = 1 + Math.min(20, Math.max(0, wallLevel - 1)) * 0.05;
   const layout = useMemo(() => {
     const radius = 23;
     const walls: Array<{ pos: [number, number, number]; rot: number; len: number }> = [];
@@ -149,7 +153,13 @@ export function CastleSystem({
       )}
 
       {layout.walls.map((wall, index) => (
-        <WallSegment key={`wall-${index}`} position={wall.pos} rotation={wall.rot} length={wall.len} />
+        <WallSegment
+          key={`wall-${index}`}
+          position={wall.pos}
+          rotation={wall.rot}
+          length={wall.len}
+          heightScale={wallHeightScale}
+        />
       ))}
       {layout.towers.map((tower, index) => (
         <WatchTower key={`tower-${index}`} position={tower} />

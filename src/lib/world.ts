@@ -15,6 +15,45 @@ import {
   type WorldBuildingView,
 } from "@/lib/world-buildings";
 import {
+  WORLD_BUILD_QUEUE_LIMIT,
+  WORLD_MAX_BUILDING_LEVEL,
+  WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
+  WORLD_WALL_MAX_LEVEL,
+  formatWorldDuration,
+  isWorldPlotUnlocked,
+  worldBuildingCompletionReward,
+  worldBuildingUpgradeCost,
+  worldBuildingUpgradeSeconds,
+  worldCastleRequirements,
+  worldCastleSlotCount,
+  worldCastleUpgradeCost,
+  worldCastleUpgradeSeconds,
+  worldDefenseBonusPercent,
+  worldGatehouseLevel,
+  worldLootReductionPercent,
+  worldWallDefensePercent,
+  worldWallHitPoints,
+  worldWallUpgradeCost,
+  worldWallUpgradeSeconds,
+  worldWatchtowerLevel,
+  worldWatchtowerViewBonusMeters,
+} from "@/lib/world-progression";
+import {
+  EXPLORATION_REGION_METERS,
+  SCOUT_MISSION_FOOD_COST,
+  SCOUT_MISSION_MAX_TROOPS,
+  SCOUT_MISSION_WOOD_COST,
+  explorationProgress,
+  initialRegionSet,
+  isRegionOnFrontier,
+  regionDiscoveryReward,
+  regionDistanceMeters,
+  regionKey,
+  scoutMissionDurationSeconds,
+  scoutRevealRegionSet,
+  worldToRegion,
+} from "@/lib/world-exploration";
+import {
   MAX_RESOURCE_NODE_OCCUPANCY,
   RESOURCE_NODE_OCCUPATION_MS,
   RESOURCE_NODE_RESPAWN_MS,
@@ -42,7 +81,7 @@ import { queueWorldRealtimeChanges } from "@/lib/world-realtime-server";
 import { WORLD_ENTITY_MAX_OBJECTS, type WorldRealtimeChange } from "@/lib/world-realtime";
 
 export const WORLD_OFFLINE_CAP_MS = 48 * 60 * 60 * 1000;
-export const WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL = 2_000;
+export { WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL };
 export const WORLD_MIN_TERRITORY_DISTANCE_METERS = 10_000;
 /** Max other-player bases returned in one snapshot/entity response. */
 export const WORLD_NEARBY_BASE_LIMIT = 20;
@@ -81,6 +120,9 @@ type WorldBaseState = {
   castleLevel: number;
   castlePendingLevel: number | null;
   castleUpgradeCompletesAt: Date | null;
+  wallLevel: number;
+  wallPendingLevel: number | null;
+  wallUpgradeCompletesAt: Date | null;
   activeResearchKey: string | null;
   activeResearchLevel: number | null;
   researchCompletesAt: Date | null;
@@ -119,6 +161,9 @@ type WorldProgress = {
   castleLevel: number;
   castlePendingLevel: number | null;
   castleUpgradeCompletesAt: Date | null;
+  wallLevel: number;
+  wallPendingLevel: number | null;
+  wallUpgradeCompletesAt: Date | null;
   upgradeType: string | null;
   upgradeCompletesAt: Date | null;
   lastSimulatedAt: Date;
@@ -211,6 +256,56 @@ export interface WorldScoutReport {
   }>;
 }
 
+export type WorldBuildingRewardView = {
+  id: string;
+  buildingType: WorldBuildingType;
+  level: number;
+  wood: number;
+  stone: number;
+  food: number;
+  iron: number;
+  grantedAt: string;
+};
+
+export type WorldScoutMissionView = {
+  id: string;
+  targetRegionX: number;
+  targetRegionZ: number;
+  status: string;
+  infantry: number;
+  archers: number;
+  cavalry: number;
+  dispatchedAt: string;
+  arrivesAt: string;
+  completesAt: string;
+  completedAt: string | null;
+  report: string | null;
+  revealedCount: number;
+  rewardWood: number;
+  rewardStone: number;
+  rewardFood: number;
+  rewardIron: number;
+};
+
+export type WorldExplorationRegionView = {
+  regionX: number;
+  regionZ: number;
+  source: string;
+  revealedAt: string;
+};
+
+export type WorldRedeemHistoryView = {
+  id: string;
+  codePreview: string;
+  campaign: string;
+  rewardWood: number;
+  rewardStone: number;
+  rewardFood: number;
+  rewardIron: number;
+  rewardA2Coin: number;
+  redeemedAt: string;
+};
+
 export type WorldSnapshot = {
   userId: string;
   now: string;
@@ -224,6 +319,40 @@ export type WorldSnapshot = {
     castleLevel: number;
     castlePendingLevel: number | null;
     castleUpgradeCompletesAt: string | null;
+    wall: {
+      level: number;
+      pendingLevel: number | null;
+      upgradeCompletesAt: string | null;
+      hitPoints: number;
+      defensePercent: number;
+    };
+    slots: {
+      unlocked: number;
+      total: number;
+    };
+    defense: {
+      bonusPercent: number;
+      lootReductionPercent: number;
+      watchtowerLevel: number;
+      gatehouseLevel: number;
+    };
+    castleUpgrade: {
+      nextLevel: number;
+      woodCost: number;
+      stoneCost: number;
+      durationSeconds: number;
+      requirements: Array<{
+        key: "WALL" | "ECONOMY";
+        label: string;
+        met: boolean;
+        detail: string;
+      }>;
+    };
+    buildQueue: {
+      limit: number;
+      active: Array<{ plotIndex: number; buildingType: WorldBuildingType; completesAt: string }>;
+    };
+    buildingRewards: WorldBuildingRewardView[];
     activeResearch: null | {
       key: WorldResearchKey;
       level: number;
@@ -367,6 +496,17 @@ export type WorldSnapshot = {
     wood: number;
     stone: number;
   }>;
+  exploration: {
+    regionSizeMeters: number;
+    percent: number;
+    revealedInView: number;
+    totalInView: number;
+    scoutCampLevel: number;
+    scoutCost: { wood: number; food: number };
+    regions: WorldExplorationRegionView[];
+    missions: WorldScoutMissionView[];
+  };
+  redeemHistory: WorldRedeemHistoryView[];
 };
 
 export class WorldActionError extends Error {
@@ -567,6 +707,13 @@ export function calculateWorldProgress(
   const nextCastleLevel = castleUpgradeFinished
     ? base.castlePendingLevel ?? base.castleLevel
     : base.castleLevel;
+  const wallUpgradeFinished =
+    base.wallPendingLevel !== null &&
+    base.wallUpgradeCompletesAt !== null &&
+    base.wallUpgradeCompletesAt <= now;
+  const nextWallLevel = wallUpgradeFinished
+    ? base.wallPendingLevel ?? base.wallLevel
+    : base.wallLevel;
   const upgradeAt = base.upgradeCompletesAt?.getTime();
   const boundaries = new Set<number>([accrualStart.getTime(), now.getTime()]);
   if (upgradeAt !== undefined && upgradeAt > accrualStart.getTime() && upgradeAt < now.getTime()) {
@@ -659,6 +806,9 @@ export function calculateWorldProgress(
     castleLevel: nextCastleLevel,
     castlePendingLevel: castleUpgradeFinished ? null : base.castlePendingLevel,
     castleUpgradeCompletesAt: castleUpgradeFinished ? null : base.castleUpgradeCompletesAt,
+    wallLevel: nextWallLevel,
+    wallPendingLevel: wallUpgradeFinished ? null : base.wallPendingLevel,
+    wallUpgradeCompletesAt: wallUpgradeFinished ? null : base.wallUpgradeCompletesAt,
     upgradeType: upgradeFinished ? null : base.upgradeType,
     upgradeCompletesAt: upgradeFinished ? null : base.upgradeCompletesAt,
     lastSimulatedAt: now,
@@ -750,13 +900,15 @@ function pendingProductionResearch(
 }
 
 export async function advanceWorld(userId: string, now: Date) {
-  await ensureBase(userId, now);
+  const ensured = await ensureBase(userId, now);
+  await ensureInitialExploration(ensured, now);
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const base = await prisma.worldBase.findUniqueOrThrow({ where: { userId } });
     const buildings = await prisma.worldBuilding.findMany({
       where: { baseId: base.id },
       select: {
+        id: true,
         buildingType: true,
         level: true,
         pendingLevel: true,
@@ -795,44 +947,127 @@ export async function advanceWorld(userId: string, now: Date) {
     const totalNewInfantry = healedInfantry + trainedInfantry;
     const totalNewArchers = healedArchers + trainedArchers;
     const totalNewCavalry = healedCavalry + trainedCavalry;
-    const updated = await prisma.worldBase.updateMany({
-      where: { id: base.id, version: base.version },
-      data: {
-        wood: progress.wood,
-        woodRemainder: progress.woodRemainder,
-        stone: progress.stone,
-        stoneRemainder: progress.stoneRemainder,
-        food: progress.food,
-        foodRemainder: progress.foodRemainder,
-        factoryLevel: progress.factoryLevel,
-        warehouseLevel: progress.warehouseLevel,
-        castleLevel: progress.castleLevel,
-        castlePendingLevel: progress.castlePendingLevel,
-        castleUpgradeCompletesAt: progress.castleUpgradeCompletesAt,
-        upgradeType: progress.upgradeType,
-        upgradeCompletesAt: progress.upgradeCompletesAt,
-        ...(totalNewInfantry > 0 ? { infantry: { increment: totalNewInfantry } } : {}),
-        ...(totalNewArchers > 0 ? { archers: { increment: totalNewArchers } } : {}),
-        ...(totalNewCavalry > 0 ? { cavalry: { increment: totalNewCavalry } } : {}),
-        ...(clearHealing
-          ? {
-              healingType: null,
-              healingCount: 0,
-              healingCompletesAt: null,
-            }
-          : {}),
-        ...(clearTraining
-          ? {
-              trainingType: null,
-              trainingCount: 0,
-              trainingCompletesAt: null,
-            }
-          : {}),
-        lastSimulatedAt: now,
-        version: { increment: 1 },
-      },
+
+    // Completion rewards are pushed by the server the first time a finished
+    // level is observed. `completesAt > lastSimulatedAt` limits the grant to
+    // levels that finished since the previous sweep, and the
+    // WorldBuildingReward ledger (unique buildingId+level) makes it idempotent.
+    const pendingRewards = buildings.flatMap((building) => {
+      if (building.pendingLevel === null) return [];
+      if (building.completesAt > now) return [];
+      if (building.completesAt <= base.lastSimulatedAt) return [];
+      if (!isWorldBuildingType(building.buildingType)) return [];
+      const reward = worldBuildingCompletionReward(building.buildingType, building.pendingLevel);
+      return [{
+        buildingId: building.id,
+        buildingType: building.buildingType,
+        level: building.pendingLevel,
+        ...reward,
+      }];
     });
-    if (updated.count === 1) return { ...progress, version: base.version + 1 };
+    const existingRewardKeys = pendingRewards.length
+      ? await prisma.worldBuildingReward.findMany({
+          where: {
+            baseId: base.id,
+            OR: pendingRewards.map((reward) => ({
+              buildingId: reward.buildingId,
+              level: reward.level,
+            })),
+          },
+          select: { buildingId: true, level: true },
+        })
+      : [];
+    const existingRewardSet = new Set(
+      existingRewardKeys.map((reward) => `${reward.buildingId}:${reward.level}`),
+    );
+    const dueRewards = pendingRewards.filter(
+      (reward) => !existingRewardSet.has(`${reward.buildingId}:${reward.level}`),
+    );
+    const rewardWood = dueRewards.reduce((total, reward) => total + reward.wood, 0);
+    const rewardStone = dueRewards.reduce((total, reward) => total + reward.stone, 0);
+    const rewardFood = dueRewards.reduce((total, reward) => total + reward.food, 0);
+    const rewardIron = dueRewards.reduce((total, reward) => total + reward.iron, 0);
+    const capacity = worldResourceCapacity(progress.warehouseLevel, buildings, now.getTime());
+    const nextWood = Math.min(capacity, progress.wood + rewardWood);
+    const nextStone = Math.min(capacity, progress.stone + rewardStone);
+    const nextFood = Math.min(capacity, progress.food + rewardFood);
+
+    const committed = await prisma.$transaction(async (tx) => {
+      const updated = await tx.worldBase.updateMany({
+        where: { id: base.id, version: base.version },
+        data: {
+          wood: nextWood,
+          woodRemainder: nextWood >= capacity ? 0 : progress.woodRemainder,
+          stone: nextStone,
+          stoneRemainder: nextStone >= capacity ? 0 : progress.stoneRemainder,
+          food: nextFood,
+          foodRemainder: nextFood >= capacity ? 0 : progress.foodRemainder,
+          iron: base.iron + rewardIron,
+          factoryLevel: progress.factoryLevel,
+          warehouseLevel: progress.warehouseLevel,
+          castleLevel: progress.castleLevel,
+          castlePendingLevel: progress.castlePendingLevel,
+          castleUpgradeCompletesAt: progress.castleUpgradeCompletesAt,
+          wallLevel: progress.wallLevel,
+          wallPendingLevel: progress.wallPendingLevel,
+          wallUpgradeCompletesAt: progress.wallUpgradeCompletesAt,
+          upgradeType: progress.upgradeType,
+          upgradeCompletesAt: progress.upgradeCompletesAt,
+          ...(totalNewInfantry > 0 ? { infantry: { increment: totalNewInfantry } } : {}),
+          ...(totalNewArchers > 0 ? { archers: { increment: totalNewArchers } } : {}),
+          ...(totalNewCavalry > 0 ? { cavalry: { increment: totalNewCavalry } } : {}),
+          ...(clearHealing
+            ? {
+                healingType: null,
+                healingCount: 0,
+                healingCompletesAt: null,
+              }
+            : {}),
+          ...(clearTraining
+            ? {
+                trainingType: null,
+                trainingCount: 0,
+                trainingCompletesAt: null,
+              }
+            : {}),
+          lastSimulatedAt: now,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) return null;
+
+      if (dueRewards.length > 0) {
+        await tx.worldBuildingReward.createMany({
+          data: dueRewards.map((reward) => ({
+            baseId: base.id,
+            buildingId: reward.buildingId,
+            buildingType: reward.buildingType,
+            level: reward.level,
+            wood: reward.wood,
+            stone: reward.stone,
+            food: reward.food,
+            iron: reward.iron,
+            grantedAt: now,
+          })),
+        });
+      }
+
+      return {
+        ...progress,
+        version: base.version + 1,
+        buildingRewards: dueRewards.map((reward) => ({
+          id: `${reward.buildingId}:${reward.level}`,
+          buildingType: reward.buildingType as WorldBuildingType,
+          level: reward.level,
+          wood: reward.wood,
+          stone: reward.stone,
+          food: reward.food,
+          iron: reward.iron,
+          grantedAt: now.toISOString(),
+        })),
+      };
+    });
+    if (committed) return committed;
   }
 
   throw new Error(`Could not advance world state for user ${userId} after concurrent updates.`);
@@ -1149,6 +1384,192 @@ async function reserveRandomWorldCoordinates(transaction: Prisma.TransactionClie
   return findRandomAvailableCoordinates([...occupiedBases, ...occupiedTerritories]);
 }
 
+async function ensureInitialExploration(
+  base: { id: string; coordinateX: number | null; coordinateZ: number | null },
+  now: Date,
+) {
+  if (base.coordinateX === null || base.coordinateZ === null) return;
+  const existing = await prisma.worldExploration.count({ where: { baseId: base.id } });
+  if (existing > 0) return;
+  const regions = initialRegionSet(base.coordinateX, base.coordinateZ);
+  try {
+    await prisma.worldExploration.createMany({
+      data: regions.map((region) => ({
+        baseId: base.id,
+        regionX: region.regionX,
+        regionZ: region.regionZ,
+        source: "INITIAL",
+        revealedAt: now,
+      })),
+    });
+  } catch (error) {
+    // A concurrent request may have seeded the same cells first.
+    if (!isWorldUniqueConstraintError(error)) throw error;
+  }
+}
+
+/**
+ * Lazily resolves due scout missions. Missions reserve troops at dispatch time;
+ * this sweep reveals the target block, pays first-discovery rewards once per
+ * region and returns the scouts. It is called from `processScheduledWorldJobs`
+ * so no long-running timer is ever needed.
+ */
+async function processWorldScoutMissions(now: Date) {
+  const due = await prisma.worldScoutMission.findMany({
+    where: {
+      status: { in: ["IN_TRANSIT", "SCOUTING"] },
+      completesAt: { lte: now },
+    },
+    orderBy: { completesAt: "asc" },
+    take: 100,
+    select: { id: true },
+  });
+  let completed = 0;
+  let failed = 0;
+  const changedUserIds = new Set<string>();
+
+  for (const { id } of due) {
+    try {
+      const resolvedUserId = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.worldScoutMission.updateMany({
+          where: {
+            id,
+            status: { in: ["IN_TRANSIT", "SCOUTING"] },
+            completesAt: { lte: now },
+          },
+          data: { status: "RESOLVING" },
+        });
+        if (!claimed.count) return null;
+
+        const mission = await tx.worldScoutMission.findUniqueOrThrow({ where: { id } });
+        const base = await tx.worldBase.findUnique({ where: { id: mission.baseId } });
+        if (!base) throw new Error(`Scout mission ${id} references a missing base.`);
+
+        const buildings = await tx.worldBuilding.findMany({
+          where: { baseId: base.id },
+          select: {
+            buildingType: true,
+            level: true,
+            pendingLevel: true,
+            completedAt: true,
+            completesAt: true,
+          },
+        });
+        const scoutCampLevel = scoutCampLevelFromRows(buildings, now);
+        const revealRegions = scoutRevealRegionSet(
+          mission.targetRegionX,
+          mission.targetRegionZ,
+          scoutCampLevel,
+        );
+        const alreadyRevealed = await tx.worldExploration.findMany({
+          where: {
+            baseId: base.id,
+            OR: revealRegions.map((region) => ({
+              regionX: region.regionX,
+              regionZ: region.regionZ,
+            })),
+          },
+          select: { regionX: true, regionZ: true },
+        });
+        const knownKeys = new Set(
+          alreadyRevealed.map((region) => regionKey(region.regionX, region.regionZ)),
+        );
+        const newRegions = revealRegions.filter(
+          (region) => !knownKeys.has(regionKey(region.regionX, region.regionZ)),
+        );
+
+        const baseX = base.coordinateX ?? 0;
+        const baseZ = base.coordinateZ ?? 0;
+        let rewardWood = 0;
+        let rewardStone = 0;
+        let rewardFood = 0;
+        let rewardIron = 0;
+        for (const region of newRegions) {
+          const reward = regionDiscoveryReward(baseX, baseZ, region.regionX, region.regionZ);
+          rewardWood += reward.wood;
+          rewardStone += reward.stone;
+          rewardFood += reward.food;
+          rewardIron += reward.iron;
+        }
+
+        if (newRegions.length > 0) {
+          await tx.worldExploration.createMany({
+            data: newRegions.map((region) => {
+              const reward = regionDiscoveryReward(baseX, baseZ, region.regionX, region.regionZ);
+              return {
+                baseId: base.id,
+                regionX: region.regionX,
+                regionZ: region.regionZ,
+                source: "SCOUT",
+                rewardWood: reward.wood,
+                rewardStone: reward.stone,
+                rewardFood: reward.food,
+                rewardIron: reward.iron,
+                revealedAt: now,
+              };
+            }),
+          });
+        }
+
+        const capacity = worldResourceCapacity(base.warehouseLevel, buildings, now.getTime());
+        const nextWood = Math.min(capacity, base.wood + rewardWood);
+        const nextStone = Math.min(capacity, base.stone + rewardStone);
+        const nextFood = Math.min(capacity, base.food + rewardFood);
+        const updated = await tx.worldBase.updateMany({
+          where: { id: base.id, version: base.version },
+          data: {
+            wood: nextWood,
+            woodRemainder: nextWood >= capacity ? 0 : base.woodRemainder,
+            stone: nextStone,
+            stoneRemainder: nextStone >= capacity ? 0 : base.stoneRemainder,
+            food: nextFood,
+            foodRemainder: nextFood >= capacity ? 0 : base.foodRemainder,
+            iron: base.iron + rewardIron,
+            infantry: Math.min(MAX_TROOPS_PER_TYPE, base.infantry + mission.infantry),
+            archers: Math.min(MAX_TROOPS_PER_TYPE, base.archers + mission.archers),
+            cavalry: Math.min(MAX_TROOPS_PER_TYPE, base.cavalry + mission.cavalry),
+            version: { increment: 1 },
+          },
+        });
+        if (!updated.count) throw new Error(`Could not return scouts for mission ${id}.`);
+
+        const report = newRegions.length
+          ? `Trinh sát vùng (${mission.targetRegionX}, ${mission.targetRegionZ}): phát hiện ${newRegions.length} ô bản đồ mới.`
+          : `Trinh sát vùng (${mission.targetRegionX}, ${mission.targetRegionZ}): không có ô mới.`;
+        await tx.worldScoutMission.update({
+          where: { id },
+          data: {
+            status: "COMPLETED",
+            completedAt: now,
+            revealedCount: newRegions.length,
+            rewardWood,
+            rewardStone,
+            rewardFood,
+            rewardIron,
+            report,
+          },
+        });
+        return base.userId;
+      });
+      if (resolvedUserId) {
+        completed += 1;
+        changedUserIds.add(resolvedUserId);
+      }
+    } catch (error) {
+      failed += 1;
+      console.error("World scout mission resolution failed.", {
+        missionId: id,
+        error: errorText(error),
+      });
+      await prisma.worldScoutMission
+        .updateMany({ where: { id, status: "RESOLVING" }, data: { status: "FAILED", completedAt: now } })
+        .catch(() => undefined);
+    }
+  }
+
+  return { completed, failed, changedUserIds: [...changedUserIds] };
+}
+
 async function processWorldBaseAttacks(now: Date) {
   await prisma.worldBaseOccupation.updateMany({
     where: { status: "ACTIVE", endsAt: { lte: now } },
@@ -1227,8 +1648,25 @@ async function processWorldBaseAttacks(now: Date) {
         const attackerPower = Math.floor(
           calculateCounterPower(attackingArmy, defendingArmy) * (1 + attack.attackerTroopTier * 0.25),
         );
+        const defenderBuildingLevels = defenderBuildings.map((building) => ({
+          type: building.buildingType,
+          level:
+            building.completesAt <= now
+              ? building.pendingLevel ?? building.level
+              : building.level,
+        }));
+        const defenseBonusPercent = worldDefenseBonusPercent(
+          defenderBase.wallLevel,
+          defenderBuildingLevels,
+        );
+        const lootReductionPercent = worldLootReductionPercent(
+          defenderBase.wallLevel,
+          defenderBuildingLevels,
+        );
         const defenderPower = Math.floor(
-          calculateCounterPower(defendingArmy, attackingArmy) * (1 + attack.defenderTroopTier * 0.25),
+          calculateCounterPower(defendingArmy, attackingArmy) *
+            (1 + attack.defenderTroopTier * 0.25) *
+            (1 + defenseBonusPercent / 100),
         );
         const attackerWins = attackerPower > defenderPower;
         const attackerLosses = calculateCasualtiesAtRate(
@@ -1269,15 +1707,16 @@ async function processWorldBaseAttacks(now: Date) {
           attackerBuildings,
           now.getTime(),
         );
+        const lootMultiplier = 1 - lootReductionPercent / 100;
         const stolenWood = attackerWins
           ? Math.min(
-              Math.floor(defenderProgress.wood * BASE_ATTACK_LOOT_RATE),
+              Math.floor(defenderProgress.wood * BASE_ATTACK_LOOT_RATE * lootMultiplier),
               Math.max(0, attackerCapacity - attackerProgress.wood),
             )
           : 0;
         const stolenStone = attackerWins
           ? Math.min(
-              Math.floor(defenderProgress.stone * BASE_ATTACK_LOOT_RATE),
+              Math.floor(defenderProgress.stone * BASE_ATTACK_LOOT_RATE * lootMultiplier),
               Math.max(0, attackerCapacity - attackerProgress.stone),
             )
           : 0;
@@ -1286,6 +1725,16 @@ async function processWorldBaseAttacks(now: Date) {
         if (attackerWins) {
           await tx.worldBuilding.deleteMany({ where: { baseId: defenderBase.id } });
           await tx.worldResearch.deleteMany({ where: { baseId: defenderBase.id } });
+          // The captured base is relocated, so its old fog map no longer
+          // applies. It is re-seeded around the new coordinates on next sweep.
+          await tx.worldExploration.deleteMany({ where: { baseId: defenderBase.id } });
+          await tx.worldScoutMission.updateMany({
+            where: {
+              baseId: defenderBase.id,
+              status: { in: ["IN_TRANSIT", "SCOUTING", "RESOLVING"] },
+            },
+            data: { status: "CANCELED", completedAt: now },
+          });
           await tx.worldMarch.updateMany({
             where: {
               userId: attack.defenderUserId,
@@ -1343,6 +1792,9 @@ async function processWorldBaseAttacks(now: Date) {
             castleLevel: attackerProgress.castleLevel,
             castlePendingLevel: attackerProgress.castlePendingLevel,
             castleUpgradeCompletesAt: attackerProgress.castleUpgradeCompletesAt,
+            wallLevel: attackerProgress.wallLevel,
+            wallPendingLevel: attackerProgress.wallPendingLevel,
+            wallUpgradeCompletesAt: attackerProgress.wallUpgradeCompletesAt,
             upgradeType: attackerProgress.upgradeType,
             upgradeCompletesAt: attackerProgress.upgradeCompletesAt,
             infantry: attackerTroopsAfterReturn.infantry,
@@ -1368,6 +1820,9 @@ async function processWorldBaseAttacks(now: Date) {
               castleLevel: 1,
               castlePendingLevel: null,
               castleUpgradeCompletesAt: null,
+              wallLevel: 1,
+              wallPendingLevel: null,
+              wallUpgradeCompletesAt: null,
               activeResearchKey: null,
               activeResearchLevel: null,
               researchCompletesAt: null,
@@ -1395,6 +1850,9 @@ async function processWorldBaseAttacks(now: Date) {
               castleLevel: defenderProgress.castleLevel,
               castlePendingLevel: defenderProgress.castlePendingLevel,
               castleUpgradeCompletesAt: defenderProgress.castleUpgradeCompletesAt,
+              wallLevel: defenderProgress.wallLevel,
+              wallPendingLevel: defenderProgress.wallPendingLevel,
+              wallUpgradeCompletesAt: defenderProgress.wallUpgradeCompletesAt,
               upgradeType: defenderProgress.upgradeType,
               upgradeCompletesAt: defenderProgress.upgradeCompletesAt,
               infantry: defenderBase.infantry - defenderLosses.infantry,
@@ -2410,6 +2868,7 @@ export async function processScheduledWorldJobs(now = new Date()) {
   const mapOperations = await processWorldMapOperations(now);
   const trained = await processWorldTraining(now);
   const healed = await processWorldHealing(now);
+  const scoutMissions = await processWorldScoutMissions(now);
   const marches = await processWorldMarches(now);
   const baseAttacks = await processWorldBaseAttacks(now);
   const staleBefore = new Date(now.getTime() - JOB_LOCK_TIMEOUT_MS);
@@ -2535,7 +2994,7 @@ export async function processScheduledWorldJobs(now = new Date()) {
   ];
   await queueWorldRealtimeChanges(changes);
 
-  return { processed, retried, failed, trained, marches, baseAttacks, mapOperations, research, changes };
+  return { processed, retried, failed, trained, marches, baseAttacks, mapOperations, research, scoutMissions, changes };
 }
 /**
  * Effective scout camp level from raw WorldBuilding rows.
@@ -2581,9 +3040,17 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   if (base.coordinateX === null || base.coordinateZ === null) {
     throw new Error(`World base for user ${userId} is missing coordinates after initialization.`);
   }
-  // A completed scout camp widens what this player can see (and attack).
-  const viewRadiusMeters = worldViewRadiusMeters(scoutCampLevelFromRows(baseBuildings, now));
-  const [events, pending, activeMarch, otherBases, baseAttacks, occupations, mapNodes, mapCamps, mapMissions, items, researchRows] = await Promise.all([
+  // A completed scout camp widens what this player can see (and attack); a
+  // watchtower adds a smaller bonus on top.
+  const effectiveBuildingLevels = baseBuildings.map((building) => ({
+    type: building.buildingType,
+    level: building.completesAt <= now ? building.pendingLevel ?? building.level : building.level,
+  }));
+  const scoutCampLevel = worldScoutCampLevel(effectiveBuildingLevels);
+  const viewRadiusMeters =
+    worldViewRadiusMeters(scoutCampLevel) +
+    worldWatchtowerViewBonusMeters(effectiveBuildingLevels);
+  const [events, pending, activeMarch, otherBases, baseAttacks, occupations, mapNodes, mapCamps, mapMissions, items, researchRows, explorationRows, scoutMissions, rewardRows, redeemRows] = await Promise.all([
     prisma.worldEvent.findMany({
       where: { endsAt: { gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } },
       orderBy: { startsAt: "desc" },
@@ -2680,6 +3147,28 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       where: { baseId: base.id },
       select: { researchKey: true, level: true },
     }),
+    prisma.worldExploration.findMany({
+      where: { baseId: base.id },
+      orderBy: [{ revealedAt: "desc" }, { id: "asc" }],
+      take: 2_000,
+      select: { regionX: true, regionZ: true, source: true, revealedAt: true },
+    }),
+    prisma.worldScoutMission.findMany({
+      where: { baseId: base.id },
+      orderBy: { dispatchedAt: "desc" },
+      take: 20,
+    }),
+    prisma.worldBuildingReward.findMany({
+      where: { baseId: base.id },
+      orderBy: { grantedAt: "desc" },
+      take: 20,
+    }),
+    prisma.worldRedeemRedemption.findMany({
+      where: { userId },
+      orderBy: { redeemedAt: "desc" },
+      take: 20,
+      include: { code: { select: { codePreview: true, campaign: true } } },
+    }),
   ]);
   const mapNodeById = new Map(mapNodes.map((node) => [node.id, node]));
   const mapCampById = new Map(mapCamps.map((camp) => [camp.id, camp]));
@@ -2709,12 +3198,29 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       : productionResearchLevel;
   const productionMultiplier = 1 + effectiveProductionLevel * 0.1;
 
+  const revealedKeys = new Set(
+    explorationRows.map((region) => regionKey(region.regionX, region.regionZ)),
+  );
+  const isPositionRevealed = (x: number, z: number) => {
+    const region = worldToRegion(x, z);
+    return revealedKeys.has(regionKey(region.regionX, region.regionZ));
+  };
+  const exploration = explorationProgress(
+    base.coordinateX,
+    base.coordinateZ,
+    viewRadiusMeters,
+    explorationRows,
+  );
+
   const nearbyBases = otherBases
     .map((otherBase) => buildNearbyBaseState(otherBase, base.coordinateX!, base.coordinateZ!))
     .filter((otherBase): otherBase is NonNullable<typeof otherBase> => otherBase !== null)
     // The bounding box includes the square's corners; drop bases outside the
     // circular render/view radius before ranking them.
     .filter((otherBase) => otherBase.distanceMeters <= viewRadiusMeters)
+    // Fog of War: another player's base only exists for this viewer once the
+    // 5 km region it stands in has been revealed (initial ring or scouting).
+    .filter((otherBase) => isPositionRevealed(otherBase.coordinateX, otherBase.coordinateZ))
     .sort((left, right) => left.distanceMeters - right.distanceMeters)
     .slice(0, WORLD_NEARBY_BASE_LIMIT);
 
@@ -2733,7 +3239,9 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
   for (const def of RESOURCE_NODES) allDefinitionsMap.set(def.id, def);
   for (const def of ROGUE_CAMPS) allDefinitionsMap.set(def.id, def);
   for (const def of proceduralObjects) allDefinitionsMap.set(def.id, def);
-  const allMapObjectDefinitions = Array.from(allDefinitionsMap.values());
+  const allMapObjectDefinitions = Array.from(allDefinitionsMap.values()).filter((definition) =>
+    isPositionRevealed(definition.x, definition.z),
+  );
 
   const mapObjectStates: WorldMapObjectState[] = allMapObjectDefinitions.map((definition) =>
     buildWorldMapObjectState(
@@ -2810,6 +3318,54 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       castleLevel: base.castleLevel,
       castlePendingLevel: base.castlePendingLevel,
       castleUpgradeCompletesAt: base.castleUpgradeCompletesAt?.toISOString() ?? null,
+      wall: {
+        level: base.wallLevel,
+        pendingLevel: base.wallPendingLevel,
+        upgradeCompletesAt: base.wallUpgradeCompletesAt?.toISOString() ?? null,
+        hitPoints: worldWallHitPoints(base.wallLevel),
+        defensePercent: worldWallDefensePercent(base.wallLevel),
+      },
+      slots: {
+        unlocked: worldCastleSlotCount(base.castleLevel),
+        total: WORLD_BUILDING_PLOT_COUNT,
+      },
+      defense: {
+        bonusPercent: worldDefenseBonusPercent(base.wallLevel, effectiveBuildingLevels),
+        lootReductionPercent: worldLootReductionPercent(base.wallLevel, effectiveBuildingLevels),
+        watchtowerLevel: worldWatchtowerLevel(effectiveBuildingLevels),
+        gatehouseLevel: worldGatehouseLevel(effectiveBuildingLevels),
+      },
+      castleUpgrade: {
+        nextLevel: base.castleLevel + 1,
+        woodCost: worldCastleUpgradeCost(base.castleLevel + 1).wood,
+        stoneCost: worldCastleUpgradeCost(base.castleLevel + 1).stone,
+        durationSeconds: worldCastleUpgradeSeconds(base.castleLevel + 1),
+        requirements: worldCastleRequirements(
+          base.castleLevel,
+          base.wallLevel,
+          effectiveBuildingLevels,
+        ),
+      },
+      buildQueue: {
+        limit: WORLD_BUILD_QUEUE_LIMIT,
+        active: baseBuildings
+          .filter((building) => building.completesAt > now)
+          .map((building) => ({
+            plotIndex: building.plotIndex,
+            buildingType: building.buildingType as WorldBuildingType,
+            completesAt: building.completesAt.toISOString(),
+          })),
+      },
+      buildingRewards: rewardRows.map((reward) => ({
+        id: reward.id,
+        buildingType: reward.buildingType as WorldBuildingType,
+        level: reward.level,
+        wood: reward.wood,
+        stone: reward.stone,
+        food: reward.food,
+        iron: reward.iron,
+        grantedAt: reward.grantedAt.toISOString(),
+      })),
       activeResearch: activeResearch
         ? {
             key: activeResearch.key,
@@ -2996,6 +3552,50 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       wood: reward.rewardWood,
       stone: reward.rewardStone,
     })),
+    exploration: {
+      regionSizeMeters: EXPLORATION_REGION_METERS,
+      percent: exploration.percent,
+      revealedInView: exploration.revealedInView,
+      totalInView: exploration.totalInView,
+      scoutCampLevel,
+      scoutCost: { wood: SCOUT_MISSION_WOOD_COST, food: SCOUT_MISSION_FOOD_COST },
+      regions: explorationRows.map((region) => ({
+        regionX: region.regionX,
+        regionZ: region.regionZ,
+        source: region.source,
+        revealedAt: region.revealedAt.toISOString(),
+      })),
+      missions: scoutMissions.map((mission) => ({
+        id: mission.id,
+        targetRegionX: mission.targetRegionX,
+        targetRegionZ: mission.targetRegionZ,
+        status: mission.status,
+        infantry: mission.infantry,
+        archers: mission.archers,
+        cavalry: mission.cavalry,
+        dispatchedAt: mission.dispatchedAt.toISOString(),
+        arrivesAt: mission.arrivesAt.toISOString(),
+        completesAt: mission.completesAt.toISOString(),
+        completedAt: mission.completedAt?.toISOString() ?? null,
+        report: mission.report,
+        revealedCount: mission.revealedCount,
+        rewardWood: mission.rewardWood,
+        rewardStone: mission.rewardStone,
+        rewardFood: mission.rewardFood,
+        rewardIron: mission.rewardIron,
+      })),
+    },
+    redeemHistory: redeemRows.map((redemption) => ({
+      id: redemption.id,
+      codePreview: redemption.code.codePreview,
+      campaign: redemption.code.campaign,
+      rewardWood: redemption.rewardWood,
+      rewardStone: redemption.rewardStone,
+      rewardFood: redemption.rewardFood,
+      rewardIron: redemption.rewardIron,
+      rewardA2Coin: redemption.rewardA2Coin,
+      redeemedAt: redemption.redeemedAt.toISOString(),
+    })),
   };
 }
 
@@ -3022,6 +3622,7 @@ export async function loadWorldEntities(
   const viewer = await prisma.worldBase.findUnique({
     where: { userId },
     select: {
+      id: true,
       coordinateX: true,
       coordinateZ: true,
       buildings: {
@@ -3039,9 +3640,27 @@ export async function loadWorldEntities(
   }
   const originX = viewer.coordinateX;
   const originZ = viewer.coordinateZ;
-  const viewRadiusMeters = worldViewRadiusMeters(scoutCampLevelFromRows(viewer.buildings, now));
+  const effectiveLevels = viewer.buildings.map((building) => ({
+    type: building.buildingType,
+    level: building.completesAt <= now ? building.pendingLevel ?? building.level : building.level,
+  }));
+  const viewRadiusMeters =
+    worldViewRadiusMeters(worldScoutCampLevel(effectiveLevels)) +
+    worldWatchtowerViewBonusMeters(effectiveLevels);
+  const revealedRegions = await prisma.worldExploration.findMany({
+    where: { baseId: viewer.id },
+    select: { regionX: true, regionZ: true },
+  });
+  const revealedKeys = new Set(
+    revealedRegions.map((region) => regionKey(region.regionX, region.regionZ)),
+  );
+  const isRevealed = (x: number, z: number) => {
+    const region = worldToRegion(x, z);
+    return revealedKeys.has(regionKey(region.regionX, region.regionZ));
+  };
   const inView = (definition: WorldMapObject) =>
-    Math.hypot(definition.x - originX, definition.z - originZ) <= viewRadiusMeters;
+    Math.hypot(definition.x - originX, definition.z - originZ) <= viewRadiusMeters &&
+    isRevealed(definition.x, definition.z);
 
   let definitions: WorldMapObject[];
   if (options.all) {
@@ -3110,6 +3729,7 @@ export async function loadWorldEntities(
       .map((otherBase) => buildNearbyBaseState(otherBase, originX, originZ))
       .filter((otherBase): otherBase is NonNullable<typeof otherBase> => otherBase !== null)
       .filter((otherBase) => otherBase.distanceMeters <= viewRadiusMeters)
+      .filter((otherBase) => isRevealed(otherBase.coordinateX, otherBase.coordinateZ))
       .sort((left, right) => left.distanceMeters - right.distanceMeters)
       .slice(0, WORLD_NEARBY_BASE_LIMIT),
     mapObjects: definitions.map((definition) => ({
@@ -3400,11 +4020,13 @@ export async function performWorldBuildingAction(
   action:
     | { type: "BUILD"; plotIndex: number; buildingType: WorldBuildingType }
     | { type: "UPGRADE" | "DEMOLISH"; plotIndex: number }
-    | { type: "UPGRADE_CASTLE" },
+    | { type: "UPGRADE_CASTLE" }
+    | { type: "UPGRADE_WALL" },
   now = new Date(),
 ) {
   if (
     action.type !== "UPGRADE_CASTLE" &&
+    action.type !== "UPGRADE_WALL" &&
     (!Number.isInteger(action.plotIndex) || action.plotIndex < 0 || action.plotIndex >= WORLD_BUILDING_PLOT_COUNT)
   ) {
     throw new WorldActionError("Ô đất xây dựng không hợp lệ.", 400);
@@ -3417,17 +4039,46 @@ export async function performWorldBuildingAction(
     if (!base) throw new WorldActionError("Chưa khởi tạo căn cứ.", 404);
     if (base.activePvpAttackId) throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
 
+    const baseBuildings = await tx.worldBuilding.findMany({
+      where: { baseId: base.id },
+      select: {
+        id: true,
+        plotIndex: true,
+        buildingType: true,
+        level: true,
+        pendingLevel: true,
+        completedAt: true,
+        completesAt: true,
+      },
+    });
+    const effectiveLevels = baseBuildings.map((building) => ({
+      type: building.buildingType,
+      level: building.completesAt <= now ? building.pendingLevel ?? building.level : building.level,
+    }));
+    const activeBuilds = baseBuildings.filter((building) => building.completesAt > now);
+
     if (action.type === "UPGRADE_CASTLE") {
       if (base.castlePendingLevel !== null) {
         throw new WorldActionError("Lâu đài chính đang được nâng cấp.", 409);
       }
-      if (base.castleLevel >= MAX_BUILDING_LEVEL) {
+      if (base.castleLevel >= WORLD_MAX_BUILDING_LEVEL) {
         throw new WorldActionError("Lâu đài chính đã đạt cấp tối đa.", 409);
       }
       const nextLevel = base.castleLevel + 1;
-      const woodCost = 250 * nextLevel;
-      const stoneCost = 150 * nextLevel;
-      const completesAt = new Date(now.getTime() + nextLevel * 5 * 60_000);
+      const requirements = worldCastleRequirements(base.castleLevel, base.wallLevel, effectiveLevels);
+      const unmet = requirements.filter((requirement) => !requirement.met);
+      if (unmet.length > 0) {
+        throw new WorldActionError(
+          `Chưa đủ điều kiện nâng lâu đài: ${unmet
+            .map((requirement) => `${requirement.label} (${requirement.detail})`)
+            .join("; ")}.`,
+          409,
+        );
+      }
+      const cost = worldCastleUpgradeCost(nextLevel);
+      const woodCost = cost.wood;
+      const stoneCost = cost.stone;
+      const completesAt = new Date(now.getTime() + worldCastleUpgradeSeconds(nextLevel) * 1000);
       const started = await tx.worldBase.updateMany({
         where: {
           id: base.id,
@@ -3451,7 +4102,68 @@ export async function performWorldBuildingAction(
         }
         throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
       }
-      return { message: `Đang nâng cấp lâu đài chính lên cấp ${nextLevel}; hoàn tất lúc ${completesAt.toISOString()}.` };
+      return {
+        message: `Đang nâng cấp lâu đài chính lên cấp ${nextLevel}; hoàn tất sau ${formatWorldDuration(
+          worldCastleUpgradeSeconds(nextLevel),
+        )}.`,
+      };
+    }
+
+    if (action.type === "UPGRADE_WALL") {
+      if (base.wallPendingLevel !== null) {
+        throw new WorldActionError("Tường thành đang được nâng cấp.", 409);
+      }
+      if (base.wallLevel >= WORLD_WALL_MAX_LEVEL) {
+        throw new WorldActionError("Tường thành đã đạt cấp tối đa.", 409);
+      }
+      const nextLevel = base.wallLevel + 1;
+      const cost = worldWallUpgradeCost(nextLevel);
+      const seconds = worldWallUpgradeSeconds(nextLevel);
+      const completesAt = new Date(now.getTime() + seconds * 1000);
+      const started = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: base.version,
+          activePvpAttackId: null,
+          wallPendingLevel: null,
+          wood: { gte: cost.wood },
+          stone: { gte: cost.stone },
+        },
+        data: {
+          wood: { decrement: cost.wood },
+          stone: { decrement: cost.stone },
+          wallPendingLevel: nextLevel,
+          wallUpgradeCompletesAt: completesAt,
+          version: { increment: 1 },
+        },
+      });
+      if (!started.count) {
+        if (base.wood < cost.wood || base.stone < cost.stone) {
+          throw new WorldActionError(`Cần ${cost.wood} gỗ và ${cost.stone} đá để nâng tường thành.`, 400);
+        }
+        throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
+      }
+      return {
+        message: `Đang nâng tường thành lên cấp ${nextLevel}; hoàn tất sau ${formatWorldDuration(seconds)}.`,
+      };
+    }
+
+    if (!isWorldPlotUnlocked(action.plotIndex, base.castleLevel)) {
+      throw new WorldActionError(
+        `Ô đất ${action.plotIndex + 1} chưa mở. Nâng lâu đài để mở thêm ô (hiện có ${worldCastleSlotCount(
+          base.castleLevel,
+        )}/${WORLD_BUILDING_PLOT_COUNT}).`,
+        409,
+      );
+    }
+    if (activeBuilds.length >= WORLD_BUILD_QUEUE_LIMIT) {
+      const active = activeBuilds[0];
+      throw new WorldActionError(
+        `Hàng đợi xây dựng đang bận (${WORLD_BUILD_QUEUE_LIMIT} công trình). Hoàn tất ô ${
+          active.plotIndex + 1
+        } sau ${formatWorldDuration(Math.ceil((active.completesAt.getTime() - now.getTime()) / 1000))}.`,
+        409,
+      );
     }
 
     const existing = await tx.worldBuilding.findUnique({
@@ -3484,7 +4196,8 @@ export async function performWorldBuildingAction(
         }
         throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
       }
-      const completesAt = new Date(now.getTime() + definition.constructionSeconds * 1000);
+      const seconds = worldBuildingUpgradeSeconds(action.buildingType, 1);
+      const completesAt = new Date(now.getTime() + seconds * 1000);
       await tx.worldBuilding.create({
         data: {
           baseId: base.id,
@@ -3497,7 +4210,9 @@ export async function performWorldBuildingAction(
           completesAt,
         },
       });
-      return { message: `Đã khởi công ${definition.name}; hoàn tất lúc ${completesAt.toISOString()}.` };
+      return {
+        message: `Đã khởi công ${definition.name}; hoàn tất sau ${formatWorldDuration(seconds)}.`,
+      };
     }
 
     if (!existing) throw new WorldActionError("Ô đất không có công trình để thao tác.", 404);
@@ -3521,8 +4236,9 @@ export async function performWorldBuildingAction(
         );
       }
       const nextLevel = currentLevel + 1;
-      const woodCost = definition.woodCost * nextLevel;
-      const stoneCost = definition.stoneCost * nextLevel;
+      const upgradeCost = worldBuildingUpgradeCost(existing.buildingType, nextLevel);
+      const woodCost = upgradeCost.wood;
+      const stoneCost = upgradeCost.stone;
       const paid = await tx.worldBase.updateMany({
         where: {
           id: base.id,
@@ -3546,7 +4262,8 @@ export async function performWorldBuildingAction(
       const completedAt = existing.pendingLevel !== null
         ? existing.completesAt
         : existing.completedAt;
-      const completesAt = new Date(now.getTime() + definition.constructionSeconds * nextLevel * 1000);
+      const seconds = worldBuildingUpgradeSeconds(existing.buildingType, nextLevel);
+      const completesAt = new Date(now.getTime() + seconds * 1000);
       const upgraded = await tx.worldBuilding.updateMany({
         where: { id: existing.id, completesAt: existing.completesAt },
         data: {
@@ -3559,7 +4276,11 @@ export async function performWorldBuildingAction(
         },
       });
       if (!upgraded.count) throw new WorldActionError("Công trình vừa được cập nhật. Hãy tải lại.", 409);
-      return { message: `Đang nâng cấp ${definition.name} lên cấp ${nextLevel}.` };
+      return {
+        message: `Đang nâng cấp ${definition.name} lên cấp ${nextLevel}; hoàn tất sau ${formatWorldDuration(
+          seconds,
+        )}.`,
+      };
     }
 
     const refundWood = Math.floor(definition.woodCost * currentLevel * 0.25);
@@ -3615,6 +4336,14 @@ export async function performWorldAction(
         cavalry: number;
       }
     | { type: "scoutBase"; targetUserId: string }
+    | {
+        type: "scoutRegion";
+        targetRegionX: number;
+        targetRegionZ: number;
+        infantry: number;
+        archers: number;
+        cavalry: number;
+      }
     | { type: "upgrade"; building: "FACTORY" | "WAREHOUSE" },
   now = new Date(),
 ) {
@@ -3637,6 +4366,23 @@ export async function performWorldAction(
       if (!attackerBase) throw new WorldActionError("Căn cứ tấn công chưa được khởi tạo.", 409);
       if (!defenderBase || defenderBase.coordinateX === null || defenderBase.coordinateZ === null) {
         throw new WorldActionError("Không tìm thấy căn cứ mục tiêu.", 404);
+      }
+      const defenderRegion = worldToRegion(defenderBase.coordinateX, defenderBase.coordinateZ);
+      const defenderRegionRevealed = await tx.worldExploration.findUnique({
+        where: {
+          baseId_regionX_regionZ: {
+            baseId: attackerBase.id,
+            regionX: defenderRegion.regionX,
+            regionZ: defenderRegion.regionZ,
+          },
+        },
+        select: { id: true },
+      });
+      if (!defenderRegionRevealed) {
+        throw new WorldActionError(
+          "Vùng chứa căn cứ mục tiêu chưa được trinh sát. Hãy cử đội trinh sát mở bản đồ trước.",
+          409,
+        );
       }
       if (attackerBase.activePvpAttackId || defenderBase.activePvpAttackId) {
         throw new WorldActionError("Một trong hai căn cứ đang tham gia trận đánh khác.", 409);
@@ -3881,6 +4627,119 @@ export async function performWorldAction(
       travelDurationSeconds: report.travelDurationSeconds ?? 10,
       completesAt: new Date(now.getTime() + (report.travelDurationSeconds ?? 10) * 1000).toISOString(),
     };
+  }
+
+  if (action.type === "scoutRegion") {
+    const scoutTroops = action.infantry + action.archers + action.cavalry;
+    if (scoutTroops < 1 || scoutTroops > SCOUT_MISSION_MAX_TROOPS) {
+      throw new WorldActionError(
+        `Mỗi đội trinh sát cần 1–${SCOUT_MISSION_MAX_TROOPS} quân.`,
+        400,
+      );
+    }
+    if (
+      !Number.isInteger(action.targetRegionX) ||
+      !Number.isInteger(action.targetRegionZ)
+    ) {
+      throw new WorldActionError("Toạ độ vùng trinh sát không hợp lệ.", 400);
+    }
+
+    await advanceWorld(userId, now);
+
+    return prisma.$transaction(async (tx) => {
+      const base = await tx.worldBase.findUnique({ where: { userId } });
+      if (!base || base.coordinateX === null || base.coordinateZ === null) {
+        throw new WorldActionError("Căn cứ của bạn chưa được khởi tạo.", 404);
+      }
+      if (base.activePvpAttackId) {
+        throw new WorldActionError("Căn cứ đang tham gia trận đánh.", 409);
+      }
+      const buildings = await tx.worldBuilding.findMany({
+        where: { baseId: base.id },
+        select: {
+          buildingType: true,
+          level: true,
+          pendingLevel: true,
+          completedAt: true,
+          completesAt: true,
+        },
+      });
+      const scoutCampLevel = scoutCampLevelFromRows(buildings, now);
+      if (scoutCampLevel < 1) {
+        throw new WorldActionError("Cần xây dựng Trại trinh sát trước khi mở bản đồ.", 400);
+      }
+      const revealed = await tx.worldExploration.findMany({
+        where: { baseId: base.id },
+        select: { regionX: true, regionZ: true },
+      });
+      const revealedKeys = new Set(
+        revealed.map((region) => regionKey(region.regionX, region.regionZ)),
+      );
+      if (revealedKeys.has(regionKey(action.targetRegionX, action.targetRegionZ))) {
+        throw new WorldActionError("Vùng này đã được trinh sát.", 409);
+      }
+      if (!isRegionOnFrontier(action.targetRegionX, action.targetRegionZ, revealedKeys)) {
+        throw new WorldActionError("Chỉ có thể trinh sát vùng tiếp giáp với bản đồ đã mở.", 409);
+      }
+      if (base.wood < SCOUT_MISSION_WOOD_COST || base.food < SCOUT_MISSION_FOOD_COST) {
+        throw new WorldActionError(
+          `Cần ${SCOUT_MISSION_WOOD_COST} gỗ và ${SCOUT_MISSION_FOOD_COST} lương thực để trang bị đội trinh sát.`,
+          400,
+        );
+      }
+      const distanceMeters = regionDistanceMeters(
+        base.coordinateX,
+        base.coordinateZ,
+        action.targetRegionX,
+        action.targetRegionZ,
+      );
+      const seconds = scoutMissionDurationSeconds(distanceMeters);
+      const completesAt = new Date(now.getTime() + seconds * 1000);
+      const reserved = await tx.worldBase.updateMany({
+        where: {
+          id: base.id,
+          version: base.version,
+          activePvpAttackId: null,
+          wood: { gte: SCOUT_MISSION_WOOD_COST },
+          food: { gte: SCOUT_MISSION_FOOD_COST },
+          infantry: { gte: action.infantry },
+          archers: { gte: action.archers },
+          cavalry: { gte: action.cavalry },
+        },
+        data: {
+          wood: { decrement: SCOUT_MISSION_WOOD_COST },
+          food: { decrement: SCOUT_MISSION_FOOD_COST },
+          infantry: { decrement: action.infantry },
+          archers: { decrement: action.archers },
+          cavalry: { decrement: action.cavalry },
+          version: { increment: 1 },
+        },
+      });
+      if (!reserved.count) {
+        throw new WorldActionError("Không đủ quân/tài nguyên hoặc căn cứ vừa thay đổi.", 409);
+      }
+      await tx.worldScoutMission.create({
+        data: {
+          baseId: base.id,
+          targetRegionX: action.targetRegionX,
+          targetRegionZ: action.targetRegionZ,
+          infantry: action.infantry,
+          archers: action.archers,
+          cavalry: action.cavalry,
+          status: "IN_TRANSIT",
+          dispatchedAt: now,
+          arrivesAt: completesAt,
+          completesAt,
+        },
+      });
+      return {
+        message: `Đội trinh sát ${scoutTroops} quân đang mở vùng (${action.targetRegionX}, ${
+          action.targetRegionZ
+        }); trở về sau ${formatWorldDuration(seconds)}.`,
+        durationSeconds: seconds,
+        completesAt: completesAt.toISOString(),
+      };
+    });
   }
 
   if (action.type === "upgrade") {

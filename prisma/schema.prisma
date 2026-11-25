@@ -98,6 +98,9 @@ model User {
   worldMapMarches                     WorldMapMarch[]
   controlledResourceNodes             WorldResourceNode[]       @relation("WorldResourceNodeOwner")
   worldItemStacks                     WorldItemStack[]
+  worldRedeemCodesCreated             WorldRedeemCode[]         @relation("WorldRedeemCodeCreator")
+  worldRedeemRedemptions              WorldRedeemRedemption[]   @relation("WorldRedeemRedemptionUser")
+  worldAdminAuditLogs                 WorldAdminAuditLog[]      @relation("WorldAdminAuditLogAdmin")
 
 }
 
@@ -540,6 +543,9 @@ model WorldBase {
   castleLevel           Int      @default(1)
   castlePendingLevel    Int?
   castleUpgradeCompletesAt DateTime?
+  wallLevel             Int      @default(1)
+  wallPendingLevel      Int?
+  wallUpgradeCompletesAt DateTime?
   activeResearchKey     String?
   activeResearchLevel   Int?
   researchCompletesAt   DateTime?
@@ -570,6 +576,9 @@ model WorldBase {
   marches               WorldMarch[]
   buildings             WorldBuilding[]
   researches            WorldResearch[]
+  buildingRewards       WorldBuildingReward[]
+  explorations          WorldExploration[]
+  scoutMissions         WorldScoutMission[]
 
   @@unique([coordinateX, coordinateZ])
   @@index([lastSimulatedAt])
@@ -939,3 +948,129 @@ model WorldAllianceWarScore {
   @@unique([warId, userId])
   @@index([warId, allianceId, score])
 }
+
+/// Exactly-once ledger for building completion rewards. `buildingId` is not a
+/// foreign key on purpose: the ledger must survive a demolition. The unique
+/// (buildingId, level) pair is what makes the reward idempotent.
+model WorldBuildingReward {
+  id           String   @id @default(cuid())
+  baseId       String
+  buildingId   String
+  buildingType String
+  level        Int
+  wood         Int      @default(0)
+  stone        Int      @default(0)
+  food         Int      @default(0)
+  iron         Int      @default(0)
+  grantedAt    DateTime @default(now())
+  base         WorldBase @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([buildingId, level])
+  @@index([baseId, grantedAt])
+}
+
+/// One revealed 5 km exploration cell for a base. Fog of War is derived from
+/// these rows on the server; clients never unlock cells directly.
+model WorldExploration {
+  id          String   @id @default(cuid())
+  baseId      String
+  regionX     Int
+  regionZ     Int
+  source      String   @default("SCOUT")
+  rewardWood  Int      @default(0)
+  rewardStone Int      @default(0)
+  rewardFood  Int      @default(0)
+  rewardIron  Int      @default(0)
+  revealedAt  DateTime @default(now())
+  base        WorldBase @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([baseId, regionX, regionZ])
+  @@index([baseId, revealedAt])
+}
+
+model WorldScoutMission {
+  id            String   @id @default(cuid())
+  baseId        String
+  targetRegionX Int
+  targetRegionZ Int
+  infantry      Int      @default(0)
+  archers       Int      @default(0)
+  cavalry       Int      @default(0)
+  status        String   @default("IN_TRANSIT")
+  dispatchedAt  DateTime @default(now())
+  arrivesAt     DateTime
+  completesAt   DateTime
+  completedAt   DateTime?
+  report        String?
+  revealedCount Int      @default(0)
+  rewardWood    Int      @default(0)
+  rewardStone   Int      @default(0)
+  rewardFood    Int      @default(0)
+  rewardIron    Int      @default(0)
+  base          WorldBase @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@index([baseId, dispatchedAt])
+  @@index([status, completesAt])
+}
+
+/// Gift code definition. Only the SHA-256 hash of the normalized code is stored;
+/// `codePreview` is a masked label for the admin list.
+model WorldRedeemCode {
+  id           String   @id @default(cuid())
+  codeHash     String   @unique
+  codePreview  String
+  campaign     String
+  rewardWood   Int      @default(0)
+  rewardStone  Int      @default(0)
+  rewardFood   Int      @default(0)
+  rewardIron   Int      @default(0)
+  rewardA2Coin Int      @default(0)
+  maxUses      Int      @default(0)
+  perUserLimit Int      @default(1)
+  usedCount    Int      @default(0)
+  startsAt     DateTime?
+  expiresAt    DateTime?
+  enabled      Boolean  @default(true)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    User?    @relation("WorldRedeemCodeCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  redemptions  WorldRedeemRedemption[]
+
+  @@index([enabled, expiresAt])
+  @@index([createdAt])
+}
+
+model WorldRedeemRedemption {
+  id           String   @id @default(cuid())
+  codeId       String
+  userId       String
+  sequence     Int      @default(1)
+  rewardWood   Int      @default(0)
+  rewardStone  Int      @default(0)
+  rewardFood   Int      @default(0)
+  rewardIron   Int      @default(0)
+  rewardA2Coin Int      @default(0)
+  redeemedAt   DateTime @default(now())
+  code         WorldRedeemCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  user         User     @relation("WorldRedeemRedemptionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([codeId, userId, sequence])
+  @@index([userId, redeemedAt])
+  @@index([codeId, redeemedAt])
+}
+
+model WorldAdminAuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  action      String
+  targetType  String
+  targetId    String?
+  detail      String   @default("")
+  createdAt   DateTime @default(now())
+  admin       User     @relation("WorldAdminAuditLogAdmin", fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([adminUserId, createdAt])
+}
+

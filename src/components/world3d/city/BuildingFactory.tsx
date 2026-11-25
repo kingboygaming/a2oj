@@ -31,10 +31,11 @@ function BuildingWrapper({
   generator,
   position,
   rotation = 0,
-}: BuildingProps & { generator: () => THREE.Group }) {
+  scale,
+}: BuildingProps & { generator: () => THREE.Group; scale?: [number, number, number] }) {
   const model = useMemo(() => generator(), [generator]);
   return (
-    <group position={position} rotation={[0, rotation, 0]}>
+    <group position={position} rotation={[0, rotation, 0]} scale={scale}>
       <primitive object={model} />
     </group>
   );
@@ -80,9 +81,21 @@ export function ResearchLab({ position, rotation }: BuildingProps) {
   return <BuildingWrapper generator={gen} position={position} rotation={rotation} />;
 }
 
-export function WallSegment({ position, rotation, length = 6 }: BuildingProps & { length?: number }) {
+export function WallSegment({
+  position,
+  rotation,
+  length = 6,
+  heightScale = 1,
+}: BuildingProps & { length?: number; heightScale?: number }) {
   const gen = useMemo(() => () => createWallSegment(length), [length]);
-  return <BuildingWrapper generator={gen} position={position} rotation={rotation} />;
+  return (
+    <BuildingWrapper
+      generator={gen}
+      position={position}
+      rotation={rotation}
+      scale={[1, heightScale, 1]}
+    />
+  );
 }
 
 export function ScoutCamp({ position, rotation, level = 1 }: BuildingProps & { level?: number }) {
@@ -110,6 +123,8 @@ export function WorldBuildingModel({
               : type === "MILITARY_ACADEMY" ? createResearchLab()
                 : type === "HOSPITAL" ? createHospital(level)
                   : type === "SCOUT_CAMP" ? createScoutCamp(level)
+                    : type === "WATCHTOWER" ? createWatchTower()
+                      : type === "GATEHOUSE" ? createGate()
                 : type === "LUMBER_MILL" ? createFactory(level)
                   : type === "IRON_MINE" ? createIronMine()
                     : type === "STONE_QUARRY" ? createRockQuarry()

@@ -29,6 +29,22 @@ import {
   type WorldBuildingType,
 } from "@/lib/world-buildings";
 import {
+  WORLD_WALL_MAX_LEVEL,
+  formatWorldDuration,
+  worldWallUpgradeCost,
+  worldWallUpgradeSeconds,
+} from "@/lib/world-progression";
+import {
+  SCOUT_MISSION_FOOD_COST,
+  SCOUT_MISSION_MAX_TROOPS,
+  SCOUT_MISSION_WOOD_COST,
+  explorationStatusLabel,
+  isRegionOnFrontier,
+  regionDistanceMeters,
+  regionKey,
+  worldToRegion,
+} from "@/lib/world-exploration";
+import {
   WORLD_RESEARCH_DEFINITIONS,
   type WorldResearchKey,
 } from "@/lib/world-research";
@@ -63,7 +79,15 @@ type ActionRequest =
   | { type: "heal"; troopType: "INFANTRY" | "ARCHERS" | "CAVALRY"; count: number }
   | { type: "dispatch"; eventId: string; infantry: number; archers: number; cavalry: number }
   | { type: "attackBase"; targetUserId: string; infantry: number; archers: number; cavalry: number }
-  | { type: "scoutBase"; targetUserId: string };
+  | { type: "scoutBase"; targetUserId: string }
+  | {
+      type: "scoutRegion";
+      targetRegionX: number;
+      targetRegionZ: number;
+      infantry: number;
+      archers: number;
+      cavalry: number;
+    };
 
 type WorldMapActionRequest =
   | { type: "GATHER"; targetId: string }
@@ -95,6 +119,16 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [selectedRemoteBase, setSelectedRemoteBase] = useState<WorldSnapshot["nearbyBases"][number] | null>(null);
   const [selectedPlotIndex, setSelectedPlotIndex] = useState<number | null>(null);
   const [placementType, setPlacementType] = useState<WorldBuildingType | null>(null);
+  const [scoutRegionForm, setScoutRegionForm] = useState({
+    regionX: 0,
+    regionZ: 0,
+    infantry: 10,
+    archers: 5,
+    cavalry: 0,
+  });
+  const [giftCode, setGiftCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+  const [rewardToast, setRewardToast] = useState<string | null>(null);
   const [scoutReports, setScoutReports] = useState<Record<string, WorldScoutReport>>(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -153,7 +187,27 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   // refresh button all share the same in-flight request.
   const refreshInFlight = useRef<Promise<void> | null>(null);
   const lastSyncedServerTimeRef = useRef(Date.now());
+  const seenRewardsRef = useRef<Set<string>>(
+    new Set((initialSnapshot.base.buildingRewards ?? []).map((reward) => reward.id)),
+  );
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // Surface completion rewards pushed by the server since the last snapshot.
+  useEffect(() => {
+    const rewards = snapshot.base.buildingRewards ?? [];
+    const fresh = rewards.filter((reward) => !seenRewardsRef.current.has(reward.id));
+    for (const reward of rewards) seenRewardsRef.current.add(reward.id);
+    if (fresh.length === 0) return;
+    const summary = fresh
+      .map(
+        (reward) =>
+          `${WORLD_BUILDING_DEFINITIONS[reward.buildingType]?.name ?? reward.buildingType} cấp ${reward.level}`,
+      )
+      .join(", ");
+    setRewardToast(`🎁 Hoàn tất: ${summary}`);
+    const timer = setTimeout(() => setRewardToast(null), 8_000);
+    return () => clearTimeout(timer);
+  }, [snapshot.base.buildingRewards]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -204,8 +258,10 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     [snapshot.buildings],
   );
   const viewRadiusMeters = useMemo(
-    () => worldViewRadiusMeters(scoutCampLevel),
-    [scoutCampLevel],
+    () =>
+      worldViewRadiusMeters(scoutCampLevel) +
+      (snapshot.base.defense?.watchtowerLevel ?? 0) * 2_000,
+    [scoutCampLevel, snapshot.base.defense?.watchtowerLevel],
   );
 
   useEffect(() => {
@@ -310,6 +366,13 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
       }
     }
 
+    // Scout missions (mở sương mù / trinh sát vùng)
+    for (const mission of snapshot.exploration.missions) {
+      if (mission.status !== "COMPLETED" && mission.status !== "FAILED" && mission.completesAt) {
+        timestamps.push(new Date(mission.completesAt).getTime());
+      }
+    }
+
     if (timestamps.length === 0) return;
 
     const currentTime = Date.now();
@@ -334,6 +397,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     snapshot.events,
     snapshot.mapMissions,
     snapshot.baseAttacks,
+    snapshot.exploration.missions,
     refresh,
   ]);
 
@@ -435,7 +499,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   }
 
   async function buildingAction(
-    type: "BUILD" | "UPGRADE" | "DEMOLISH" | "UPGRADE_CASTLE",
+    type: "BUILD" | "UPGRADE" | "DEMOLISH" | "UPGRADE_CASTLE" | "UPGRADE_WALL",
     plotIndex?: number,
     buildingType?: WorldBuildingType,
   ) {
@@ -487,6 +551,31 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     }
   }
 
+  async function redeemGiftCode() {
+    const code = giftCode.trim();
+    if (!code) return;
+    setRedeeming(true);
+    setMessage("");
+    setIsError(false);
+    try {
+      const response = await fetch("/api/world/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Không thể nhập mã quà tặng.");
+      setMessage(result.message);
+      setGiftCode("");
+      await refresh();
+    } catch (error) {
+      setIsError(true);
+      setMessage(error instanceof Error ? error.message : "Không thể nhập mã quà tặng.");
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
   async function worldMapAction(action: WorldMapActionRequest) {
     const response = await fetch("/api/world/map/actions", {
       method: "POST",
@@ -521,6 +610,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               factoryLevel: snapshot.base.factoryLevel,
               warehouseLevel: snapshot.base.warehouseLevel,
               castleLevel: snapshot.base.castleLevel,
+              wallLevel: snapshot.base.wall.level,
               playerName: snapshot.base.playerName,
               coordinateX: snapshot.base.coordinateX,
               coordinateZ: snapshot.base.coordinateZ,
@@ -560,6 +650,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             mapObjectStates={snapshot.mapObjects}
             mapObjects={snapshot.mapObjectDefinitions}
             nearbyBases={snapshot.nearbyBases}
+            explorationRegions={snapshot.exploration.regions}
+            scoutMissions={snapshot.exploration.missions}
             selectedBaseUserId={selectedRemoteBase?.userId ?? null}
             currentUserId={snapshot.userId}
             selectedPlotIndex={selectedPlotIndex}
@@ -958,6 +1050,13 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
         </div>
       </div>
 
+      {/* ── Completion reward toast (pushed by the server) ── */}
+      {rewardToast && (
+        <div className="pointer-events-none absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-xl border border-emerald-400/40 bg-emerald-950/90 px-4 py-2 text-center text-xs font-bold text-emerald-100 shadow-xl backdrop-blur-md">
+          {rewardToast}
+        </div>
+      )}
+
       {/* ── Side panel overlay ── */}
       {showPanel && (
         <div ref={sidePanelRef} className="absolute right-0 top-12 bottom-0 z-10 w-full max-w-sm overflow-y-auto border-l border-white/10 bg-black/70 p-4 backdrop-blur-md sm:max-w-md">
@@ -994,6 +1093,9 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 : 0;
               const inProgressBuildingsCount = snapshot.buildings.filter((b) => b.status !== "COMPLETED").length;
               const remScoutSec = activeScout ? Math.max(0, Math.ceil((activeScout.completesAt - nowMs) / 1000)) : 0;
+              const activeRegionScouts = snapshot.exploration.missions.filter(
+                (mission) => mission.status !== "COMPLETED" && mission.status !== "FAILED",
+              ).length;
               const activeMarchesCount =
                 snapshot.mapMissions.filter(
                   (m) =>
@@ -1034,7 +1136,11 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
               } else if (tab === "build") {
                 label = inProgressBuildingsCount > 0 ? `🏗️ Xây (${inProgressBuildingsCount})` : "🏗️ Xây";
               } else {
-                label = remScoutSec > 0 ? `🔭 Tình báo (${remScoutSec}s)` : `🔭 Tình báo (${Object.keys(scoutReports).length})`;
+                label = remScoutSec > 0
+                  ? `🔭 Tình báo (${remScoutSec}s)`
+                  : activeRegionScouts > 0
+                    ? `🔭 Tình báo (${activeRegionScouts})`
+                    : `🔭 Tình báo (${Object.keys(scoutReports).length})`;
               }
 
               return (
@@ -1069,7 +1175,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/70">Thành chính</p>
                 <p className="mt-1 text-lg font-bold text-white">{snapshot.base.playerName}</p>
                 <p className="mt-1 text-xs text-white/55">
-                  Cấp {snapshot.base.castleLevel} · {snapshot.buildings.length}/12 ô đất đã sử dụng · sức chứa {snapshot.base.capacity.toLocaleString("vi-VN")}
+                  Cấp {snapshot.base.castleLevel} · {snapshot.buildings.length}/{snapshot.base.slots.unlocked} ô đất đã mở
+                  ({snapshot.base.slots.unlocked}/{snapshot.base.slots.total}) · sức chứa {snapshot.base.capacity.toLocaleString("vi-VN")}
                 </p>
                 <p className="mt-1 text-xs text-white/55">
                   Chiến lực {(
@@ -1101,23 +1208,127 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                       </p>
                     </div>
                   );
-                })() : (
-                  <button
-                    type="button"
-                    disabled={
-                      Boolean(busy) ||
-                      snapshot.base.castleLevel >= 20 ||
-                      snapshot.base.wood < 250 * (snapshot.base.castleLevel + 1) ||
-                      snapshot.base.stone < 150 * (snapshot.base.castleLevel + 1)
-                    }
-                    onClick={() => void buildingAction("UPGRADE_CASTLE")}
-                    className="mt-3 w-full rounded-lg border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-200/15 disabled:opacity-40"
-                  >
-                    {snapshot.base.castleLevel >= 20
-                      ? "Lâu đài đạt cấp tối đa"
-                      : `Nâng cấp lâu đài → cấp ${snapshot.base.castleLevel + 1} · ${250 * (snapshot.base.castleLevel + 1)} gỗ + ${150 * (snapshot.base.castleLevel + 1)} đá`}
-                  </button>
-                )}
+                })() : (() => {
+                  const upgrade = snapshot.base.castleUpgrade;
+                  const maxed = snapshot.base.castleLevel >= 20;
+                  const blocked = upgrade.requirements.some((requirement) => !requirement.met);
+                  const missingResources =
+                    snapshot.base.wood < upgrade.woodCost || snapshot.base.stone < upgrade.stoneCost;
+                  return (
+                    <div className="mt-3 space-y-2">
+                      {upgrade.requirements.length > 0 && (
+                        <div className="rounded-lg border border-white/10 bg-black/30 p-2 text-[10px]">
+                          <p className="font-bold uppercase tracking-wide text-amber-200/70">Điều kiện nâng cấp</p>
+                          {upgrade.requirements.map((requirement) => (
+                            <p
+                              key={requirement.key}
+                              className={requirement.met ? "mt-0.5 text-emerald-300" : "mt-0.5 text-rose-300"}
+                            >
+                              {requirement.met ? "✓" : "✗"} {requirement.label}
+                              <span className="text-white/40"> · {requirement.detail}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        disabled={Boolean(busy) || maxed || blocked || missingResources}
+                        onClick={() => void buildingAction("UPGRADE_CASTLE")}
+                        className="w-full rounded-lg border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-200/15 disabled:opacity-40"
+                      >
+                        {maxed
+                          ? "Lâu đài đạt cấp tối đa"
+                          : blocked
+                            ? "Chưa đủ điều kiện nâng cấp"
+                            : `Nâng cấp lâu đài → cấp ${upgrade.nextLevel} · ${upgrade.woodCost} gỗ + ${upgrade.stoneCost} đá · ${formatWorldDuration(upgrade.durationSeconds)}`}
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                {/* Wall / defence card */}
+                <div className="mt-3 rounded-xl border border-stone-400/25 bg-stone-500/10 p-3 text-xs text-stone-100">
+                  <div className="flex items-center justify-between font-bold text-stone-200">
+                    <span>🧱 Tường thành</span>
+                    <span className="rounded bg-stone-400/20 px-2 py-0.5 text-[10px]">
+                      Cấp {snapshot.base.wall.level}/{WORLD_WALL_MAX_LEVEL}
+                    </span>
+                  </div>
+                  <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-stone-300/80">
+                    <span>HP: {snapshot.base.wall.hitPoints.toLocaleString("vi-VN")}</span>
+                    <span>Phòng thủ: +{snapshot.base.defense.bonusPercent}%</span>
+                    <span>Giảm cướp: {snapshot.base.defense.lootReductionPercent}%</span>
+                    <span>Tháp canh: cấp {snapshot.base.defense.watchtowerLevel}</span>
+                  </div>
+                  {snapshot.base.wall.pendingLevel !== null && snapshot.base.wall.upgradeCompletesAt ? (
+                    <p className="mt-2 rounded border border-stone-400/30 bg-black/40 p-1.5 text-[10px] text-stone-200">
+                      Đang nâng lên cấp {snapshot.base.wall.pendingLevel} · còn{" "}
+                      {formatWorldDuration(
+                        Math.max(
+                          0,
+                          Math.ceil(
+                            (new Date(snapshot.base.wall.upgradeCompletesAt).getTime() - nowMs) / 1000,
+                          ),
+                        ),
+                      )}
+                    </p>
+                  ) : (() => {
+                    const nextWall = snapshot.base.wall.level + 1;
+                    const cost = worldWallUpgradeCost(nextWall);
+                    const seconds = worldWallUpgradeSeconds(nextWall);
+                    const maxed = snapshot.base.wall.level >= WORLD_WALL_MAX_LEVEL;
+                    return (
+                      <button
+                        type="button"
+                        disabled={
+                          Boolean(busy) ||
+                          maxed ||
+                          displayWood < cost.wood ||
+                          displayStone < cost.stone
+                        }
+                        onClick={() => void buildingAction("UPGRADE_WALL")}
+                        className="mt-2 w-full rounded-lg border border-stone-300/25 bg-stone-300/10 px-3 py-1.5 text-[11px] font-bold text-stone-100 hover:bg-stone-300/15 disabled:opacity-40"
+                      >
+                        {maxed
+                          ? "Tường thành đạt cấp tối đa"
+                          : `Nâng tường → cấp ${nextWall} · ${cost.wood} gỗ + ${cost.stone} đá · ${formatWorldDuration(seconds)}`}
+                      </button>
+                    );
+                  })()}
+                </div>
+
+                {/* Gift code */}
+                <div className="mt-3 rounded-xl border border-emerald-300/25 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                  <p className="font-bold text-emerald-200">🎁 Nhập mã quà tặng</p>
+                  <div className="mt-1.5 flex gap-1.5">
+                    <input
+                      value={giftCode}
+                      onChange={(event) => setGiftCode(event.target.value.toUpperCase())}
+                      placeholder="A2KINGDOM"
+                      className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-xs text-white placeholder:text-white/30"
+                    />
+                    <button
+                      type="button"
+                      disabled={redeeming || giftCode.trim().length < 4}
+                      onClick={() => void redeemGiftCode()}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40"
+                    >
+                      {redeeming ? "Đang nhập…" : "Nhập"}
+                    </button>
+                  </div>
+                  {snapshot.redeemHistory.length > 0 && (
+                    <div className="mt-2 space-y-0.5 text-[10px] text-emerald-200/70">
+                      <p className="font-bold uppercase tracking-wide">Đã nhập gần đây</p>
+                      {snapshot.redeemHistory.slice(0, 3).map((entry) => (
+                        <p key={entry.id}>
+                          {entry.codePreview} · {entry.campaign} · +{entry.rewardWood}🪵 +{entry.rewardStone}🪨
+                          {entry.rewardA2Coin > 0 ? ` +${entry.rewardA2Coin} A2` : ""}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1139,6 +1350,10 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-200/80">Quy hoạch thành phố</p>
                   <p className="mt-1 text-[10px] text-white/45">Chọn ô đất trong cảnh 3D để xây hoặc quản lý công trình.</p>
+                  <p className="mt-1 text-[10px] text-emerald-300/70">
+                    Ô đã mở: {snapshot.base.slots.unlocked}/{snapshot.base.slots.total} · Hàng đợi:{" "}
+                    {snapshot.base.buildQueue.active.length}/{snapshot.base.buildQueue.limit}
+                  </p>
                 </div>
                 {viewMode !== "city" && (
                   <button
@@ -1158,6 +1373,9 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 stone={displayStone}
                 busy={Boolean(busy)}
                 nowMs={nowMs}
+                unlockedSlots={snapshot.base.slots.unlocked}
+                buildQueueActive={snapshot.base.buildQueue.active.length}
+                buildQueueLimit={snapshot.base.buildQueue.limit}
                 onChoose={(type) => setPlacementType(type)}
                 onAction={(type, plotIndex, buildingType) => {
                   if (type === "BUILD" && !buildingType) return;
@@ -1714,6 +1932,302 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   </p>
                 </div>
               </div>
+
+              {/* Fog of war & region scouting */}
+              {(() => {
+                const regionSizeKm = snapshot.exploration.regionSizeMeters / 1_000;
+                const revealedSet = new Set(
+                  snapshot.exploration.regions.map((region) => regionKey(region.regionX, region.regionZ)),
+                );
+                const currentRegion = worldToRegion(
+                  snapshot.base.coordinateX,
+                  snapshot.base.coordinateZ,
+                );
+                const candidateCells = new Map<string, { regionX: number; regionZ: number }>();
+                for (const region of snapshot.exploration.regions) {
+                  for (let dx = -1; dx <= 1; dx += 1) {
+                    for (let dz = -1; dz <= 1; dz += 1) {
+                      if (dx === 0 && dz === 0) continue;
+                      const regionX = region.regionX + dx;
+                      const regionZ = region.regionZ + dz;
+                      const key = regionKey(regionX, regionZ);
+                      if (revealedSet.has(key)) continue;
+                      candidateCells.set(key, { regionX, regionZ });
+                    }
+                  }
+                }
+                const frontier = [...candidateCells.values()]
+                  .filter((region) =>
+                    isRegionOnFrontier(region.regionX, region.regionZ, revealedSet),
+                  )
+                  .map((region) => ({
+                    ...region,
+                    distanceMeters: regionDistanceMeters(
+                      snapshot.base.coordinateX,
+                      snapshot.base.coordinateZ,
+                      region.regionX,
+                      region.regionZ,
+                    ),
+                  }))
+                  .sort((a, b) => a.distanceMeters - b.distanceMeters);
+                const activeMissions = snapshot.exploration.missions.filter(
+                  (mission) => mission.status !== "COMPLETED" && mission.status !== "FAILED",
+                );
+                const resolvedMissions = snapshot.exploration.missions
+                  .filter((mission) => mission.status === "COMPLETED" || mission.status === "FAILED")
+                  .slice(0, 6);
+                const scoutTotal =
+                  scoutRegionForm.infantry + scoutRegionForm.archers + scoutRegionForm.cavalry;
+                const targetKey = regionKey(scoutRegionForm.regionX, scoutRegionForm.regionZ);
+                const targetRevealed = revealedSet.has(targetKey);
+                const targetOnFrontier = isRegionOnFrontier(
+                  scoutRegionForm.regionX,
+                  scoutRegionForm.regionZ,
+                  revealedSet,
+                );
+                const canDispatchScout =
+                  !busy &&
+                  scoutCampLevel >= 1 &&
+                  scoutTotal >= 1 &&
+                  scoutTotal <= SCOUT_MISSION_MAX_TROOPS &&
+                  displayWood >= SCOUT_MISSION_WOOD_COST &&
+                  displayFood >= SCOUT_MISSION_FOOD_COST &&
+                  !targetRevealed &&
+                  targetOnFrontier;
+
+                return (
+                  <div className="space-y-2">
+                    <div className="rounded-xl border border-indigo-400/30 bg-gradient-to-br from-indigo-950/60 to-black/60 p-3 text-xs text-indigo-100">
+                      <div className="flex items-center justify-between font-bold text-indigo-300">
+                        <span className="flex items-center gap-1.5 text-sm">🌫️ Sương mù lãnh thổ</span>
+                        <span className="rounded bg-indigo-400/20 px-2 py-0.5 text-[11px] text-indigo-200">
+                          {snapshot.exploration.percent}%
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-indigo-200/70">
+                        Đã mở {snapshot.exploration.revealedInView}/{snapshot.exploration.totalInView} vùng
+                        trong tầm nhìn · mỗi vùng {regionSizeKm} km
+                      </p>
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-black/60">
+                        <div
+                          className="h-full bg-gradient-to-r from-indigo-400 via-sky-300 to-teal-300 transition-all duration-300"
+                          style={{ width: `${snapshot.exploration.percent}%` }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[10px] text-indigo-200/60">
+                        Vị trí hiện tại: vùng ({currentRegion.regionX}, {currentRegion.regionZ}). Chỉ có thể
+                        trinh sát vùng tiếp giáp đã mở.
+                      </p>
+                    </div>
+
+                    {activeMissions.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[11px] font-bold text-sky-200/80">
+                          🧭 Đoàn trinh sát đang hoạt động ({activeMissions.length})
+                        </p>
+                        {activeMissions.map((mission) => {
+                          const targetMs = new Date(mission.completesAt).getTime();
+                          const remSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1_000));
+                          const total = Math.max(
+                            1,
+                            targetMs - new Date(mission.dispatchedAt).getTime(),
+                          );
+                          const progress = Math.min(
+                            100,
+                            Math.max(0, Math.round(((total / 1_000 - remSec) / (total / 1_000)) * 100)),
+                          );
+                          return (
+                            <div
+                              key={mission.id}
+                              className="rounded-lg border border-sky-400/25 bg-black/50 p-2 text-[11px] text-sky-100"
+                            >
+                              <div className="flex items-center justify-between font-bold">
+                                <span>
+                                  Vùng ({mission.targetRegionX}, {mission.targetRegionZ})
+                                </span>
+                                <span className="rounded bg-sky-400/15 px-1.5 py-0.5 text-[10px] text-sky-200">
+                                  {explorationStatusLabel(mission.status)}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center justify-between text-[10px] text-white/55">
+                                <span>
+                                  🛡️ {mission.infantry} · 🏹 {mission.archers} · 🐎 {mission.cavalry}
+                                </span>
+                                <span className="font-mono text-amber-300">{remSec}s</span>
+                              </div>
+                              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-black/60">
+                                <div
+                                  className="h-full bg-gradient-to-r from-sky-400 to-teal-300 transition-all duration-300"
+                                  style={{ width: `${progress}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs">
+                      <p className="font-bold text-white/80">🚩 Mở rộng sương mù</p>
+                      <p className="mt-0.5 text-[10px] text-white/45">
+                        Chọn một vùng tiếp giáp bên dưới rồi điều quân trinh sát. Quân sẽ trở về sau khi hoàn
+                        tất.
+                      </p>
+                      {frontier.length === 0 ? (
+                        <p className="mt-2 rounded bg-black/30 p-2 text-[10px] text-white/40">
+                          Không có vùng tiếp giáp nào trong dữ liệu hiện tại.
+                        </p>
+                      ) : (
+                        <div className="mt-2 grid max-h-40 grid-cols-2 gap-1 overflow-y-auto pr-0.5">
+                          {frontier.slice(0, 24).map((region) => {
+                            const key = regionKey(region.regionX, region.regionZ);
+                            const selected = key === targetKey;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() =>
+                                  setScoutRegionForm((prev) => ({
+                                    ...prev,
+                                    regionX: region.regionX,
+                                    regionZ: region.regionZ,
+                                  }))
+                                }
+                                className={`rounded-md border px-1.5 py-1 text-left text-[10px] transition ${
+                                  selected
+                                    ? "border-teal-400/60 bg-teal-500/20 text-teal-100"
+                                    : "border-white/10 bg-black/30 text-white/60 hover:border-sky-400/40 hover:text-white"
+                                }`}
+                              >
+                                <span className="block font-mono font-bold">
+                                  ({region.regionX}, {region.regionZ})
+                                </span>
+                                <span className="text-white/40">
+                                  {(region.distanceMeters / 1_000).toFixed(1)} km
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="mt-2 grid grid-cols-5 gap-1">
+                        <label className="col-span-1 text-[10px] text-white/40">
+                          Vùng X
+                          <input
+                            type="number"
+                            value={scoutRegionForm.regionX}
+                            onChange={(event) =>
+                              setScoutRegionForm((prev) => ({
+                                ...prev,
+                                regionX: Number(event.target.value) || 0,
+                              }))
+                            }
+                            className="mt-0.5 w-full rounded border border-white/15 bg-black/40 px-1 py-1 font-mono text-[11px] text-white"
+                          />
+                        </label>
+                        <label className="col-span-1 text-[10px] text-white/40">
+                          Vùng Z
+                          <input
+                            type="number"
+                            value={scoutRegionForm.regionZ}
+                            onChange={(event) =>
+                              setScoutRegionForm((prev) => ({
+                                ...prev,
+                                regionZ: Number(event.target.value) || 0,
+                              }))
+                            }
+                            className="mt-0.5 w-full rounded border border-white/15 bg-black/40 px-1 py-1 font-mono text-[11px] text-white"
+                          />
+                        </label>
+                        {(["infantry", "archers", "cavalry"] as const).map((troop) => (
+                          <label key={troop} className="text-[10px] text-white/40">
+                            {troop === "infantry" ? "Bộ" : troop === "archers" ? "Cung" : "Kỵ"}
+                            <input
+                              type="number"
+                              min={0}
+                              max={snapshot.base.army[troop]}
+                              value={scoutRegionForm[troop]}
+                              onChange={(event) =>
+                                setScoutRegionForm((prev) => ({
+                                  ...prev,
+                                  [troop]: Math.max(0, Number(event.target.value) || 0),
+                                }))
+                              }
+                              className="mt-0.5 w-full rounded border border-white/15 bg-black/40 px-1 py-1 font-mono text-[11px] text-white"
+                            />
+                          </label>
+                        ))}
+                      </div>
+
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+                        <span className={scoutTotal > 0 && scoutTotal <= SCOUT_MISSION_MAX_TROOPS ? "text-emerald-300" : "text-rose-300"}>
+                          Quân: {scoutTotal}/{SCOUT_MISSION_MAX_TROOPS}
+                        </span>
+                        <span className={displayWood >= SCOUT_MISSION_WOOD_COST ? "text-emerald-300" : "text-rose-300"}>
+                          🪵 {SCOUT_MISSION_WOOD_COST}
+                        </span>
+                        <span className={displayFood >= SCOUT_MISSION_FOOD_COST ? "text-emerald-300" : "text-rose-300"}>
+                          🌾 {SCOUT_MISSION_FOOD_COST}
+                        </span>
+                        <span className={targetOnFrontier ? "text-emerald-300" : "text-amber-300"}>
+                          {targetRevealed ? "Vùng đã mở" : targetOnFrontier ? "Vùng tiếp giáp" : "Chưa tiếp giáp"}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={!canDispatchScout}
+                        onClick={() =>
+                          void act("scout-region", {
+                            type: "scoutRegion",
+                            targetRegionX: scoutRegionForm.regionX,
+                            targetRegionZ: scoutRegionForm.regionZ,
+                            infantry: scoutRegionForm.infantry,
+                            archers: scoutRegionForm.archers,
+                            cavalry: scoutRegionForm.cavalry,
+                          })
+                        }
+                        className="mt-2 w-full rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-sky-500 disabled:opacity-40"
+                      >
+                        {scoutCampLevel < 1 ? "Cần Trại trinh sát cấp 1" : "🔭 Phái đoàn trinh sát"}
+                      </button>
+                    </div>
+
+                    {resolvedMissions.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-bold text-white/60">📜 Kết quả trinh sát gần đây</p>
+                        {resolvedMissions.map((mission) => (
+                          <div
+                            key={mission.id}
+                            className="rounded-lg border border-white/10 bg-black/30 p-2 text-[10px] text-white/60"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono font-bold text-white/80">
+                                ({mission.targetRegionX}, {mission.targetRegionZ})
+                              </span>
+                              <span
+                                className={
+                                  mission.status === "COMPLETED"
+                                    ? "text-emerald-300"
+                                    : "text-rose-300"
+                                }
+                              >
+                                {explorationStatusLabel(mission.status)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5">
+                              Mở thêm {mission.revealedCount} vùng · +{mission.rewardWood}🪵 +{mission.rewardStone}🪨
+                              {mission.rewardFood > 0 ? ` +${mission.rewardFood}🌾` : ""}
+                              {mission.rewardIron > 0 ? ` +${mission.rewardIron}⛏️` : ""}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Active Scout Mission Card */}
               {activeScout && (() => {

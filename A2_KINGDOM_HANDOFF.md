@@ -508,3 +508,92 @@ the isomorphic `@/lib/world-realtime`; `/world` client chunks no longer contain 
 - Scheduled-job sweeps are bounded (`take: 100` per sub-job) but the tables have no index on
   `occupiedUntil` / `respawnsAt` beyond the ones already present; at large scale the sweep queries
   are the next thing to index.
+
+## Phase 7 — Economy rewards, castle/wall progression, Fog of War, redeem codes (implemented)
+
+### What changed
+
+- **Pushed completion rewards.** Every finished building level grants its reward exactly once in
+  `advanceWorld`: the reward row (unique `buildingId + level`) and the capped resource credit are in
+  one transaction. Only completions with `completesAt > lastSimulatedAt` are eligible, so existing
+  players do not receive retroactive back-pay. History is exposed as `base.buildingRewards` and shown
+  as a toast on the client.
+- **Castle-driven slots + one build queue.** `worldCastleSlotCount` unlocks 4/6/9/12 of the existing
+  12 plots (capped by `WORLD_BUILDING_PLOT_COUNT`). `WORLD_BUILD_QUEUE_LIMIT = 1` serialises city
+  builds; castle, research, training and healing keep their own queues.
+- **Wall and defence.** `UPGRADE_WALL` is a base-level progression track with its own cost/time table
+  and pending timer. Castle N→N+1 requires wall ≥ N, and from castle 3 also one economy building at
+  level 2. Wall + Watchtower + Gatehouse feed the defence/loot-reduction summary in the snapshot and
+  the combat resolution; Watchtower adds view radius, Gatehouse reduces loot. City Building Panel
+  groups buildings into Quân sự / Kinh tế / Phòng thủ and uses the shared cost/time helpers.
+- **Fog of War + scout missions.** A 5 km region grid is persisted per base (`WorldExploration`).
+  New bases reveal a 5×5 ring; the server filters nearby bases and map-object definitions by revealed
+  cells. `scoutRegion` requires a completed Scout Camp, an unrevealed frontier cell, 1–200 reserved
+  troops, 25 wood and 15 food; missions resolve lazily through `processScheduledWorldJobs` (no server
+  interval), reveal `scoutCampLevel`-sized blocks, pay first-discovery rewards once per cell, and
+  return the troops. Enemy-base attack now requires the defender's region to be revealed. The old
+  `scoutBase` intel report remains intact.
+- **Redeem codes.** Codes are stored as SHA-256 hash + masked preview; redemption is transactional
+  with `maxUses`/`perUserLimit` guards and writes to the existing `a2Coins` balance plus a
+  `PointTransaction` (type `REDEEM_CODE`). Admin endpoints (`/api/admin/world/redeem-codes` and
+  `.../[id]`) are ADMIN-only and write an audit log; the raw code is returned only once at creation.
+- **3D updates.** `FogOfWarSystem` draws frontier fog tiles, `ScoutMissionMarkers` draws pulsing
+  beacons with region labels for in-flight missions, walls grow taller with wall level, and
+  Watchtower/Gatehouse map to the existing tower/gate models.
+- **Client UI.** Intel tab now has territory progress, frontier selector, scout form, mission
+  progress and resolved reports; Base tab has wall/gift-code cards; Build tab shows slots/queue;
+  admin `/admin/world` embeds the redeem-code manager. Auto-refresh also keys off scout-mission
+  completion times.
+
+### Files changed / added
+
+- Schema + additive migration: `prisma/schema.prisma`,
+  `prisma/migrations/2026-11-25T1200_world_expansion/migration.sql`.
+- New libs: `src/lib/world-progression.ts`, `src/lib/world-exploration.ts`, `src/lib/world-redeem.ts`;
+  updated `src/lib/world-buildings.ts`, `src/lib/world.ts`.
+- New routes: `src/app/api/world/redeem/route.ts`,
+  `src/app/api/admin/world/redeem-codes/route.ts`, `.../[id]/route.ts`; updated
+  `src/app/api/world/actions/route.ts`, `src/app/api/world/buildings/route.ts`.
+- Client/3D: `src/components/WorldPageClient3D.tsx`,
+  `src/components/world3d/city/CityBuildingPanel.tsx`, `.../CastleSystem.tsx`,
+  `.../BuildingFactory.tsx`, `src/components/world3d/WorldScene.tsx`, new
+  `FogOfWarSystem.tsx`, `ScoutMissionMarkers.tsx`, and `src/components/WorldRedeemCodeAdmin.tsx`;
+  `src/app/admin/world/page.tsx`.
+- Tests: `scripts/test-world-expansion.ts` (8 checks).
+
+### Verification
+
+- `npx tsc --noEmit` → **0 errors**.
+- `npx tsx scripts/test-world-expansion.ts` → **8/8** (initial wall/slots/fog, pure tables, reward
+  idempotency, wall completion, queue/plot gates, scout reserve → reveal → return, fog filtering,
+  redeem hash + one-use + A2Coin ledger).
+- Existing suites remain green: `test-hospital-system.ts` 11/11, `test-parallel-training.ts` 9/9,
+  `test-world-systems.mjs` 16/16, `test-world-realtime.mjs` 28/28,
+  `test-world-realtime-broadcast.mjs` 12/12.
+- `npm run build` → **compiled successfully**, 51 routes generated including
+  `/api/world/redeem` and `/api/admin/world/redeem-codes[/id]`. Next.js printed a one-time security
+  advisory on the first build; a second run completed normally (see upgrade note below).
+- `npm run lint` still reports the repository's **pre-existing** errors (Stockfish bundle,
+  `react-hooks/purity` in older components, old test scripts, `user-stats.ts`). No new lint errors
+  were introduced by this phase.
+
+### Regression / data safety
+
+- All schema changes are additive/defaulted; no player row is rewritten or deleted. `createMany`
+  avoids `skipDuplicates` so the local SQLite workflow keeps working; dedupe uses the unique DB
+  constraints and pre-checks.
+- OJ auth/session, A2Coin definition and all earlier world phases (coordinates, terrain, realtime,
+  hospital, parallel training) are unchanged. `scoutBase` intel and all existing production/combat
+  rules are preserved.
+
+### Known issues / follow-ups
+
+- Fog tiles mark the frontier inside the view radius; they are a visual boundary only — the server,
+  not the client, decides which objects and bases exist in a hidden region.
+- `WorldBuildingReward` intentionally does not FK `buildingId`, so a demolition cannot revoke a
+  granted reward.
+- Watchtower/Gatehouse currently contribute via defence/view math; no bespoke 3D gate-opening or
+  siege VFX was added.
+- Redeem admin is embedded on `/admin/world` instead of a separate `/admin/world/codes` page.
+- Local verification used the SQLite dev DB; the Postgres migration was generated but not applied in
+  this environment.

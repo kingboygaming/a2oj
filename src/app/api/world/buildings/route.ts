@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 const requestSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("UPGRADE_CASTLE") }),
+  z.object({ type: z.literal("UPGRADE_WALL") }),
   z.object({
     type: z.literal("BUILD"),
     plotIndex: z.number().int().min(0).max(WORLD_BUILDING_PLOT_COUNT - 1),
