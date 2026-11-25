@@ -547,8 +547,8 @@ the isomorphic `@/lib/world-realtime`; `/world` client chunks no longer contain 
   towers, and the server rejects placing them on regular cells (or other buildings on their slots).
 - **Client UI.** Intel tab now has territory progress, frontier selector, scout form, mission
   progress and resolved reports; Base tab has wall/gift-code cards; Build tab shows slots/queue;
-  admin `/admin/world` embeds the redeem-code manager. Gift-code input lives in its own **🎁 Quà**
-  tab with full redemption history, not inside the base menu. Auto-refresh also keys off scout-mission
+  admin `/admin/world` embeds the redeem-code manager. Gift-code input lives in a floating **🎁 Quà**
+  button/panel outside the control panel, with full redemption history, not inside any tab. Auto-refresh also keys off scout-mission
   completion times. City plots are coloured grid cells: green = empty, red = occupied (still opens
   the upgrade/demolish panel). In Placement Mode an invisible build plane raycasts the pointer,
   snaps to the nearest cell inside the wall, and shows a translucent ghost tinted green (`VALID`) or
