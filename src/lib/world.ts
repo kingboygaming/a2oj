@@ -613,7 +613,7 @@ function requireWorldCoordinates(
 }
 
 function productionFor(factoryLevel: number, resource: "wood" | "stone") {
-  return factoryLevel * (resource === "wood" ? 20 : 10);
+  return factoryLevel * (resource === "wood" ? 30 : 12);
 }
 
 type WorldBuildingState = {
@@ -671,7 +671,7 @@ function buildingProductionAt(
     : resource === "stone"
       ? "STONE_QUARRY"
       : "FARM";
-  const ratePerLevel = resource === "wood" ? 20 : resource === "stone" ? 10 : 20;
+  const ratePerLevel = resource === "wood" ? 30 : resource === "stone" ? 12 : 20;
   return buildings.reduce(
     (total, building) =>
       total + (building.buildingType === buildingType
@@ -3399,10 +3399,10 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       capacity: worldResourceCapacity(base.warehouseLevel, baseBuildings, now.getTime()),
       woodPerHour:
         (productionFor(base.factoryLevel, "wood") +
-        buildingLevelSumAt(baseBuildings, "LUMBER_MILL", now.getTime()) * 20) * productionMultiplier,
+        buildingLevelSumAt(baseBuildings, "LUMBER_MILL", now.getTime()) * 30) * productionMultiplier,
       stonePerHour:
         (productionFor(base.factoryLevel, "stone") +
-        buildingLevelSumAt(baseBuildings, "STONE_QUARRY", now.getTime()) * 10) * productionMultiplier,
+        buildingLevelSumAt(baseBuildings, "STONE_QUARRY", now.getTime()) * 12) * productionMultiplier,
       foodPerHour:
         buildingLevelSumAt(baseBuildings, "FARM", now.getTime()) * 20 * productionMultiplier,
       army: {

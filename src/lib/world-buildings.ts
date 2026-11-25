@@ -56,9 +56,9 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   SCOUT_CAMP: { name: "Trại trinh sát", group: "Quân sự", description: "Mỗi cấp mở rộng tầm nhìn bản đồ thêm 15 km, tối đa 89 km.", woodCost: 180, stoneCost: 100, constructionSeconds: 90, requiredCastleLevel: 1, maxLevel: 3 },
   WATCHTOWER: { name: "Tháp canh", group: "Phòng thủ", description: "Tăng phòng thủ căn cứ và mở rộng tầm quan sát mỗi cấp.", woodCost: 170, stoneCost: 120, constructionSeconds: 100, requiredCastleLevel: 2, maxLevel: 10 },
   GATEHOUSE: { name: "Cổng thành", group: "Phòng thủ", description: "Củng cố cổng thành, giảm tỉ lệ tài nguyên bị cướp khi bị tấn công.", woodCost: 200, stoneCost: 160, constructionSeconds: 120, requiredCastleLevel: 3, maxLevel: 10 },
-  LUMBER_MILL: { name: "Xưởng gỗ", group: "Kinh tế", description: "Tăng năng lực khai thác gỗ.", woodCost: 100, stoneCost: 45, constructionSeconds: 60, requiredCastleLevel: 1 },
+  LUMBER_MILL: { name: "Xưởng gỗ", group: "Kinh tế", description: "Sản xuất 30 gỗ/giờ mỗi cấp, kể cả khi offline.", woodCost: 100, stoneCost: 45, constructionSeconds: 60, requiredCastleLevel: 1 },
   IRON_MINE: { name: "Mỏ sắt", group: "Kinh tế", description: "Khai thác quặng sắt; sản lượng mỏ chưa được tích hợp.", woodCost: 150, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
-  STONE_QUARRY: { name: "Mỏ đá", group: "Kinh tế", description: "Tăng năng lực khai thác đá.", woodCost: 100, stoneCost: 60, constructionSeconds: 60, requiredCastleLevel: 1 },
+  STONE_QUARRY: { name: "Mỏ đá", group: "Kinh tế", description: "Sản xuất 12 đá/giờ mỗi cấp, kể cả khi offline.", woodCost: 100, stoneCost: 60, constructionSeconds: 60, requiredCastleLevel: 1 },
   FARM: { name: "Nông trại", group: "Kinh tế", description: "Sản xuất 20 lương thực/giờ mỗi cấp, kể cả khi offline.", woodCost: 90, stoneCost: 35, constructionSeconds: 60, requiredCastleLevel: 1 },
   WAREHOUSE: { name: "Nhà kho", group: "Kinh tế", description: "Tăng sức chứa tài nguyên sau khi hoàn thành.", woodCost: 150, stoneCost: 100, constructionSeconds: 120, requiredCastleLevel: 2 },
 };
