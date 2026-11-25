@@ -15,7 +15,11 @@ import { BuildingFloatingTimer } from "./BuildingFloatingTimer";
 import { HealingVFX } from "./HealingVFX";
 import {
   WORLD_BUILDING_DEFINITIONS,
+  WORLD_FORTIFICATION_PLOT_INDEXES,
+  WORLD_GATEHOUSE_PLOT_INDEX,
   WORLD_PLOT_LIMIT,
+  WORLD_WATCHTOWER_PLOT_INDEXES,
+  isFortificationBuildingType,
   worldPlotPosition,
   type WorldBuildingType,
   type WorldBuildingView,
@@ -81,6 +85,7 @@ export function CastleSystem({
   const [cx, , cz] = position;
   const wallHeightScale = 1 + Math.min(20, Math.max(0, wallLevel - 1)) * 0.05;
   const [snapped, setSnapped] = useState<{ index: number; x: number; z: number } | null>(null);
+  const [fortHover, setFortHover] = useState<number | null>(null);
   // Render used plots plus a buffer of fresh cells. Capped only for GPU safety.
   const plotCount = Math.min(
     WORLD_PLOT_LIMIT,
@@ -133,6 +138,16 @@ export function CastleSystem({
   }, [cx, cz, anchorWorldX, anchorWorldZ, wallRadius]);
 
   const plotBuildings = new Map(buildings.map((building) => [building.plotIndex, building]));
+  const isFortPlacement = placementType !== null && isFortificationBuildingType(placementType);
+
+  /** Render-space position of a reserved gate/tower fortification slot. */
+  function fortPosition(index: number): [number, number, number] | null {
+    if (index === WORLD_GATEHOUSE_PLOT_INDEX) return layout.gatePosition;
+    const towerIndex = WORLD_WATCHTOWER_PLOT_INDEXES.indexOf(
+      index as (typeof WORLD_WATCHTOWER_PLOT_INDEXES)[number],
+    );
+    return towerIndex >= 0 ? layout.towers[towerIndex] : null;
+  }
 
   /** Snap a render-space XZ point to the closest grid cell inside the wall. */
   function findNearestCell(renderX: number, renderZ: number) {
@@ -187,17 +202,126 @@ export function CastleSystem({
           heightScale={wallHeightScale}
         />
       ))}
-      {layout.towers.map((tower, index) => (
-        <WatchTower key={`tower-${index}`} position={tower} />
-      ))}
-      <Gate position={layout.gatePosition} rotation={-layout.gateAngle + Math.PI / 2} />
+      {layout.towers.map((tower, index) => {
+        const plotIndex = WORLD_WATCHTOWER_PLOT_INDEXES[index];
+        const built = plotBuildings.get(plotIndex);
+        const markerVisible = cityView && placementType === "WATCHTOWER";
+        const markerColor = built ? "#f87171" : "#34d399";
+        return (
+          <group key={`tower-${index}`} position={tower}>
+            <WatchTower position={[0, 0, 0]} />
+            <group>
+              {built && (
+                <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.3, 0]}>
+                  <ringGeometry args={[2.4, 2.8, 24]} />
+                  <meshBasicMaterial color="#fbbf24" transparent opacity={0.7} side={2} />
+                </mesh>
+              )}
+              {markerVisible && (
+                <mesh
+                  position={[0, 0.35, 0]}
+                  onPointerOver={(event) => {
+                    event.stopPropagation();
+                    setFortHover(plotIndex);
+                  }}
+                  onPointerOut={() => setFortHover((current) => (current === plotIndex ? null : current))}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (built) onSelectBuilding(plotIndex);
+                    else if (!placementDisabled) onPlacePlot?.(plotIndex, "WATCHTOWER");
+                  }}
+                >
+                  <boxGeometry args={[3.4, 0.2, 3.4]} />
+                  <meshBasicMaterial
+                    color={markerColor}
+                    transparent
+                    opacity={fortHover === plotIndex ? 0.55 : 0.28}
+                    wireframe
+                    depthWrite={false}
+                  />
+                </mesh>
+              )}
+            </group>
+          </group>
+        );
+      })}
+      <group position={layout.gatePosition}>
+        <Gate position={[0, 0, 0]} rotation={-layout.gateAngle + Math.PI / 2} />
+        {(() => {
+          const built = plotBuildings.get(WORLD_GATEHOUSE_PLOT_INDEX);
+          const markerVisible = cityView && placementType === "GATEHOUSE";
+          return (
+            <>
+              {built && (
+                <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.3, 0]}>
+                  <ringGeometry args={[3.2, 3.7, 24]} />
+                  <meshBasicMaterial color="#fbbf24" transparent opacity={0.7} side={2} />
+                </mesh>
+              )}
+              {markerVisible && (
+                <mesh
+                  position={[0, 0.35, 0]}
+                  onPointerOver={(event) => {
+                    event.stopPropagation();
+                    setFortHover(WORLD_GATEHOUSE_PLOT_INDEX);
+                  }}
+                  onPointerOut={() =>
+                    setFortHover((current) => (current === WORLD_GATEHOUSE_PLOT_INDEX ? null : current))
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (built) onSelectBuilding(WORLD_GATEHOUSE_PLOT_INDEX);
+                    else if (!placementDisabled) onPlacePlot?.(WORLD_GATEHOUSE_PLOT_INDEX, "GATEHOUSE");
+                  }}
+                >
+                  <boxGeometry args={[4.4, 0.2, 4.4]} />
+                  <meshBasicMaterial
+                    color={built ? "#f87171" : "#34d399"}
+                    transparent
+                    opacity={fortHover === WORLD_GATEHOUSE_PLOT_INDEX ? 0.55 : 0.28}
+                    wireframe
+                    depthWrite={false}
+                  />
+                </mesh>
+              )}
+            </>
+          );
+        })()}
+      </group>
+
+      {/* Ghost preview on the reserved gate/tower slot only. */}
+      {cityView && fortHover !== null && placementType && isFortPlacement && (() => {
+        const pos = fortPosition(fortHover);
+        if (!pos) return null;
+        const occupied = plotBuildings.has(fortHover);
+        return (
+          <group position={[pos[0], pos[1] + 0.2, pos[2]]}>
+            <WorldBuildingModel
+              type={placementType}
+              level={1}
+              position={[0, 0, 0]}
+              ghost
+              ghostColor={occupied ? "#f87171" : "#34d399"}
+            />
+            <Text
+              position={[0, 6, 0]}
+              fontSize={1.1}
+              color={occupied ? "#fca5a5" : "#6ee7b7"}
+              outlineColor="#000000"
+              outlineWidth={0.04}
+            >
+              {occupied ? "Đã có công trình" : "Bấm để xây"}
+            </Text>
+          </group>
+        );
+      })()}
 
       {cityView && plots.map(([offsetX, offsetZ], index) => {
         const x = cx + offsetX;
         const z = cz + offsetZ;
         const groundY = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
         const building = plotBuildings.get(index);
-        const placeable = !building && !placementDisabled;
+        const placeable = !building && !placementDisabled && !isFortPlacement;
         const isSnapped = snapped?.index === index;
         const color = placeable
           ? "#34d399"
@@ -358,7 +482,7 @@ export function CastleSystem({
             onClick={(event) => {
               event.stopPropagation();
               const cell = findNearestCell(event.point.x, event.point.z);
-              if (!cell || !placementType) return;
+              if (!cell || !placementType || isFortPlacement) return;
               if (!plotBuildings.has(cell.index) && onPlacePlot) {
                 onPlacePlot(cell.index, placementType);
               } else if (plotBuildings.has(cell.index)) {
@@ -370,7 +494,7 @@ export function CastleSystem({
             <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
           </mesh>
 
-          {snapped && placementType && (() => {
+          {snapped && placementType && !isFortPlacement && (() => {
             const y = heightAtRender(snapped.x, snapped.z, anchorWorldX, anchorWorldZ) + 0.12;
             const occupied = plotBuildings.has(snapped.index);
             const valid = !occupied && !placementDisabled;
@@ -397,7 +521,7 @@ export function CastleSystem({
             );
           })()}
 
-          {snapped && (
+          {snapped && !isFortPlacement && (
             <Text
               position={[
                 snapped.x,

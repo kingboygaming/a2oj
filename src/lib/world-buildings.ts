@@ -54,8 +54,8 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   MILITARY_ACADEMY: { name: "Học viện quân sự", group: "Quân sự", description: "Công trình quân sự nâng cao.", woodCost: 500, stoneCost: 400, constructionSeconds: 300, requiredCastleLevel: 10 },
   HOSPITAL: { name: "Quân y viện", group: "Quân sự", description: "Tiếp nhận và cứu chữa thương binh. Mỗi cấp tăng 150 sức chứa.", woodCost: 160, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
   SCOUT_CAMP: { name: "Trại trinh sát", group: "Quân sự", description: "Mỗi cấp mở rộng tầm nhìn bản đồ thêm 15 km, tối đa 89 km.", woodCost: 180, stoneCost: 100, constructionSeconds: 90, requiredCastleLevel: 1, maxLevel: 3 },
-  WATCHTOWER: { name: "Tháp canh", group: "Phòng thủ", description: "Tăng phòng thủ căn cứ và mở rộng tầm quan sát mỗi cấp.", woodCost: 170, stoneCost: 120, constructionSeconds: 100, requiredCastleLevel: 2, maxLevel: 10 },
-  GATEHOUSE: { name: "Cổng thành", group: "Phòng thủ", description: "Củng cố cổng thành, giảm tỉ lệ tài nguyên bị cướp khi bị tấn công.", woodCost: 200, stoneCost: 160, constructionSeconds: 120, requiredCastleLevel: 3, maxLevel: 10 },
+  WATCHTOWER: { name: "Tháp canh", group: "Phòng thủ", description: "Chỉ đặt trên 4 tháp tường thành; tăng phòng thủ và tầm quan sát mỗi cấp.", woodCost: 170, stoneCost: 120, constructionSeconds: 100, requiredCastleLevel: 2, maxLevel: 10 },
+  GATEHOUSE: { name: "Cổng thành", group: "Phòng thủ", description: "Chỉ đặt tại cổng chính; giảm tỉ lệ tài nguyên bị cướp khi bị tấn công.", woodCost: 200, stoneCost: 160, constructionSeconds: 120, requiredCastleLevel: 3, maxLevel: 10 },
   LUMBER_MILL: { name: "Xưởng gỗ", group: "Kinh tế", description: "Sản xuất 30 gỗ/giờ mỗi cấp, kể cả khi offline.", woodCost: 100, stoneCost: 45, constructionSeconds: 60, requiredCastleLevel: 1 },
   IRON_MINE: { name: "Mỏ sắt", group: "Kinh tế", description: "Khai thác quặng sắt; sản lượng mỏ chưa được tích hợp.", woodCost: 150, stoneCost: 90, constructionSeconds: 90, requiredCastleLevel: 2 },
   STONE_QUARRY: { name: "Mỏ đá", group: "Kinh tế", description: "Sản xuất 12 đá/giờ mỗi cấp, kể cả khi offline.", woodCost: 100, stoneCost: 60, constructionSeconds: 60, requiredCastleLevel: 1 },
@@ -71,6 +71,32 @@ export const WORLD_BUILDING_PLOT_COUNT = 12;
  * this only prevents absurd indexes from reaching the database / 3D renderer.
  */
 export const WORLD_PLOT_LIMIT = 10_000;
+
+/** Fixed wall positions: these are not regular city-grid cells. */
+export const WORLD_GATEHOUSE_PLOT_INDEX = 9_000;
+export const WORLD_WATCHTOWER_PLOT_INDEXES = [9_001, 9_002, 9_003, 9_004] as const;
+export const WORLD_FORTIFICATION_PLOT_INDEXES: ReadonlySet<number> = new Set([
+  WORLD_GATEHOUSE_PLOT_INDEX,
+  ...WORLD_WATCHTOWER_PLOT_INDEXES,
+]);
+
+export function isFortificationBuildingType(type: WorldBuildingType): boolean {
+  return type === "GATEHOUSE" || type === "WATCHTOWER";
+}
+
+/** Reserved index for a fortification building, or null for normal buildings. */
+export function fortificationPlotIndex(
+  type: WorldBuildingType,
+  towerIndex = 0,
+): number | null {
+  if (type === "GATEHOUSE") return WORLD_GATEHOUSE_PLOT_INDEX;
+  if (type === "WATCHTOWER") {
+    return WORLD_WATCHTOWER_PLOT_INDEXES[
+      Math.max(0, Math.min(WORLD_WATCHTOWER_PLOT_INDEXES.length - 1, Math.trunc(towerIndex)))
+    ];
+  }
+  return null;
+}
 
 const INNER_PLOTS: ReadonlyArray<readonly [number, number]> = [
   [-12, -12], [-5, -12], [5, -12], [12, -12],

@@ -542,10 +542,13 @@ the isomorphic `@/lib/world-realtime`; `/world` client chunks no longer contain 
   `.../[id]`) are ADMIN-only and write an audit log; the raw code is returned only once at creation.
 - **3D updates.** `FogOfWarSystem` draws frontier fog tiles, `ScoutMissionMarkers` draws pulsing
   beacons with region labels for in-flight missions, walls grow taller with wall level, and
-  Watchtower/Gatehouse map to the existing tower/gate models.
+  Watchtower/Gatehouse map to the existing tower/gate models, but are **not** grid buildings: they
+  occupy reserved wall/gate slots (9000–9004), show placement markers only at the gate and four
+  towers, and the server rejects placing them on regular cells (or other buildings on their slots).
 - **Client UI.** Intel tab now has territory progress, frontier selector, scout form, mission
   progress and resolved reports; Base tab has wall/gift-code cards; Build tab shows slots/queue;
-  admin `/admin/world` embeds the redeem-code manager. Auto-refresh also keys off scout-mission
+  admin `/admin/world` embeds the redeem-code manager. Gift-code input lives in its own **🎁 Quà**
+  tab with full redemption history, not inside the base menu. Auto-refresh also keys off scout-mission
   completion times. City plots are coloured grid cells: green = empty, red = occupied (still opens
   the upgrade/demolish panel). In Placement Mode an invisible build plane raycasts the pointer,
   snaps to the nearest cell inside the wall, and shows a translucent ghost tinted green (`VALID`) or

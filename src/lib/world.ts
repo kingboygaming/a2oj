@@ -3,8 +3,12 @@ import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import {
   WORLD_BUILDING_DEFINITIONS,
+  WORLD_FORTIFICATION_PLOT_INDEXES,
+  WORLD_GATEHOUSE_PLOT_INDEX,
   WORLD_PLOT_LIMIT,
   WORLD_TRAINING_BUILDINGS,
+  WORLD_WATCHTOWER_PLOT_INDEXES,
+  isFortificationBuildingType,
   isWorldBuildingType,
   worldBuildingMaxLevel,
   worldHospitalCapacity,
@@ -4157,6 +4161,22 @@ export async function performWorldBuildingAction(
     if (action.type === "BUILD") {
       if (existing) throw new WorldActionError("Ô đất này đã có công trình.", 409);
       const definition = WORLD_BUILDING_DEFINITIONS[action.buildingType];
+      // Fortifications only fit their reserved wall/gate positions, and normal
+      // buildings may never occupy those positions.
+      const reserved = WORLD_FORTIFICATION_PLOT_INDEXES.has(action.plotIndex);
+      if (isFortificationBuildingType(action.buildingType)) {
+        if (action.buildingType === "GATEHOUSE" && action.plotIndex !== WORLD_GATEHOUSE_PLOT_INDEX) {
+          throw new WorldActionError("Cổng thành chỉ được đặt tại cổng chính của tường thành.", 409);
+        }
+        if (
+          action.buildingType === "WATCHTOWER" &&
+          !WORLD_WATCHTOWER_PLOT_INDEXES.includes(action.plotIndex as (typeof WORLD_WATCHTOWER_PLOT_INDEXES)[number])
+        ) {
+          throw new WorldActionError("Tháp canh chỉ được đặt trên một trong bốn tháp tường thành.", 409);
+        }
+      } else if (reserved) {
+        throw new WorldActionError("Vị trí này chỉ dành cho cổng thành hoặc tháp canh.", 409);
+      }
       if (base.castleLevel < definition.requiredCastleLevel) {
         throw new WorldActionError(`Cần Thành chính cấp ${definition.requiredCastleLevel} để xây ${definition.name}.`, 409);
       }

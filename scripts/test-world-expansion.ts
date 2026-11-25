@@ -18,7 +18,12 @@ import {
   worldWallUpgradeCost,
   worldWallUpgradeSeconds,
 } from "../src/lib/world-progression.js";
-import { WORLD_PLOT_LIMIT, worldPlotPosition } from "../src/lib/world-buildings.js";
+import {
+  WORLD_GATEHOUSE_PLOT_INDEX,
+  WORLD_PLOT_LIMIT,
+  WORLD_WATCHTOWER_PLOT_INDEXES,
+  worldPlotPosition,
+} from "../src/lib/world-buildings.js";
 import {
   initialRegionSet,
   isRegionOnFrontier,
@@ -183,6 +188,52 @@ async function run() {
     assert(snapshot.base.buildQueue.active.length >= 2);
     assert(snapshot.buildings.some((b) => b.plotIndex === 40));
     assert.strictEqual(snapshot.base.buildQueue.unlimited, true);
+  });
+
+  await testCase("Gatehouse and watchtowers only use their reserved wall slots", async () => {
+    await prisma.worldBase.update({
+      where: { userId: user.id },
+      data: { castleLevel: 3, wood: 20_000, stone: 20_000 },
+    });
+    await assert.rejects(
+      performWorldBuildingAction(
+        user.id,
+        { type: "BUILD", plotIndex: 3, buildingType: "GATEHOUSE" },
+        now,
+      ),
+      /cổng chính/i,
+    );
+    await assert.rejects(
+      performWorldBuildingAction(
+        user.id,
+        { type: "BUILD", plotIndex: 4, buildingType: "WATCHTOWER" },
+        now,
+      ),
+      /tháp tường/i,
+    );
+    await assert.rejects(
+      performWorldBuildingAction(
+        user.id,
+        { type: "BUILD", plotIndex: WORLD_GATEHOUSE_PLOT_INDEX, buildingType: "FARM" },
+        now,
+      ),
+      /chỉ dành cho/i,
+    );
+    await performWorldBuildingAction(
+      user.id,
+      { type: "BUILD", plotIndex: WORLD_GATEHOUSE_PLOT_INDEX, buildingType: "GATEHOUSE" },
+      now,
+    );
+    await performWorldBuildingAction(
+      user.id,
+      { type: "BUILD", plotIndex: WORLD_WATCHTOWER_PLOT_INDEXES[0], buildingType: "WATCHTOWER" },
+      now,
+    );
+    const snapshot = await loadWorldSnapshot(user.id, now);
+    assert.strictEqual(snapshot.base.defense.gatehouseLevel, 0); // not completed yet
+    const activeIndices = snapshot.base.buildQueue.active.map((entry) => entry.plotIndex);
+    assert(activeIndices.includes(WORLD_GATEHOUSE_PLOT_INDEX));
+    assert(activeIndices.includes(WORLD_WATCHTOWER_PLOT_INDEXES[0]));
   });
 
   await testCase("Scout mission reserves troops, reveals regions and returns troops", async () => {

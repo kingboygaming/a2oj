@@ -24,6 +24,7 @@ import { WorldResearchPanel } from "@/components/world3d/city/WorldResearchPanel
 import {
   WORLD_BUILDING_DEFINITIONS,
   WORLD_TRAINING_BUILDINGS,
+  isFortificationBuildingType,
   worldScoutCampLevel,
   worldViewRadiusMeters,
   type WorldBuildingType,
@@ -112,7 +113,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
-  const [activeTab, setActiveTab] = useState<"base" | "army" | "hospital" | "research" | "events" | "alliance" | "build" | "intel">("base");
+  const [activeTab, setActiveTab] = useState<"base" | "army" | "hospital" | "research" | "events" | "alliance" | "build" | "gifts" | "intel">("base");
   const [healSelectedTroop, setHealSelectedTroop] = useState<"INFANTRY" | "ARCHERS" | "CAVALRY">("INFANTRY");
   const [healCount, setHealCount] = useState<number>(10);
   const [selectedWorldObject, setSelectedWorldObject] = useState<WorldMapObject | null>(null);
@@ -1081,7 +1082,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
 
           {/* Tabs */}
           <div className="mb-3 flex flex-wrap gap-1">
-            {(["base", "army", "hospital", "research", "events", "alliance", "build", "intel"] as const).map((tab) => {
+            {(["base", "army", "hospital", "research", "events", "alliance", "build", "gifts", "intel"] as const).map((tab) => {
               const remTrainSec = snapshot.base.army.trainingType && snapshot.base.army.trainingCompletesAt
                 ? Math.max(0, Math.ceil((new Date(snapshot.base.army.trainingCompletesAt).getTime() - nowMs) / 1000))
                 : 0;
@@ -1139,6 +1140,10 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 label = "🤝 Liên minh";
               } else if (tab === "build") {
                 label = inProgressBuildingsCount > 0 ? `🏗️ Xây (${inProgressBuildingsCount})` : "🏗️ Xây";
+              } else if (tab === "gifts") {
+                label = snapshot.redeemHistory.length > 0
+                  ? `🎁 Quà (${snapshot.redeemHistory.length})`
+                  : "🎁 Quà";
               } else {
                 label = remScoutSec > 0
                   ? `🔭 Tình báo (${remScoutSec}s)`
@@ -1301,38 +1306,6 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   })()}
                 </div>
 
-                {/* Gift code */}
-                <div className="mt-3 rounded-xl border border-emerald-300/25 bg-emerald-500/10 p-3 text-xs text-emerald-100">
-                  <p className="font-bold text-emerald-200">🎁 Nhập mã quà tặng</p>
-                  <div className="mt-1.5 flex gap-1.5">
-                    <input
-                      value={giftCode}
-                      onChange={(event) => setGiftCode(event.target.value.toUpperCase())}
-                      placeholder="A2KINGDOM"
-                      className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-xs text-white placeholder:text-white/30"
-                    />
-                    <button
-                      type="button"
-                      disabled={redeeming || giftCode.trim().length < 4}
-                      onClick={() => void redeemGiftCode()}
-                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40"
-                    >
-                      {redeeming ? "Đang nhập…" : "Nhập"}
-                    </button>
-                  </div>
-                  {snapshot.redeemHistory.length > 0 && (
-                    <div className="mt-2 space-y-0.5 text-[10px] text-emerald-200/70">
-                      <p className="font-bold uppercase tracking-wide">Đã nhập gần đây</p>
-                      {snapshot.redeemHistory.slice(0, 3).map((entry) => (
-                        <p key={entry.id}>
-                          {entry.codePreview} · {entry.campaign} · +{entry.rewardWood}🪵 +{entry.rewardStone}🪨
-                          {entry.rewardA2Coin > 0 ? ` +${entry.rewardA2Coin} A2` : ""}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 <button
                   type="button"
                   onClick={() => {
@@ -1393,8 +1366,21 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                     {WORLD_BUILDING_DEFINITIONS[placementType].stoneCost}🪨
                   </p>
                   <p className="mt-1 text-emerald-200/75">
-                    Di chuột trong thành: ghost tự snap vào ô gần nhất; bấm để đặt xuống.{" "}
-                    Ô <strong className="text-rose-300">đỏ</strong> đã có công trình thì không đặt được. Chi phí tăng 10% cho mỗi công trình đã có.
+                    {placementType && isFortificationBuildingType(placementType) ? (
+                      <>
+                        Chỉ đặt được tại vị trí riêng trên tường:{" "}
+                        {placementType === "GATEHOUSE"
+                          ? "cổng chính của thành"
+                          : "một trong bốn tháp tường thành"}
+                        . Di chuột vào marker rồi bấm để xây.
+                      </>
+                    ) : (
+                      <>
+                        Di chuột trong thành: ghost tự snap vào ô gần nhất; bấm để đặt xuống.{" "}
+                        Ô <strong className="text-rose-300">đỏ</strong> đã có công trình thì không đặt được.
+                        Chi phí tăng 10% cho mỗi công trình đã có.
+                      </>
+                    )}
                   </p>
                   <button
                     type="button"
@@ -1902,6 +1888,69 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
           {/* ── Tab: Alliance ── */}
           {activeTab === "alliance" && (
             <WorldAlliancePanel />
+          )}
+
+          {/* ── Tab: Gifts (Mã quà tặng) ── */}
+          {activeTab === "gifts" && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-emerald-300/25 bg-gradient-to-br from-emerald-950/60 to-black/60 p-4 text-xs text-emerald-100">
+                <p className="text-sm font-bold text-emerald-200">🎁 Mã quà tặng</p>
+                <p className="mt-1 text-[11px] leading-4 text-emerald-200/65">
+                  Nhập mã sự kiện để nhận gỗ, đá, lương thực, sắt và A2 Coin. Mỗi mã có thể giới hạn
+                  tổng lượt dùng và số lượt mỗi người chơi.
+                </p>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void redeemGiftCode();
+                  }}
+                  className="mt-3 flex gap-1.5"
+                >
+                  <input
+                    value={giftCode}
+                    onChange={(event) => setGiftCode(event.target.value.toUpperCase())}
+                    placeholder="A2KINGDOM"
+                    className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-xs text-white placeholder:text-white/30"
+                  />
+                  <button
+                    type="submit"
+                    disabled={redeeming || giftCode.trim().length < 4}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40"
+                  >
+                    {redeeming ? "Đang nhập…" : "Nhập mã"}
+                  </button>
+                </form>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-white/70">
+                  Lịch sử đã nhập ({snapshot.redeemHistory.length})
+                </p>
+                {snapshot.redeemHistory.length === 0 ? (
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-center text-xs text-white/40">
+                    Bạn chưa nhập mã quà tặng nào.
+                  </div>
+                ) : (
+                  snapshot.redeemHistory.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-lg border border-emerald-300/20 bg-black/40 p-2.5 text-[11px] text-emerald-100"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-emerald-200">{entry.codePreview}</span>
+                        <span className="text-[10px] text-white/40">{utcLabel(entry.redeemedAt)}</span>
+                      </div>
+                      <p className="mt-0.5 text-white/60">{entry.campaign}</p>
+                      <p className="mt-1 text-emerald-200/80">
+                        +{entry.rewardWood}🪵 +{entry.rewardStone}🪨 +{entry.rewardFood}🌾
+                        {entry.rewardIron > 0 ? ` +${entry.rewardIron}⛏️` : ""}
+                        {entry.rewardA2Coin > 0 ? ` +${entry.rewardA2Coin} A2 Coin` : ""}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           )}
 
           {/* ── Tab: Intel (Tình báo & Trinh sát) ── */}
