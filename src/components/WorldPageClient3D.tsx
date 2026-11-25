@@ -599,6 +599,14 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
     ? null
     : snapshot.buildings.find((building) => building.plotIndex === selectedPlotIndex) ?? null;
   const activeMarch = snapshot.events.find((event) => event.activeMarch)?.activeMarch ?? null;
+  // Same formula as the server's map combat power, including the research tier.
+  const totalArmyPower = Math.floor(
+    (
+      snapshot.base.army.infantry * 10 +
+      snapshot.base.army.archers * 15 +
+      snapshot.base.army.cavalry * 20
+    ) * (1 + snapshot.base.militaryTier * 0.25),
+  );
 
   return (
     <div className="world-fullscreen world-viewport relative w-full overflow-hidden">
@@ -933,14 +941,13 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             <span>⛓️ {snapshot.base.iron.toLocaleString("vi-VN")} sắt</span>
             <span>💎 {snapshot.base.rare.toLocaleString("vi-VN")} hiếm</span>
           </div>
-          {/* Army quick stats */}
-          <div className="flex items-center gap-2 rounded-xl border border-teal-500/20 bg-black/65 px-3 py-1.5 backdrop-blur-md">
+          {/* Total army power */}
+          <div className="flex items-center gap-2 rounded-xl border border-teal-500/20 bg-black/65 px-3 py-1.5 font-bold text-white backdrop-blur-md">
             <span className="text-base">⚔️</span>
-            <div className="flex gap-2 text-[10px] text-white/70">
-              <span>🛡{snapshot.base.army.infantry.toLocaleString("vi-VN")}</span>
-              <span>🏹{snapshot.base.army.archers.toLocaleString("vi-VN")}</span>
-              <span>🐎{snapshot.base.army.cavalry.toLocaleString("vi-VN")}</span>
-            </div>
+            <span className="text-[11px] text-white/75">Tổng lực chiến</span>
+            <span className="font-mono text-sm text-teal-200">
+              {totalArmyPower.toLocaleString("vi-VN")}
+            </span>
           </div>
 
           {/* Active Shield Indicator */}
