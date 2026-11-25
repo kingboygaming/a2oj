@@ -67,6 +67,8 @@ interface WorldSceneProps {
   currentUserId: string;
   selectedPlotIndex: number | null;
   placementType: WorldBuildingType | null;
+  placementDisabled?: boolean;
+  onPlacePlot?: (plotIndex: number, type: WorldBuildingType) => void;
   onSelectWorldObject: (object: WorldMapObject) => void;
   onSelectBase?: (base: RemoteBaseInfo) => void;
   onSelectPlot: (plotIndex: number) => void;
@@ -95,6 +97,8 @@ export function WorldScene({
   currentUserId,
   selectedPlotIndex,
   placementType,
+  placementDisabled,
+  onPlacePlot,
   onSelectWorldObject,
   onSelectBase = () => {},
   onSelectPlot,
@@ -146,6 +150,8 @@ export function WorldScene({
           cityView={viewMode === "city"}
           selectedPlotIndex={selectedPlotIndex}
           placementType={placementType}
+          placementDisabled={placementDisabled}
+          onPlacePlot={onPlacePlot}
           castleUpgradeCompletesAt={baseData.castleUpgradeCompletesAt}
           armyTraining={baseData.training}
           activeScout={baseData.activeScout}

@@ -656,6 +656,11 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
             currentUserId={snapshot.userId}
             selectedPlotIndex={selectedPlotIndex}
             placementType={placementType}
+            placementDisabled={Boolean(busy)}
+            onPlacePlot={(plotIndex, type) => {
+              if (busy) return;
+              void buildingAction("BUILD", plotIndex, type);
+            }}
             onSelectWorldObject={(object) => {
               setSelectedWorldObject(object);
               setSelectedRemoteBase(null);
@@ -1175,8 +1180,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/70">Thành chính</p>
                 <p className="mt-1 text-lg font-bold text-white">{snapshot.base.playerName}</p>
                 <p className="mt-1 text-xs text-white/55">
-                  Cấp {snapshot.base.castleLevel} · {snapshot.buildings.length}/{snapshot.base.slots.unlocked} ô đất đã mở
-                  ({snapshot.base.slots.unlocked}/{snapshot.base.slots.total}) · sức chứa {snapshot.base.capacity.toLocaleString("vi-VN")}
+                  Cấp {snapshot.base.castleLevel} · {snapshot.buildings.length} công trình · ô đất không giới hạn ·
+                  sức chứa {snapshot.base.capacity.toLocaleString("vi-VN")}
                 </p>
                 <p className="mt-1 text-xs text-white/55">
                   Chiến lực {(
@@ -1351,8 +1356,8 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                   <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-200/80">Quy hoạch thành phố</p>
                   <p className="mt-1 text-[10px] text-white/45">Chọn ô đất trong cảnh 3D để xây hoặc quản lý công trình.</p>
                   <p className="mt-1 text-[10px] text-emerald-300/70">
-                    Ô đã mở: {snapshot.base.slots.unlocked}/{snapshot.base.slots.total} · Hàng đợi:{" "}
-                    {snapshot.base.buildQueue.active.length}/{snapshot.base.buildQueue.limit}
+                    {snapshot.buildings.length} công trình · ô đất & hàng đợi không giới hạn · chi phí tăng dần
+                    theo số công trình đã có
                   </p>
                 </div>
                 {viewMode !== "city" && (
@@ -1373,9 +1378,7 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 stone={displayStone}
                 busy={Boolean(busy)}
                 nowMs={nowMs}
-                unlockedSlots={snapshot.base.slots.unlocked}
-                buildQueueActive={snapshot.base.buildQueue.active.length}
-                buildQueueLimit={snapshot.base.buildQueue.limit}
+                placedCount={snapshot.buildings.length}
                 onChoose={(type) => setPlacementType(type)}
                 onAction={(type, plotIndex, buildingType) => {
                   if (type === "BUILD" && !buildingType) return;
@@ -1383,27 +1386,24 @@ export function WorldPageClient3D({ initialSnapshot }: { initialSnapshot: WorldS
                 }}
                 onOpenHospital={() => setActiveTab("hospital")}
               />
-              {placementType && selectedPlotIndex !== null && !castleBuilding && (
-                <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs text-emerald-100">
-                  <p className="font-bold">Ghost preview · {WORLD_BUILDING_DEFINITIONS[placementType].name}</p>
-                  <p className="mt-1 text-white/55">Ô đất {selectedPlotIndex + 1}; xác nhận để trừ tài nguyên và lưu công trình trên máy chủ.</p>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      disabled={Boolean(busy)}
-                      onClick={() => void buildingAction("BUILD", selectedPlotIndex, placementType)}
-                      className="flex-1 rounded-lg bg-emerald-700 px-3 py-2 font-bold text-white disabled:opacity-40"
-                    >
-                      Xác nhận xây · {WORLD_BUILDING_DEFINITIONS[placementType].woodCost}🪵 {WORLD_BUILDING_DEFINITIONS[placementType].stoneCost}🪨
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPlacementType(null)}
-                      className="rounded-lg border border-white/15 px-3 py-2 text-white/70"
-                    >
-                      Hủy
-                    </button>
-                  </div>
+              {placementType && (
+                <div className="rounded-xl border border-emerald-300/25 bg-emerald-300/5 p-3 text-xs text-emerald-100">
+                  <p className="font-bold">
+                    Đang chọn: {WORLD_BUILDING_DEFINITIONS[placementType].name} ·{" "}
+                    {WORLD_BUILDING_DEFINITIONS[placementType].woodCost}🪵{" "}
+                    {WORLD_BUILDING_DEFINITIONS[placementType].stoneCost}🪨
+                  </p>
+                  <p className="mt-1 text-emerald-200/75">
+                    Bấm vào <strong className="text-emerald-300">ô XANH</strong> trong City View để đặt công trình ngay.
+                    Ô <strong className="text-rose-300">ĐỎ</strong> là ô đã có công trình nên không đặt được. Chi phí tăng 10% cho mỗi công trình đã có.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setPlacementType(null)}
+                    className="mt-2 rounded-lg border border-white/15 px-3 py-1.5 text-white/70 hover:bg-white/10"
+                  >
+                    Hủy chọn công trình
+                  </button>
                 </div>
               )}
             </div>

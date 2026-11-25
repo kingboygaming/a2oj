@@ -11,12 +11,14 @@ import {
   WORLD_CASTLE_UPGRADE_SECONDS,
   WORLD_WALL_MAX_LEVEL,
   isWorldPlotUnlocked,
+  worldBuildCostForCount,
   worldCastleRequirements,
   worldCastleSlotCount,
   worldBuildingCompletionReward,
   worldWallUpgradeCost,
   worldWallUpgradeSeconds,
 } from "../src/lib/world-progression.js";
+import { WORLD_PLOT_LIMIT, worldPlotPosition } from "../src/lib/world-buildings.js";
 import {
   initialRegionSet,
   isRegionOnFrontier,
@@ -67,9 +69,10 @@ async function run() {
     const snapshot = await loadWorldSnapshot(user.id, now);
     assert.strictEqual(snapshot.base.wall.level, 1);
     assert.strictEqual(snapshot.base.wall.pendingLevel, null);
-    assert.strictEqual(snapshot.base.slots.unlocked, 4);
-    assert.strictEqual(snapshot.base.slots.total, 12);
-    assert.strictEqual(snapshot.base.buildQueue.limit, 1);
+    assert.strictEqual(snapshot.base.slots.unlimited, true);
+    assert.strictEqual(snapshot.base.slots.unlocked, WORLD_PLOT_LIMIT);
+    assert.strictEqual(snapshot.base.slots.total, WORLD_PLOT_LIMIT);
+    assert.strictEqual(snapshot.base.buildQueue.unlimited, true);
     assert.strictEqual(snapshot.exploration.regions.length, initialRegionSet(
       snapshot.base.coordinateX,
       snapshot.base.coordinateZ,
@@ -83,10 +86,20 @@ async function run() {
   });
 
   await testCase("Pure progression helpers match the design tables", async () => {
-    assert.deepEqual([1, 2, 3, 4].map(worldCastleSlotCount), [4, 6, 9, 12]);
+    assert.deepEqual(
+      [1, 2, 3, 4].map(worldCastleSlotCount),
+      [WORLD_PLOT_LIMIT, WORLD_PLOT_LIMIT, WORLD_PLOT_LIMIT, WORLD_PLOT_LIMIT],
+    );
     assert.strictEqual(isWorldPlotUnlocked(3, 1), true);
-    assert.strictEqual(isWorldPlotUnlocked(4, 1), false);
-    assert.strictEqual(isWorldPlotUnlocked(4, 2), true);
+    assert.strictEqual(isWorldPlotUnlocked(4, 1), true);
+    assert.strictEqual(isWorldPlotUnlocked(WORLD_PLOT_LIMIT - 1, 1), true);
+    assert.strictEqual(isWorldPlotUnlocked(WORLD_PLOT_LIMIT, 1), false);
+    // Inner plots keep their original positions; further plots spiral outward.
+    assert.deepEqual(worldPlotPosition(0), [-12, -12]);
+    assert(Math.hypot(...worldPlotPosition(12)) > 20);
+    // Cost grows 10% per already-placed building.
+    assert.deepEqual(worldBuildCostForCount("FARM", 0), { wood: 90, stone: 35 });
+    assert.deepEqual(worldBuildCostForCount("FARM", 10), { wood: 180, stone: 70 });
     assert.strictEqual(WORLD_CASTLE_UPGRADE_SECONDS[2], 600);
     assert.strictEqual(worldWallUpgradeCost(2).wood, 300);
     assert.strictEqual(worldWallUpgradeSeconds(2), 180);
@@ -151,32 +164,25 @@ async function run() {
     assert(snapshot.base.defense.lootReductionPercent > 0);
   });
 
-  await testCase("Build queue and plot gates are enforced", async () => {
+  await testCase("No queue or plot cap; multiple builds can run at once", async () => {
     await prisma.worldBase.update({
       where: { userId: user.id },
-      data: { wood: 5000, stone: 5000, castleLevel: 1 },
+      data: { wood: 20_000, stone: 20_000, castleLevel: 1 },
     });
     await performWorldBuildingAction(
       user.id,
       { type: "BUILD", plotIndex: 1, buildingType: "FARM" },
       now,
     );
-    await assert.rejects(
-      performWorldBuildingAction(
-        user.id,
-        { type: "BUILD", plotIndex: 2, buildingType: "STONE_QUARRY" },
-        now,
-      ),
-      /hàng đợi|đang|xây/i,
+    await performWorldBuildingAction(
+      user.id,
+      { type: "BUILD", plotIndex: 40, buildingType: "STONE_QUARRY" },
+      now,
     );
-    await assert.rejects(
-      performWorldBuildingAction(
-        user.id,
-        { type: "BUILD", plotIndex: 8, buildingType: "FARM" },
-        new Date(now.getTime() + 200_000),
-      ),
-      /ô đất/i,
-    );
+    const snapshot = await loadWorldSnapshot(user.id, now);
+    assert(snapshot.base.buildQueue.active.length >= 2);
+    assert(snapshot.buildings.some((b) => b.plotIndex === 40));
+    assert.strictEqual(snapshot.base.buildQueue.unlimited, true);
   });
 
   await testCase("Scout mission reserves troops, reveals regions and returns troops", async () => {
@@ -193,7 +199,7 @@ async function run() {
         cavalry: 10,
       },
     });
-    // Finish the queued farm so the build slot is free.
+    // Let the earlier buildings finish before starting the scout camp.
     await advanceWorld(user.id, new Date(now.getTime() + 200_000));
     await performWorldBuildingAction(
       user.id,
@@ -255,6 +261,10 @@ async function run() {
 
   await testCase("Redeem codes are hashed, capped and credit A2 Coin once", async () => {
     const code = "A2EXPANSIONTEST";
+    // A previous interrupted run may have left the fixed test code behind.
+    await prisma.worldRedeemCode.deleteMany({
+      where: { codeHash: hashWorldRedeemCode(code) },
+    });
     const created = await createWorldRedeemCode(admin.id, {
       code,
       campaign: "Expansion test",

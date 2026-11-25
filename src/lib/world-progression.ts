@@ -1,6 +1,6 @@
 import {
   WORLD_BUILDING_DEFINITIONS,
-  WORLD_BUILDING_PLOT_COUNT,
+  WORLD_PLOT_LIMIT,
   type WorldBuildingType,
 } from "./world-buildings";
 
@@ -59,26 +59,44 @@ export function worldCastleUpgradeCost(nextLevel: number): { wood: number; stone
 }
 
 /**
- * Usable city plots per castle level. The prompt's table (4/6/9/12/16) is
- * capped by the number of plots the current City View actually renders; the
- * extra level-5 slot becomes available automatically once the plot layout is
- * extended.
+ * Gameplay has no slot cap any more — every plot index is usable from the
+ * start. The castle level no longer gates plot count; it still gates which
+ * building types can be constructed.
  */
-const CASTLE_SLOT_TABLE = [4, 6, 9, 12, 16] as const;
-
-export function worldCastleSlotCount(castleLevel: number): number {
-  const level = Math.max(1, Math.trunc(castleLevel));
-  const proposed = CASTLE_SLOT_TABLE[Math.min(level, CASTLE_SLOT_TABLE.length) - 1] ?? 16;
-  return Math.min(WORLD_BUILDING_PLOT_COUNT, proposed);
+export function worldCastleSlotCount(_castleLevel: number): number {
+  void _castleLevel;
+  return WORLD_PLOT_LIMIT;
 }
 
-/** True when a plot index is unlocked for the given castle level. */
-export function isWorldPlotUnlocked(plotIndex: number, castleLevel: number): boolean {
-  return Number.isInteger(plotIndex) && plotIndex >= 0 && plotIndex < worldCastleSlotCount(castleLevel);
+/** True while the plot index is representable by the game/3D renderer. */
+export function isWorldPlotUnlocked(plotIndex: number, _castleLevel?: number): boolean {
+  void _castleLevel;
+  return Number.isInteger(plotIndex) && plotIndex >= 0 && plotIndex < WORLD_PLOT_LIMIT;
 }
 
-/** Number of plots that can be under construction/upgrade at the same time. */
-export const WORLD_BUILD_QUEUE_LIMIT = 1;
+/**
+ * Concurrent constructions are unlimited in gameplay. This is only a
+ * technical safety cap so a corrupted request cannot enqueue endless rows.
+ */
+export const WORLD_BUILD_QUEUE_LIMIT = WORLD_PLOT_LIMIT;
+
+/**
+ * Each additional building makes the next one more expensive. The multiplier
+ * grows 10% per already-placed building (including ones under construction),
+ * so there is no hard count limit — only a resource curve.
+ */
+export function worldBuildCostForCount(
+  type: WorldBuildingType,
+  placedBuildingCount: number,
+): { wood: number; stone: number } {
+  const definition = WORLD_BUILDING_DEFINITIONS[type];
+  const count = Math.max(0, Math.trunc(placedBuildingCount));
+  const multiplier = 1 + count * 0.1;
+  return {
+    wood: Math.ceil(definition.woodCost * multiplier),
+    stone: Math.ceil(definition.stoneCost * multiplier),
+  };
+}
 
 /**
  * Upgrade duration multiplier by target level. Building level 1 uses the

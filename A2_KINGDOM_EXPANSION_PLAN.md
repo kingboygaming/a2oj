@@ -140,3 +140,14 @@ audit row is written, no A2Coin path change for other flows.
 ## 7. Implementation status
 
 Tracked in `A2_KINGDOM_HANDOFF.md` (sections “Phase 7+”).
+
+### Post-implementation adjustment (user decision)
+
+The slot cap and one-at-a-time build queue were removed after implementation, per player request:
+every plot index is usable from castle level 1 and unlimited builds may run concurrently. A purely
+technical `WORLD_PLOT_LIMIT = 10_000` guards malformed indexes. Instead of a count limit, the next
+building costs +10 % wood/stone per already-placed building (`worldBuildCostForCount`). The 3D city
+keeps the original 12 inner plot positions and generates further plots in outward spiral rings
+(`worldPlotPosition`). The acceptance cases about "locked plot rejected" / "queue limit" in §6 were
+replaced by `scripts/test-world-expansion.ts` cases asserting unlimited concurrent builds, a high
+plot index, and the escalating cost curve.

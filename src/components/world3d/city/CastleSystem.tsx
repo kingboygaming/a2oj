@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Text } from "@react-three/drei";
 import {
   Castle,
@@ -15,17 +15,11 @@ import { BuildingFloatingTimer } from "./BuildingFloatingTimer";
 import { HealingVFX } from "./HealingVFX";
 import {
   WORLD_BUILDING_DEFINITIONS,
-  WORLD_BUILDING_PLOT_COUNT,
+  WORLD_PLOT_LIMIT,
+  worldPlotPosition,
   type WorldBuildingType,
   type WorldBuildingView,
 } from "@/lib/world-buildings";
-
-export const BUILDING_PLOT_POSITIONS: Array<[number, number]> = [
-  [-12, -12], [-5, -12], [5, -12], [12, -12],
-  [-12, -5], [12, -5],
-  [-12, 5], [12, 5],
-  [-12, 12], [-5, 12], [5, 12], [12, 12],
-];
 
 interface CastleSystemProps {
   position: [number, number, number];
@@ -40,6 +34,10 @@ interface CastleSystemProps {
   cityView: boolean;
   selectedPlotIndex: number | null;
   placementType: WorldBuildingType | null;
+  /** Busy or otherwise unable to start another construction. */
+  placementDisabled?: boolean;
+  /** Direct placement: a green box click builds `type` at that plot. */
+  onPlacePlot?: (plotIndex: number, type: WorldBuildingType) => void;
   castleUpgradeCompletesAt?: string | null;
   armyTraining?: {
     trainingType: string | null;
@@ -70,6 +68,8 @@ export function CastleSystem({
   cityView,
   selectedPlotIndex,
   placementType,
+  placementDisabled = false,
+  onPlacePlot,
   castleUpgradeCompletesAt,
   armyTraining,
   activeScout,
@@ -82,6 +82,13 @@ export function CastleSystem({
 }: CastleSystemProps) {
   const [cx, , cz] = position;
   const wallHeightScale = 1 + Math.min(20, Math.max(0, wallLevel - 1)) * 0.05;
+  const [hoveredPlot, setHoveredPlot] = useState<number | null>(null);
+  // Render used plots plus a buffer of fresh green boxes. Capped only for GPU
+  // safety — gameplay itself has no plot limit.
+  const plotCount = Math.min(
+    WORLD_PLOT_LIMIT,
+    Math.max(24, ...buildings.map((building) => building.plotIndex + 12)),
+  );
   const layout = useMemo(() => {
     const radius = 23;
     const walls: Array<{ pos: [number, number, number]; rot: number; len: number }> = [];
@@ -166,33 +173,57 @@ export function CastleSystem({
       ))}
       <Gate position={layout.gatePosition} rotation={-layout.gateAngle + Math.PI / 2} />
 
-      {cityView && BUILDING_PLOT_POSITIONS.slice(0, WORLD_BUILDING_PLOT_COUNT).map(([offsetX, offsetZ], index) => {
+      {cityView && Array.from({ length: plotCount }, (_, index): [number, number] => worldPlotPosition(index)).map(([offsetX, offsetZ], index) => {
         const x = cx + offsetX;
         const z = cz + offsetZ;
         const groundY = heightAtRender(x, z, anchorWorldX, anchorWorldZ);
         const building = plotBuildings.get(index);
-        const isSelected = selectedPlotIndex === index;
-        const isAvailable = !building;
-        const color = isSelected
-          ? placementType && isAvailable ? "#34d399" : "#facc15"
-          : isAvailable ? "#77ad81" : "#967a51";
+        // Every plot is unlocked now. Green = empty and placeable; red =
+        // occupied or temporarily disabled (e.g. another action in flight).
+        const placeable = !building && !placementDisabled;
+        const isHovered = hoveredPlot === index && placeable;
+        const color = placeable
+          ? "#34d399"
+          : building
+            ? "#f87171"
+            : "#b91c1c";
+        const outline = selectedPlotIndex === index && !placementType ? "#fbbf24" : color;
 
         return (
           <group key={`plot-${index}`} position={[x, groundY + 0.08, z]}>
             <mesh
-              rotation={[-Math.PI / 2, 0, 0]}
+              position={[0, 0, 0]}
+              onPointerOver={(event) => {
+                event.stopPropagation();
+                if (placeable) setHoveredPlot(index);
+              }}
+              onPointerOut={() => setHoveredPlot((current) => (current === index ? null : current))}
               onClick={(event) => {
                 event.stopPropagation();
-                if (isAvailable) onSelectPlot(index);
-                else onSelectBuilding(index);
+                if (placeable && placementType && onPlacePlot) {
+                  onPlacePlot(index, placementType);
+                  return;
+                }
+                if (building) {
+                  // Red plots still open the management panel for the existing
+                  // building; they just cannot receive a new building.
+                  onSelectBuilding(index);
+                  return;
+                }
+                if (placeable) onSelectPlot(index);
               }}
             >
-              <circleGeometry args={[2.8, 24]} />
-              <meshBasicMaterial color={color} transparent opacity={isSelected ? 0.2 : 0.09} side={2} depthWrite={false} />
+              <boxGeometry args={[5.6, 0.16, 5.6]} />
+              <meshBasicMaterial
+                color={color}
+                transparent
+                opacity={isHovered ? 0.3 : placeable ? 0.14 : 0.1}
+                depthWrite={false}
+              />
             </mesh>
-            <mesh rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[2.8, 3.05, 24]} />
-              <meshBasicMaterial color={color} transparent opacity={0.82} side={2} />
+            <mesh position={[0, 0.02, 0]}>
+              <boxGeometry args={[5.9, 0.2, 5.9]} />
+              <meshBasicMaterial color={outline} transparent opacity={0.85} wireframe depthWrite={false} />
             </mesh>
             {building ? (
               <group
@@ -209,7 +240,7 @@ export function CastleSystem({
                   ghost={building.status !== "COMPLETED"}
                 />
               </group>
-            ) : placementType && isSelected ? (
+            ) : placementType && isHovered ? (
               <WorldBuildingModel type={placementType} level={1} position={[0, -0.08, 0]} ghost />
             ) : null}
 

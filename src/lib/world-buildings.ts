@@ -63,7 +63,46 @@ export const WORLD_BUILDING_DEFINITIONS: Record<
   WAREHOUSE: { name: "Nhà kho", group: "Kinh tế", description: "Tăng sức chứa tài nguyên sau khi hoàn thành.", woodCost: 150, stoneCost: 100, constructionSeconds: 120, requiredCastleLevel: 2 },
 };
 
+/** Legacy inner plots kept for backward compatibility. */
 export const WORLD_BUILDING_PLOT_COUNT = 12;
+
+/**
+ * Technical safety cap for plot indices. Gameplay has no practical slot limit;
+ * this only prevents absurd indexes from reaching the database / 3D renderer.
+ */
+export const WORLD_PLOT_LIMIT = 10_000;
+
+const INNER_PLOTS: ReadonlyArray<readonly [number, number]> = [
+  [-12, -12], [-5, -12], [5, -12], [12, -12],
+  [-12, -5], [12, -5],
+  [-12, 5], [12, 5],
+  [-12, 12], [-5, 12], [5, 12], [12, 12],
+];
+
+/** Render-space position of a plot. Beyond the inner 12, plots spiral outward. */
+export function worldPlotPosition(index: number): [number, number] {
+  if (!Number.isInteger(index) || index < 0) return INNER_PLOTS[0] as [number, number];
+  if (index < INNER_PLOTS.length) return [...INNER_PLOTS[index]] as [number, number];
+
+  const step = 7;
+  let remaining = index - INNER_PLOTS.length;
+  let ring = 4; // first ring sits just outside the castle wall (radius 23)
+  while (true) {
+    const perRing = 8 * ring;
+    if (remaining < perRing) {
+      const radius = ring * step;
+      const side = Math.floor(remaining / (2 * ring));
+      const offset = remaining % (2 * ring);
+      if (side === 0) return [-radius + offset * step, -radius];
+      if (side === 1) return [radius, -radius + offset * step];
+      if (side === 2) return [radius - offset * step, radius];
+      return [-radius, radius - offset * step];
+    }
+    remaining -= perRing;
+    ring += 1;
+  }
+}
+
 export const WORLD_TRAINING_BUILDINGS = {
   INFANTRY: "BARRACKS",
   ARCHERS: "ARCHERY_RANGE",

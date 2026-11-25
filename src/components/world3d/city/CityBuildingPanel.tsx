@@ -9,9 +9,8 @@ import {
   type WorldBuildingView,
 } from "@/lib/world-buildings";
 import {
-  WORLD_BUILD_QUEUE_LIMIT,
   formatWorldDuration,
-  isWorldPlotUnlocked,
+  worldBuildCostForCount,
   worldBuildingUpgradeCost,
   worldBuildingUpgradeSeconds,
 } from "@/lib/world-progression";
@@ -24,9 +23,7 @@ export function CityBuildingPanel({
   stone,
   busy,
   nowMs = Date.now(),
-  unlockedSlots,
-  buildQueueActive = 0,
-  buildQueueLimit = WORLD_BUILD_QUEUE_LIMIT,
+  placedCount = 0,
   onChoose,
   onAction,
   onOpenHospital,
@@ -38,26 +35,14 @@ export function CityBuildingPanel({
   stone: number;
   busy: boolean;
   nowMs?: number;
-  unlockedSlots?: number;
-  buildQueueActive?: number;
-  buildQueueLimit?: number;
+  placedCount?: number;
   onChoose: (type: WorldBuildingType) => void;
   onAction: (action: "BUILD" | "UPGRADE" | "DEMOLISH", plotIndex: number, type?: WorldBuildingType) => void;
   onOpenHospital?: () => void;
 }) {
   const [confirmDemolish, setConfirmDemolish] = useState(false);
-  const queueBusy = buildQueueActive >= buildQueueLimit;
 
-  if (plotIndex === null) {
-    return (
-      <div className="rounded-xl border border-amber-100/10 bg-[#211f1a]/70 p-4 text-sm text-amber-50/75">
-        <p className="font-bold text-amber-100">Đất xây dựng</p>
-        <p className="mt-2 text-xs leading-5 text-white/55">Chọn một ô viền xanh trong thành phố để xem công trình khả dụng và đặt bản xem trước.</p>
-      </div>
-    );
-  }
-
-  if (building) {
+  if (plotIndex !== null && building) {
     const definition = WORLD_BUILDING_DEFINITIONS[building.type];
     const maxLevel = worldBuildingMaxLevel(building.type);
     const effectiveLevel = building.pendingLevel ?? building.level;
@@ -68,7 +53,6 @@ export function CityBuildingPanel({
     const woodCost = upgradeCost.wood;
     const stoneCost = upgradeCost.stone;
     const inProgress = building.status !== "COMPLETED";
-    const plotUnlocked = isWorldPlotUnlocked(plotIndex, castleLevel);
     return (
       <div className="rounded-xl border border-amber-100/15 bg-[#211f1a]/80 p-4 text-amber-50">
         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300/70">Ô đất {plotIndex + 1}</p>
@@ -117,20 +101,11 @@ export function CityBuildingPanel({
             ) : (
               <button
                 type="button"
-                disabled={
-                  busy ||
-                  queueBusy ||
-                  !plotUnlocked ||
-                  nextLevel > maxLevel ||
-                  wood < woodCost ||
-                  stone < stoneCost
-                }
+                disabled={busy || nextLevel > maxLevel || wood < woodCost || stone < stoneCost}
                 onClick={() => onAction("UPGRADE", plotIndex)}
                 className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
               >
-                {queueBusy
-                  ? `Hàng đợi đang bận (${buildQueueActive}/${buildQueueLimit})`
-                  : `Nâng cấp · ${woodCost} gỗ / ${stoneCost} đá · ${formatWorldDuration(upgradeSeconds)}`}
+                {`Nâng cấp · ${woodCost} gỗ / ${stoneCost} đá · ${formatWorldDuration(upgradeSeconds)}`}
               </button>
             )}
             {building.type === "HOSPITAL" && onOpenHospital && (
@@ -179,19 +154,17 @@ export function CityBuildingPanel({
 
   return (
     <div className="rounded-xl border border-emerald-200/15 bg-[#211f1a]/80 p-4 text-amber-50">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/75">Ô đất trống · {plotIndex + 1}</p>
-      <h3 className="mt-1 text-lg font-bold">Chọn công trình</h3>
-      <p className="mt-1 text-xs text-white/50">Chọn công trình để đặt ghost preview, sau đó xác nhận xây dựng.</p>
-      {!isWorldPlotUnlocked(plotIndex, castleLevel) && (
-        <p className="mt-2 rounded-lg border border-rose-300/25 bg-rose-500/10 p-2 text-[11px] text-rose-200">
-          🔒 Ô đất này chưa mở. Nâng lâu đài để mở thêm ô (hiện có {unlockedSlots ?? 0} ô).
-        </p>
-      )}
-      {queueBusy && (
-        <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-          🏗️ Hàng đợi xây dựng đang bận ({buildQueueActive}/{buildQueueLimit}). Hoàn tất công trình hiện tại trước khi xây tiếp.
-        </p>
-      )}
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300/75">
+        {plotIndex === null ? "Quy hoạch thành phố" : `Ô đất trống · ${plotIndex + 1}`}
+      </p>
+      <h3 className="mt-1 text-lg font-bold">Chọn công trình để xây</h3>
+      <p className="mt-1 text-xs text-white/50">
+        Chọn loại công trình rồi bấm vào <strong className="text-emerald-300">ô XANH</strong> trong City View để đặt ngay.{" "}
+        Ô <strong className="text-rose-300">ĐỎ</strong> (đã có công trình / chưa mở / hàng đợi bận) không đặt được.
+      </p>
+      <p className="mt-1 text-[10px] text-emerald-200/60">
+        {placedCount} công trình đã xây · chi phí +10% cho mỗi công trình. Ô đỏ có công trình vẫn bấm được để nâng cấp hoặc phá dỡ.
+      </p>
       {(["Quân sự", "Kinh tế", "Phòng thủ"] as const).map((group) => (
         <div key={group} className="mt-4">
           <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-amber-200/70">{group}</h4>
@@ -199,12 +172,13 @@ export function CityBuildingPanel({
             {WORLD_BUILDING_TYPES.filter((type) => WORLD_BUILDING_DEFINITIONS[type].group === group).map((type) => {
               const definition = WORLD_BUILDING_DEFINITIONS[type];
               const unlocked = castleLevel >= definition.requiredCastleLevel;
-              const affordable = wood >= definition.woodCost && stone >= definition.stoneCost;
+              const cost = worldBuildCostForCount(type, placedCount);
+              const affordable = wood >= cost.wood && stone >= cost.stone;
               return (
                 <button
                   key={type}
                   type="button"
-                  disabled={busy || queueBusy || !unlocked || !affordable || !isWorldPlotUnlocked(plotIndex, castleLevel)}
+                  disabled={busy || !unlocked || !affordable}
                   onClick={() => onChoose(type)}
                   className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/8 bg-white/[0.035] px-3 py-2 text-left hover:border-emerald-300/30 hover:bg-emerald-300/5 disabled:cursor-not-allowed disabled:opacity-35"
                 >
@@ -213,7 +187,7 @@ export function CityBuildingPanel({
                     <span className="mt-0.5 block text-[10px] text-white/45">{definition.description}</span>
                   </span>
                   <span className="shrink-0 text-right text-[10px] text-amber-100/65">
-                    {unlocked ? `${definition.woodCost}🪵 ${definition.stoneCost}🪨` : `Thành cấp ${definition.requiredCastleLevel}`}
+                    {unlocked ? `${cost.wood}🪵 ${cost.stone}🪨` : `Thành cấp ${definition.requiredCastleLevel}`}
                   </span>
                 </button>
               );

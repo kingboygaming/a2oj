@@ -518,9 +518,12 @@ the isomorphic `@/lib/world-realtime`; `/world` client chunks no longer contain 
   one transaction. Only completions with `completesAt > lastSimulatedAt` are eligible, so existing
   players do not receive retroactive back-pay. History is exposed as `base.buildingRewards` and shown
   as a toast on the client.
-- **Castle-driven slots + one build queue.** `worldCastleSlotCount` unlocks 4/6/9/12 of the existing
-  12 plots (capped by `WORLD_BUILDING_PLOT_COUNT`). `WORLD_BUILD_QUEUE_LIMIT = 1` serialises city
-  builds; castle, research, training and healing keep their own queues.
+- **Unlimited plots, escalating cost.** Castle level no longer gates plot count and there is no
+  one-at-a-time build queue — any number of buildings can be placed/constructed concurrently. A
+  technical `WORLD_PLOT_LIMIT = 10_000` only guards malformed indexes. Each new build costs 10 % more
+  wood/stone per building already placed (`worldBuildCostForCount`); upgrade costs remain level-based.
+  3D plots keep the original 12 inner positions and then spiral outward (`worldPlotPosition`). Castle
+  level still gates which building *types* are available.
 - **Wall and defence.** `UPGRADE_WALL` is a base-level progression track with its own cost/time table
   and pending timer. Castle N→N+1 requires wall ≥ N, and from castle 3 also one economy building at
   level 2. Wall + Watchtower + Gatehouse feed the defence/loot-reduction summary in the snapshot and
@@ -543,7 +546,9 @@ the isomorphic `@/lib/world-realtime`; `/world` client chunks no longer contain 
 - **Client UI.** Intel tab now has territory progress, frontier selector, scout form, mission
   progress and resolved reports; Base tab has wall/gift-code cards; Build tab shows slots/queue;
   admin `/admin/world` embeds the redeem-code manager. Auto-refresh also keys off scout-mission
-  completion times.
+  completion times. City plots are coloured boxes: green = empty plot (click to place the selected
+  building directly, ghost preview on hover), red = occupied plot (no new placement, but it still
+  opens the upgrade/demolish panel). Unused green boxes are rendered around the furthest built plot.
 
 ### Files changed / added
 

@@ -8,7 +8,7 @@ import {
   performWorldBuildingAction,
 } from "@/lib/world";
 import { broadcastBaseChanges } from "@/lib/world-realtime-server";
-import { WORLD_BUILDING_PLOT_COUNT, WORLD_BUILDING_TYPES } from "@/lib/world-buildings";
+import { WORLD_PLOT_LIMIT, WORLD_BUILDING_TYPES } from "@/lib/world-buildings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,12 +18,12 @@ const requestSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("UPGRADE_WALL") }),
   z.object({
     type: z.literal("BUILD"),
-    plotIndex: z.number().int().min(0).max(WORLD_BUILDING_PLOT_COUNT - 1),
+    plotIndex: z.number().int().min(0).max(WORLD_PLOT_LIMIT - 1),
     buildingType: z.enum(WORLD_BUILDING_TYPES),
   }),
   z.object({
     type: z.enum(["UPGRADE", "DEMOLISH"]),
-    plotIndex: z.number().int().min(0).max(WORLD_BUILDING_PLOT_COUNT - 1),
+    plotIndex: z.number().int().min(0).max(WORLD_PLOT_LIMIT - 1),
   }),
 ]);
 

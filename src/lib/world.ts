@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import {
   WORLD_BUILDING_DEFINITIONS,
-  WORLD_BUILDING_PLOT_COUNT,
+  WORLD_PLOT_LIMIT,
   WORLD_TRAINING_BUILDINGS,
   isWorldBuildingType,
   worldBuildingMaxLevel,
@@ -20,12 +20,11 @@ import {
   WORLD_RESOURCE_CAP_PER_WAREHOUSE_LEVEL,
   WORLD_WALL_MAX_LEVEL,
   formatWorldDuration,
-  isWorldPlotUnlocked,
+  worldBuildCostForCount,
   worldBuildingCompletionReward,
   worldBuildingUpgradeCost,
   worldBuildingUpgradeSeconds,
   worldCastleRequirements,
-  worldCastleSlotCount,
   worldCastleUpgradeCost,
   worldCastleUpgradeSeconds,
   worldDefenseBonusPercent,
@@ -329,6 +328,7 @@ export type WorldSnapshot = {
     slots: {
       unlocked: number;
       total: number;
+      unlimited: boolean;
     };
     defense: {
       bonusPercent: number;
@@ -350,6 +350,7 @@ export type WorldSnapshot = {
     };
     buildQueue: {
       limit: number;
+      unlimited: boolean;
       active: Array<{ plotIndex: number; buildingType: WorldBuildingType; completesAt: string }>;
     };
     buildingRewards: WorldBuildingRewardView[];
@@ -3326,8 +3327,9 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
         defensePercent: worldWallDefensePercent(base.wallLevel),
       },
       slots: {
-        unlocked: worldCastleSlotCount(base.castleLevel),
-        total: WORLD_BUILDING_PLOT_COUNT,
+        unlocked: WORLD_PLOT_LIMIT,
+        total: WORLD_PLOT_LIMIT,
+        unlimited: true,
       },
       defense: {
         bonusPercent: worldDefenseBonusPercent(base.wallLevel, effectiveBuildingLevels),
@@ -3348,6 +3350,7 @@ export async function loadWorldSnapshot(userId: string, now = new Date()): Promi
       },
       buildQueue: {
         limit: WORLD_BUILD_QUEUE_LIMIT,
+        unlimited: true,
         active: baseBuildings
           .filter((building) => building.completesAt > now)
           .map((building) => ({
@@ -4027,7 +4030,7 @@ export async function performWorldBuildingAction(
   if (
     action.type !== "UPGRADE_CASTLE" &&
     action.type !== "UPGRADE_WALL" &&
-    (!Number.isInteger(action.plotIndex) || action.plotIndex < 0 || action.plotIndex >= WORLD_BUILDING_PLOT_COUNT)
+    (!Number.isInteger(action.plotIndex) || action.plotIndex < 0 || action.plotIndex >= WORLD_PLOT_LIMIT)
   ) {
     throw new WorldActionError("Ô đất xây dựng không hợp lệ.", 400);
   }
@@ -4055,7 +4058,6 @@ export async function performWorldBuildingAction(
       type: building.buildingType,
       level: building.completesAt <= now ? building.pendingLevel ?? building.level : building.level,
     }));
-    const activeBuilds = baseBuildings.filter((building) => building.completesAt > now);
 
     if (action.type === "UPGRADE_CASTLE") {
       if (base.castlePendingLevel !== null) {
@@ -4148,24 +4150,6 @@ export async function performWorldBuildingAction(
       };
     }
 
-    if (!isWorldPlotUnlocked(action.plotIndex, base.castleLevel)) {
-      throw new WorldActionError(
-        `Ô đất ${action.plotIndex + 1} chưa mở. Nâng lâu đài để mở thêm ô (hiện có ${worldCastleSlotCount(
-          base.castleLevel,
-        )}/${WORLD_BUILDING_PLOT_COUNT}).`,
-        409,
-      );
-    }
-    if (activeBuilds.length >= WORLD_BUILD_QUEUE_LIMIT) {
-      const active = activeBuilds[0];
-      throw new WorldActionError(
-        `Hàng đợi xây dựng đang bận (${WORLD_BUILD_QUEUE_LIMIT} công trình). Hoàn tất ô ${
-          active.plotIndex + 1
-        } sau ${formatWorldDuration(Math.ceil((active.completesAt.getTime() - now.getTime()) / 1000))}.`,
-        409,
-      );
-    }
-
     const existing = await tx.worldBuilding.findUnique({
       where: { baseId_plotIndex: { baseId: base.id, plotIndex: action.plotIndex } },
     });
@@ -4176,23 +4160,26 @@ export async function performWorldBuildingAction(
       if (base.castleLevel < definition.requiredCastleLevel) {
         throw new WorldActionError(`Cần Thành chính cấp ${definition.requiredCastleLevel} để xây ${definition.name}.`, 409);
       }
+      // Cost grows with every building already placed (including ones still
+      // under construction) so there is no need for a hard plot/queue cap.
+      const cost = worldBuildCostForCount(action.buildingType, baseBuildings.length);
       const paid = await tx.worldBase.updateMany({
         where: {
           id: base.id,
           version: base.version,
           activePvpAttackId: null,
-          wood: { gte: definition.woodCost },
-          stone: { gte: definition.stoneCost },
+          wood: { gte: cost.wood },
+          stone: { gte: cost.stone },
         },
         data: {
-          wood: { decrement: definition.woodCost },
-          stone: { decrement: definition.stoneCost },
+          wood: { decrement: cost.wood },
+          stone: { decrement: cost.stone },
           version: { increment: 1 },
         },
       });
       if (!paid.count) {
-        if (base.wood < definition.woodCost || base.stone < definition.stoneCost) {
-          throw new WorldActionError(`Cần ${definition.woodCost} gỗ và ${definition.stoneCost} đá để xây ${definition.name}.`, 400);
+        if (base.wood < cost.wood || base.stone < cost.stone) {
+          throw new WorldActionError(`Cần ${cost.wood} gỗ và ${cost.stone} đá để xây ${definition.name}.`, 400);
         }
         throw new WorldActionError("Căn cứ vừa được cập nhật. Hãy thử lại.", 409);
       }
